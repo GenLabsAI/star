@@ -25,6 +25,7 @@ import (
 	"github.com/charmbracelet/crush/internal/agent/tools"
 	"github.com/charmbracelet/crush/internal/agent/tools/mcp"
 	"github.com/charmbracelet/crush/internal/config"
+	"github.com/charmbracelet/crush/internal/csync"
 	"github.com/charmbracelet/crush/internal/discover"
 	"github.com/charmbracelet/crush/internal/event"
 	"github.com/charmbracelet/crush/internal/filetracker"
@@ -131,6 +132,13 @@ type coordinator struct {
 	currentAgent SessionAgent
 	agents       map[string]SessionAgent
 
+	// sessionModels holds per-session model overrides keyed by
+	// session ID. When a session has an entry, buildAgentModels uses
+	// it instead of the workspace-wide config.Models selection, so
+	// changing the model in one session does not affect others
+	// running in parallel.
+	sessionModels *csync.Map[string, map[config.SelectedModelType]config.SelectedModel]
+
 	// Skills discovery results (session-start snapshot).
 	allSkills    []*skills.Skill // Pre-filter: all discovered after dedup.
 	activeSkills []*skills.Skill // Post-filter: active skills only.
@@ -186,6 +194,7 @@ func NewCoordinator(ctx context.Context, opts CoordinatorOptions) (Coordinator, 
 		notify:       opts.Notify,
 		runComplete:  opts.RunComplete,
 		agents:       make(map[string]SessionAgent),
+		sessionModels: csync.NewMap[string, map[config.SelectedModelType]config.SelectedModel](),
 		allSkills:    allSkills,
 		wakeupScheduler: NewWakeupScheduler(opts.Wakeups, opts.WakeupsScheduled, opts.WakeupsCanceled),
 		activeSkills:    activeSkills,
