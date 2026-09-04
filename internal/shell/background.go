@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -242,4 +243,38 @@ func (bs *BackgroundShell) WaitContext(ctx context.Context) bool {
 	case <-ctx.Done():
 		return false
 	}
+}
+
+// WaitForKeyword blocks until the background shell's combined stdout/stderr
+// contains keyword, the shell completes, or ctx is done. It returns true if
+// the keyword was found or the shell completed, false if ctx expired first.
+func (bs *BackgroundShell) WaitForKeyword(ctx context.Context, keyword string) bool {
+	if bs.containsKeyword(keyword) {
+		return true
+	}
+
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-bs.done:
+			return true
+		case <-ctx.Done():
+			return false
+		case <-ticker.C:
+			if bs.containsKeyword(keyword) {
+				return true
+			}
+		}
+	}
+}
+
+func (bs *BackgroundShell) containsKeyword(keyword string) bool {
+	return strings.Contains(bs.stdout.String(), keyword) || strings.Contains(bs.stderr.String(), keyword)
+}
+
+// PeekOutput returns the combined stdout and stderr output seen so far.
+func (bs *BackgroundShell) PeekOutput() string {
+	return bs.stdout.String() + bs.stderr.String()
 }

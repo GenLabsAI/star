@@ -163,6 +163,12 @@ func (w *AppWorkspace) AgentCancel(sessionID string) {
 	}
 }
 
+func (w *AppWorkspace) AgentWakeupCancel(sessionID string) {
+	if w.app.AgentCoordinator != nil {
+		w.app.AgentCoordinator.CancelWakeup(sessionID)
+	}
+}
+
 func (w *AppWorkspace) AgentIsBusy() bool {
 	if w.app.AgentCoordinator == nil {
 		return false
@@ -262,6 +268,30 @@ func (w *AppWorkspace) PermissionSkipRequests() bool {
 
 func (w *AppWorkspace) PermissionSetSkipRequests(skip bool) {
 	w.app.Permissions.SetSkipRequests(skip)
+}
+
+func (w *AppWorkspace) PermissionMode() permission.Mode {
+	return w.app.Permissions.GetMode()
+}
+
+func (w *AppWorkspace) PermissionSetMode(mode permission.Mode) {
+	w.app.Permissions.SetMode(mode)
+}
+
+func (w *AppWorkspace) PermissionSessionSkipRequests(sessionID string) bool {
+	return w.app.Permissions.SessionSkipRequests(sessionID)
+}
+
+func (w *AppWorkspace) PermissionSetSessionSkipRequests(sessionID string, skip bool) {
+	w.app.Permissions.SetSessionSkipRequests(sessionID, skip)
+}
+
+func (w *AppWorkspace) PermissionSessionMode(sessionID string) permission.Mode {
+	return w.app.Permissions.SessionMode(sessionID)
+}
+
+func (w *AppWorkspace) PermissionSetSessionMode(sessionID string, mode permission.Mode) {
+	w.app.Permissions.SetSessionMode(sessionID, mode)
 }
 
 // -- Questions --

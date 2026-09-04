@@ -62,6 +62,18 @@ type PermissionRequest struct {
 	Path        string `json:"path"`
 }
 
+// Mode represents the permission mode for the session.
+type Mode string
+
+const (
+	// ModeNormal requires permission for potentially destructive operations.
+	ModeNormal Mode = "normal"
+	// ModeYolo auto-approves all permission requests.
+	ModeYolo Mode = "yolo"
+	// ModePlan restricts the agent to read-only tools.
+	ModePlan Mode = "plan"
+)
+
 type Service interface {
 	pubsub.Subscriber[PermissionRequest]
 	// GrantPersistent grants a permission request and remembers the grant
@@ -81,6 +93,12 @@ type Service interface {
 	AutoApproveSession(sessionID string)
 	SetSkipRequests(skip bool)
 	SkipRequests() bool
+	SetSessionSkipRequests(sessionID string, skip bool)
+	SessionSkipRequests(sessionID string) bool
+	SetMode(mode Mode)
+	GetMode() Mode
+	SetSessionMode(sessionID string, mode Mode)
+	SessionMode(sessionID string) Mode
 	SubscribeNotifications(ctx context.Context) <-chan pubsub.Event[PermissionNotification]
 }
 
@@ -101,7 +119,9 @@ type permissionService struct {
 	pendingRequests       *csync.Map[string, chan bool]
 	autoApproveSessions   map[string]bool
 	autoApproveSessionsMu sync.RWMutex
+	sessionModes          *csync.Map[string, Mode]
 	skip                  atomic.Bool
+	mode                  atomic.Value // holds Mode
 	allowedTools          []string
 
 	// used to make sure we only process one request at a time
@@ -179,7 +199,13 @@ func (s *permissionService) Deny(permission PermissionRequest) bool {
 }
 
 func (s *permissionService) Request(ctx context.Context, opts CreatePermissionRequest) (bool, error) {
-	if s.skip.Load() {
+	sessionMode := s.SessionMode(opts.SessionID)
+	if sessionMode == ModePlan {
+		// In Plan mode, any tool that requires permission (modifying state) is denied.
+		return false, nil
+	}
+
+	if sessionMode == ModeYolo {
 		return true, nil
 	}
 
@@ -289,22 +315,82 @@ func (s *permissionService) SubscribeNotifications(ctx context.Context) <-chan p
 
 func (s *permissionService) SetSkipRequests(skip bool) {
 	s.skip.Store(skip)
+	if skip {
+		s.SetMode(ModeYolo)
+	} else {
+		s.SetMode(ModeNormal)
+	}
 }
 
 func (s *permissionService) SkipRequests() bool {
 	return s.skip.Load()
 }
 
-func NewPermissionService(workingDir string, skip bool, allowedTools []string) Service {
+func (s *permissionService) SetSessionSkipRequests(sessionID string, skip bool) {
+	mode := ModeNormal
+	if skip {
+		mode = ModeYolo
+	}
+	s.SetSessionMode(sessionID, mode)
+}
+
+func (s *permissionService) SessionSkipRequests(sessionID string) bool {
+	return s.SessionMode(sessionID) == ModeYolo
+}
+
+func (s *permissionService) SetMode(mode Mode) {
+	s.mode.Store(mode)
+	s.skip.Store(mode == ModeYolo)
+}
+
+func (s *permissionService) GetMode() Mode {
+	v := s.mode.Load()
+	if v == nil {
+		if s.skip.Load() {
+			return ModeYolo
+		}
+		return ModeNormal
+	}
+	return v.(Mode)
+}
+
+func (s *permissionService) SetSessionMode(sessionID string, mode Mode) {
+	if sessionID == "" {
+		s.SetMode(mode)
+		return
+	}
+	s.sessionModes.Set(sessionID, mode)
+}
+
+func (s *permissionService) SessionMode(sessionID string) Mode {
+	if sessionID != "" {
+		if mode, ok := s.sessionModes.Get(sessionID); ok {
+			return mode
+		}
+	}
+	return s.GetMode()
+}
+
+func NewPermissionService(workingDir string, skip bool, allowedTools []string, initialMode ...Mode) Service {
 	svc := &permissionService{
 		Broker:              pubsub.NewBroker[PermissionRequest](),
 		notificationBroker:  pubsub.NewBroker[PermissionNotification](),
 		workingDir:          workingDir,
 		sessionPermissions:  csync.NewMap[PermissionKey, bool](),
 		autoApproveSessions: make(map[string]bool),
+		sessionModes:        csync.NewMap[string, Mode](),
 		allowedTools:        allowedTools,
 		pendingRequests:     csync.NewMap[string, chan bool](),
 	}
-	svc.skip.Store(skip)
+
+	mode := ModeNormal
+	if len(initialMode) > 0 {
+		mode = initialMode[0]
+	} else if skip {
+		mode = ModeYolo
+	}
+
+	svc.skip.Store(mode == ModeYolo)
+	svc.mode.Store(mode)
 	return svc
 }

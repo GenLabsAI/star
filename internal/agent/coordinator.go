@@ -101,6 +101,7 @@ type Coordinator interface {
 	RunAccepted(ctx context.Context, accept *AcceptedRun, sessionID, prompt string, attachments ...message.Attachment) (*fantasy.AgentResult, error)
 	BeginAccepted(sessionID string) *AcceptedRun
 	Cancel(sessionID string)
+	CancelWakeup(sessionID string)
 	CancelAll()
 	IsSessionBusy(sessionID string) bool
 	IsBusy() bool
@@ -122,9 +123,10 @@ type coordinator struct {
 	history     history.Service
 	filetracker filetracker.Service
 	lspManager  *lsp.Manager
-	notify      pubsub.Publisher[notify.Notification]
-	runComplete pubsub.Publisher[notify.RunComplete]
-	interactive bool
+	notify          pubsub.Publisher[notify.Notification]
+	runComplete     pubsub.Publisher[notify.RunComplete]
+	wakeupScheduler *WakeupScheduler
+	interactive     bool
 
 	currentAgent SessionAgent
 	agents       map[string]SessionAgent
@@ -150,8 +152,11 @@ type CoordinatorOptions struct {
 	FileTracker filetracker.Service
 	LSPManager  *lsp.Manager
 	Notify      pubsub.Publisher[notify.Notification]
-	RunComplete pubsub.Publisher[notify.RunComplete]
-	Skills      *skills.Manager
+	RunComplete      pubsub.Publisher[notify.RunComplete]
+	Wakeups          pubsub.Publisher[pubsub.WakeupEvent]
+	WakeupsScheduled pubsub.Publisher[pubsub.WakeupScheduledEvent]
+	WakeupsCanceled  pubsub.Publisher[pubsub.WakeupCanceledEvent]
+	Skills           *skills.Manager
 	Interactive bool
 }
 
@@ -182,9 +187,10 @@ func NewCoordinator(ctx context.Context, opts CoordinatorOptions) (Coordinator, 
 		runComplete:  opts.RunComplete,
 		agents:       make(map[string]SessionAgent),
 		allSkills:    allSkills,
-		activeSkills: activeSkills,
-		skillTracker: skillTracker,
-		interactive:  opts.Interactive,
+		wakeupScheduler: NewWakeupScheduler(opts.Wakeups, opts.WakeupsScheduled, opts.WakeupsCanceled),
+		activeSkills:    activeSkills,
+		skillTracker:    skillTracker,
+		interactive:     opts.Interactive,
 	}
 
 	agentCfg, ok := opts.Config.Config().Agents[config.AgentCoder]
@@ -730,6 +736,7 @@ func (c *coordinator) buildTools(ctx context.Context, agent config.Agent, isSubA
 		tools.NewLsTool(c.permissions, c.cfg.WorkingDir(), c.cfg.Config().Tools.Ls),
 		tools.NewSourcegraphTool(nil),
 		tools.NewTodosTool(c.sessions),
+		tools.NewScheduleWakeupTool(c.wakeupScheduler),
 		tools.NewViewTool(c.lspManager, c.permissions, c.filetracker, c.skillTracker, c.cfg.WorkingDir(), c.cfg.Config().Options.SkillsPaths...),
 		tools.NewWriteTool(c.lspManager, c.permissions, c.history, c.filetracker, c.cfg.WorkingDir()),
 	)
@@ -1187,6 +1194,10 @@ func (c *coordinator) BeginAccepted(sessionID string) *AcceptedRun {
 
 func (c *coordinator) Cancel(sessionID string) {
 	c.currentAgent.Cancel(sessionID)
+}
+
+func (c *coordinator) CancelWakeup(sessionID string) {
+	c.wakeupScheduler.Cancel(sessionID)
 }
 
 func (c *coordinator) CancelAll() {

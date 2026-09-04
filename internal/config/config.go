@@ -886,6 +886,7 @@ func allToolNames() []string {
 		"write",
 		"list_mcp_resources",
 		"read_mcp_resource",
+		"schedule_wakeup",
 	}
 }
 
@@ -895,12 +896,6 @@ func resolveAllowedTools(allTools []string, disabledTools []string) []string {
 	}
 	// filter out disabled tools (exclude mode)
 	return filterSlice(allTools, disabledTools, false)
-}
-
-func resolveReadOnlyTools(tools []string) []string {
-	readOnlyTools := []string{"glob", "grep", "ls", "lsp_call_hierarchy", "lsp_definition", "lsp_symbols", "sourcegraph", "view"}
-	// filter to only include tools that are in allowedtools (include mode)
-	return filterSlice(tools, readOnlyTools, true)
 }
 
 func filterSlice(data []string, mask []string, include bool) []string {
@@ -931,12 +926,10 @@ func (c *Config) SetupAgents() {
 		AgentTask: {
 			ID:           AgentTask,
 			Name:         "Task",
-			Description:  "An agent that helps with searching for context and finding implementation details.",
+			Description:  "An agent that helps with executing coding tasks in the background.",
 			Model:        SelectedModelTypeLarge,
 			ContextPaths: c.Options.ContextPaths,
-			AllowedTools: resolveReadOnlyTools(allowedTools),
-			// NO MCPs or LSPs by default
-			AllowedMCP: map[string][]string{},
+			AllowedTools: filterSlice(allowedTools, []string{"agent"}, false),
 		},
 	}
 	c.Agents = agents

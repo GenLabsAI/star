@@ -76,7 +76,10 @@ type App struct {
 	// global context and cleanup functions
 	globalCtx          context.Context
 	cleanupFuncs       []func(context.Context) error
-	agentNotifications *pubsub.Broker[notify.Notification]
+	agentNotifications  *pubsub.Broker[notify.Notification]
+	wakeups             *pubsub.Broker[pubsub.WakeupEvent]
+	wakeupsScheduled    *pubsub.Broker[pubsub.WakeupScheduledEvent]
+	wakeupsCanceled     *pubsub.Broker[pubsub.WakeupCanceledEvent]
 	// runCompletions is the authoritative per-run completion signal,
 	// emitted once per top-level agent turn after all message
 	// updates have been flushed. Bridged into app.events so SSE
@@ -100,7 +103,15 @@ func New(ctx context.Context, conn *sql.DB, store *config.ConfigStore, skillsMgr
 	messages := message.NewService(q)
 	files := history.NewService(q, conn)
 	cfg := store.Config()
-	skipPermissionsRequests := store.Overrides().SkipPermissionRequests
+
+	var mode permission.Mode = permission.ModeNormal
+	if store.Overrides().PermissionMode != "" {
+		mode = permission.Mode(store.Overrides().PermissionMode)
+	} else if store.Overrides().SkipPermissionRequests {
+		mode = permission.ModeYolo
+	}
+
+	skipPermissionsRequests := mode == permission.ModeYolo
 	var allowedTools []string
 	if cfg.Permissions != nil && cfg.Permissions.AllowedTools != nil {
 		allowedTools = cfg.Permissions.AllowedTools
@@ -110,7 +121,7 @@ func New(ctx context.Context, conn *sql.DB, store *config.ConfigStore, skillsMgr
 		Sessions:    sessions,
 		Messages:    messages,
 		History:     files,
-		Permissions: permission.NewPermissionService(store.WorkingDir(), skipPermissionsRequests, allowedTools),
+		Permissions: permission.NewPermissionService(store.WorkingDir(), skipPermissionsRequests, allowedTools, mode),
 		Questions:   question.NewService(),
 		FileTracker: filetracker.NewService(q),
 		LSPManager:  lsp.NewManager(store),
@@ -123,8 +134,11 @@ func New(ctx context.Context, conn *sql.DB, store *config.ConfigStore, skillsMgr
 		events:             pubsub.NewBroker[tea.Msg](),
 		serviceEventsWG:    &sync.WaitGroup{},
 		tuiWG:              &sync.WaitGroup{},
-		agentNotifications: pubsub.NewBroker[notify.Notification](),
-		runCompletions:     pubsub.NewBroker[notify.RunComplete](),
+		agentNotifications:  pubsub.NewBroker[notify.Notification](),
+		wakeups:             pubsub.NewBroker[pubsub.WakeupEvent](),
+		wakeupsScheduled:    pubsub.NewBroker[pubsub.WakeupScheduledEvent](),
+		wakeupsCanceled:     pubsub.NewBroker[pubsub.WakeupCanceledEvent](),
+		runCompletions:      pubsub.NewBroker[notify.RunComplete](),
 	}
 
 	app.setupEvents()
@@ -596,6 +610,9 @@ func (app *App) setupEvents() {
 	setupSubscriberMustDeliver(ctx, app.serviceEventsWG, "question-notifications", app.Questions.SubscribeNotifications, app.events)
 	setupSubscriber(ctx, app.serviceEventsWG, "history", app.History.Subscribe, app.events)
 	setupSubscriber(ctx, app.serviceEventsWG, "agent-notifications", app.agentNotifications.Subscribe, app.events)
+	setupSubscriber(ctx, app.serviceEventsWG, "wakeups", app.wakeups.Subscribe, app.events)
+	setupSubscriber(ctx, app.serviceEventsWG, "wakeups-scheduled", app.wakeupsScheduled.Subscribe, app.events)
+	setupSubscriber(ctx, app.serviceEventsWG, "wakeups-canceled", app.wakeupsCanceled.Subscribe, app.events)
 	setupSubscriberMustDeliver(ctx, app.serviceEventsWG, "run-completions", app.runCompletions.Subscribe, app.events)
 	setupSubscriber(ctx, app.serviceEventsWG, "mcp", mcp.SubscribeEvents, app.events)
 	setupSubscriber(ctx, app.serviceEventsWG, "lsp", SubscribeLSPEvents, app.events)
@@ -694,8 +711,11 @@ func (app *App) initCoderAgent(ctx context.Context, interactive bool) error {
 		FileTracker: app.FileTracker,
 		LSPManager:  app.LSPManager,
 		Notify:      app.agentNotifications,
-		RunComplete: app.runCompletions,
-		Skills:      app.Skills,
+		RunComplete:      app.runCompletions,
+		Wakeups:          app.wakeups,
+		WakeupsScheduled: app.wakeupsScheduled,
+		WakeupsCanceled:  app.wakeupsCanceled,
+		Skills:           app.Skills,
 		Interactive: interactive,
 	})
 	if err != nil {

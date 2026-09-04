@@ -417,6 +417,9 @@ func (b *Backend) CreateWorkspace(args proto.Workspace) (*Workspace, proto.Works
 	}
 
 	cfg.Overrides().SkipPermissionRequests = args.YOLO
+	if args.YOLO {
+		cfg.Overrides().PermissionMode = "yolo"
+	}
 	cfg.Overrides().EnabledChannels = args.Channels
 
 	if err := createDotCrushDir(cfg.Config().Options.DataDirectory); err != nil {
@@ -1071,7 +1074,7 @@ func workspaceToProto(ws *Workspace) proto.Workspace {
 	out := proto.Workspace{
 		ID:       ws.ID,
 		Path:     ws.Path,
-		YOLO:     ws.Cfg.Overrides().SkipPermissionRequests,
+		YOLO:     ws.Cfg.Overrides().SkipPermissionRequests || ws.Cfg.Overrides().PermissionMode == "yolo",
 		Channels: ws.Cfg.Overrides().EnabledChannels,
 		DataDir:  cfg.Options.DataDirectory,
 		Debug:    cfg.Options.Debug,

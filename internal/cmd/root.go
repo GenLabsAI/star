@@ -53,9 +53,9 @@ var clientHost string
 
 func init() {
 	rootCmd.PersistentFlags().StringP("cwd", "c", "", "Current working directory")
-	rootCmd.PersistentFlags().StringP("data-dir", "D", "", "Custom crush data directory")
+	rootCmd.PersistentFlags().StringP("data-dir", "D", "", "Custom star data directory")
 	rootCmd.PersistentFlags().BoolP("debug", "d", false, "Debug")
-	rootCmd.PersistentFlags().StringVarP(&clientHost, "host", "H", server.DefaultHost(), "Connect to a specific crush server host (for advanced users)")
+	rootCmd.PersistentFlags().StringVarP(&clientHost, "host", "H", server.DefaultHost(), "Connect to a specific star server host (for advanced users)")
 	rootCmd.Flags().BoolP("help", "h", false, "Help")
 	rootCmd.Flags().BoolP("yolo", "y", false, "Automatically accept all permissions (dangerous mode)")
 	rootCmd.PersistentFlags().StringSlice("channels", nil, "MCP servers to enable as channels (repeatable), e.g. --channels server:webhook")
@@ -79,39 +79,40 @@ func init() {
 }
 
 var rootCmd = &cobra.Command{
-	Use:   "crush",
+	Use:   "star",
 	Short: "A terminal-first AI assistant for software development",
 	Long:  "A glamorous, terminal-first AI assistant for software development and adjacent tasks",
 	Example: `
 # Run in interactive mode
-crush
+star
 
 # Run non-interactively
-crush run "Guess my 5 favorite Pokémon"
+star run "Guess my 5 favorite Pokémon"
 
 # Run a non-interactively with pipes and redirection
-cat README.md | crush run "make this more glamorous" > GLAMOROUS_README.md
+cat README.md | star run "make this more glamorous" > GLAMOROUS_README.md
 
 # Run with debug logging in a specific directory
-crush --debug --cwd /path/to/project
+star --debug --cwd /path/to/project
 
 # Run in yolo mode (auto-accept all permissions; use with care)
-crush --yolo
+star --yolo
 
 # Run with custom data directory
-crush --data-dir /path/to/custom/.crush
+star --data-dir /path/to/custom/.crush
 
 # Continue a previous session
-crush --session {session-id}
+star --session {session-id}
 
 # Continue the most recent session
-crush --continue
+star --continue
   `,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		sessionID, _ := cmd.Flags().GetString("session")
 		continueLast, _ := cmd.Flags().GetBool("continue")
 
-		ws, cleanup, err := setupWorkspaceWithProgressBar(cmd)
+		// 1. Setup workspace synchronously while the Rust launcher runs its animation.
+		ws, cleanup, err := setupWorkspace(cmd)
 		if err != nil {
 			return err
 		}
@@ -127,6 +128,13 @@ crush --continue
 
 		event.AppInitialized()
 
+		// 2. Perform the handshake: tell Rust we are ready, and wait for it to release the terminal.
+		handshake := newLauncherHandshake()
+		if err := handshake.awaitRelease(); err != nil {
+			return err
+		}
+
+		// 3. Create the real UI model.
 		com := common.DefaultCommon(ws)
 		model := ui.New(com, sessionID, continueLast)
 
@@ -140,10 +148,19 @@ crush --continue
 		)
 		go ws.Subscribe(program)
 
+		// 4. Start Bubble Tea. Once it renders, it will trigger the UI's View() which we'll use to notify the launcher.
+		go func() {
+			// We start a tiny goroutine to trigger notifyRendered shortly after the program starts.
+			// Ideally this would be triggered from View(), but root.go is simpler.
+			// A short sleep gives Bubble Tea time to render its first frame.
+			time.Sleep(50 * time.Millisecond)
+			handshake.notifyRendered()
+		}()
+
 		if _, err := program.Run(); err != nil {
 			event.Error(err)
 			slog.Error("TUI run error", "error", err)
-			return errors.New("Crush crashed. If metrics are enabled, we were notified about it. If you'd like to report it, please copy the stacktrace above and open an issue at https://github.com/charmbracelet/crush/issues/new?template=bug.yml") //nolint:staticcheck
+			return errors.New("Star crashed. If metrics are enabled, we were notified about it. If you'd like to report it, please copy the stacktrace above and open an issue at https://github.com/charmbracelet/crush/issues/new?template=bug.yml") //nolint:staticcheck
 		}
 		var banner config.ExitBanner
 		if cfg := com.Config(); cfg != nil {
@@ -178,6 +195,7 @@ func printSessionResume(model *ui.UI, banner config.ExitBanner) {
 		return
 	}
 	fmt.Fprintln(colorprofile.NewWriter(os.Stderr, os.Environ()), body)
+	fmt.Fprintln(os.Stderr)
 }
 
 // copied from cobra:
@@ -490,7 +508,7 @@ func replaceExitingServer(cmd *cobra.Command, hostURL *url.URL) error {
 		}
 	}
 	if err := spawnAndWaitReady(cmd, hostURL); err != nil {
-		return fmt.Errorf("failed to initialize crush server: %v", err)
+		return fmt.Errorf("failed to initialize star server: %v", err)
 	}
 	return nil
 }
@@ -554,13 +572,13 @@ func ensureServer(cmd *cobra.Command, hostURL *url.URL) error {
 
 		if needsStart {
 			if err := spawnAndWaitReady(cmd, hostURL); err != nil {
-				return fmt.Errorf("failed to initialize crush server: %v", err)
+				return fmt.Errorf("failed to initialize star server: %v", err)
 			}
 			return nil
 		}
 
 		if err := waitForServerReady(cmd.Context(), hostURL); err != nil {
-			return fmt.Errorf("failed to initialize crush server: %v", err)
+			return fmt.Errorf("failed to initialize star server: %v", err)
 		}
 	}
 
@@ -892,11 +910,11 @@ func startDetachedServer(cmd *cobra.Command, hostURL *url.URL) error {
 	c.Stderr = stderr
 
 	if err := c.Start(); err != nil {
-		return fmt.Errorf("failed to start crush server: %v", err)
+		return fmt.Errorf("failed to start star server: %v", err)
 	}
 
 	if err := c.Process.Release(); err != nil {
-		return fmt.Errorf("failed to detach crush server process: %v", err)
+		return fmt.Errorf("failed to detach star server process: %v", err)
 	}
 
 	return nil

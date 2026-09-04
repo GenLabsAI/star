@@ -6,7 +6,6 @@ import (
 	"sync/atomic"
 
 	tea "charm.land/bubbletea/v2"
-	"charm.land/lipgloss/v2"
 
 	"github.com/charmbracelet/crush/internal/ui/anim"
 	"github.com/charmbracelet/crush/internal/ui/common"
@@ -154,7 +153,7 @@ func (s *ShellItem) Render(width int) string {
 	}
 	out := strings.Join(lines, "\n")
 
-	return s.renderHighlighted(out, width, lipgloss.Height(out))
+	return s.renderHighlighted(out, width, len(lines))
 }
 
 // HandleMouseClick implements MouseClickable so clicks select this item.

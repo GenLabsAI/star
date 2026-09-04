@@ -18,22 +18,22 @@ var updateProvidersCmd = &cobra.Command{
 	Long:  `Update provider information from a specified local path or remote URL.`,
 	Example: `
 # Update Catwalk providers remotely (default)
-crush update-providers
+star update-providers
 
 # Update Catwalk providers from a custom URL
-crush update-providers https://example.com/providers.json
+star update-providers https://example.com/providers.json
 
 # Update Catwalk providers from a local file
-crush update-providers /path/to/local-providers.json
+star update-providers /path/to/local-providers.json
 
 # Update Catwalk providers from embedded version
-crush update-providers embedded
+star update-providers embedded
 
 # Update Hyper provider information
-crush update-providers --source=hyper
+star update-providers --source=hyper
 
 # Update Hyper from a custom URL
-crush update-providers --source=hyper https://hyper.example.com
+star update-providers --source=hyper https://hyper.example.com
 `,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		// NOTE(@andreynering): We want to skip logging output do stdout here.

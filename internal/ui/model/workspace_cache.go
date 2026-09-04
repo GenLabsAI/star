@@ -30,6 +30,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/charmbracelet/crush/internal/permission"
 	"github.com/charmbracelet/crush/internal/workspace"
 )
 
@@ -64,6 +65,24 @@ func (c *ttlCache) invalidate() {
 	c.at = time.Time{}
 }
 
+type ttlCacheMode struct {
+	val permission.Mode
+	at  time.Time
+}
+
+func (c *ttlCacheMode) fresh(ttl time.Duration) bool {
+	return !c.at.IsZero() && time.Since(c.at) < ttl
+}
+
+func (c *ttlCacheMode) set(val permission.Mode) {
+	c.val = val
+	c.at = time.Now()
+}
+
+func (c *ttlCacheMode) invalidate() {
+	c.at = time.Time{}
+}
+
 // busyStateMsg delivers the result of an off-thread busy/permission probe.
 type busyStateMsg struct {
 	// gen is the busy generation captured when the probe was dispatched.
@@ -75,6 +94,7 @@ type busyStateMsg struct {
 	ready     bool
 	agentBusy bool
 	yolo      bool
+	mode      permission.Mode
 	// model is the coordinator's selected model, fetched by the same probe
 	// so the sidebar/landing model info renders from memoized state. Zero
 	// (and ignored) when ready is false.
@@ -146,6 +166,7 @@ func (m *UI) dispatchBusyRefresh() tea.Cmd {
 	m.busyFetchInFlight = true
 	ws := m.com.Workspace
 	gen := m.busyFetchGen
+	sessionID := m.currentSessionID()
 	return func() tea.Msg {
 		st := busyStateMsg{gen: gen}
 		if ws.AgentIsReady() {
@@ -153,7 +174,8 @@ func (m *UI) dispatchBusyRefresh() tea.Cmd {
 			st.agentBusy = ws.AgentIsBusy()
 			st.model = ws.AgentModel()
 		}
-		st.yolo = ws.PermissionSkipRequests()
+		st.yolo = ws.PermissionSessionSkipRequests(sessionID)
+		st.mode = ws.PermissionSessionMode(sessionID)
 		return st
 	}
 }
@@ -184,16 +206,18 @@ func (m *UI) applyBusyState(msg busyStateMsg) []tea.Cmd {
 	}
 	prevBusy := m.isAgentBusy()
 	prevYolo := m.yoloModeCached()
+	prevMode := m.modeCache.val
 	m.agentBusyCache.set(msg.agentBusy)
 	m.yoloCache.set(msg.yolo)
+	m.modeCache.set(msg.mode)
 	m.agentReady = msg.ready
 	m.agentModel = msg.model
-	if prevYolo != msg.yolo {
+	if prevYolo != msg.yolo || prevMode != msg.mode {
 		// A remote/async toggle changed yolo mode: update the editor
 		// prompt function so the prompt icon/style tracks the new mode.
 		// The cache is written above and the placeholder is refreshed by
 		// the Update tail.
-		m.setEditorPrompt(msg.yolo)
+		m.setEditorPrompt(msg.yolo || msg.mode == permission.ModeYolo, msg.mode)
 	}
 
 	var cmds []tea.Cmd
@@ -303,17 +327,37 @@ func (m *UI) staleWorkspaceRefreshCmds() []tea.Cmd {
 // through the yolo cache (no re-probe needed) and the editor prompt. Shared
 // by the direct keybinding and the commands-dialog action so both stay
 // write-through. Returns the new mode.
-func (m *UI) toggleYoloMode() bool {
-	yolo := !m.com.Workspace.PermissionSkipRequests()
-	m.com.Workspace.PermissionSetSkipRequests(yolo)
+func (m *UI) setPermissionMode(mode permission.Mode) {
+	sessionID := m.currentSessionID()
+	m.com.Workspace.PermissionSetSessionMode(sessionID, mode)
+	m.modeCache.set(mode)
+	yolo := mode == permission.ModeYolo
+	m.com.Workspace.PermissionSetSessionSkipRequests(sessionID, yolo)
 	m.yoloCache.set(yolo)
+	m.busyFetchGen++
+	m.setEditorPrompt(yolo, mode)
+}
+
+func (m *UI) toggleYoloMode() bool {
+	sessionID := m.currentSessionID()
+	yolo := !m.com.Workspace.PermissionSessionSkipRequests(sessionID)
+	m.com.Workspace.PermissionSetSessionSkipRequests(sessionID, yolo)
+	m.yoloCache.set(yolo)
+
+	var mode permission.Mode = permission.ModeNormal
+	if yolo {
+		mode = permission.ModeYolo
+	}
+	m.com.Workspace.PermissionSetSessionMode(sessionID, mode)
+	m.modeCache.set(mode)
+
 	// Supersede any in-flight busy/yolo probe: its result carries the old
 	// generation and would otherwise overwrite the value we just wrote.
 	// Bump the generation (rather than invalidateBusyCaches, which would
 	// clear the fresh value) so applyBusyState's guard discards and
 	// re-dispatches the stale probe.
 	m.busyFetchGen++
-	m.setEditorPrompt(yolo)
+	m.setEditorPrompt(yolo, mode)
 	return yolo
 }
 

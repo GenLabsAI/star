@@ -352,14 +352,16 @@ func writePermissions(b *strings.Builder, cfg *config.ConfigStore) {
 	overrides := cfg.Overrides()
 
 	if c.Permissions == nil {
-		if !overrides.SkipPermissionRequests {
+		if overrides.PermissionMode == "" && !overrides.SkipPermissionRequests {
 			return
 		}
-	} else if !overrides.SkipPermissionRequests && len(c.Permissions.AllowedTools) == 0 {
+	} else if overrides.PermissionMode == "" && !overrides.SkipPermissionRequests && len(c.Permissions.AllowedTools) == 0 {
 		return
 	}
 	b.WriteString("[permissions]\n")
-	if overrides.SkipPermissionRequests {
+	if overrides.PermissionMode != "" {
+		fmt.Fprintf(b, "mode = %s\n", overrides.PermissionMode)
+	} else if overrides.SkipPermissionRequests {
 		b.WriteString("mode = yolo\n")
 	}
 	if c.Permissions != nil && len(c.Permissions.AllowedTools) > 0 {

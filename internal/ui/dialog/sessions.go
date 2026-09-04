@@ -189,9 +189,6 @@ func (s *Session) HandleMsg(msg tea.Msg) Action {
 				s.sessionsMode = sessionsModeUpdating
 				s.list.SetItems(sessionItems(s.com.Styles, sessionsModeUpdating, s.sessions...)...)
 			case key.Matches(msg, s.keyMap.Delete):
-				if s.isCurrentSessionBusy() {
-					return ActionCmd{util.ReportWarn("Agent is busy, please wait...")}
-				}
 				s.sessionsMode = sessionsModeDeleting
 				s.list.SetItems(sessionItems(s.com.Styles, sessionsModeDeleting, s.sessions...)...)
 			case key.Matches(msg, s.keyMap.Previous):

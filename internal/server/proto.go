@@ -7,6 +7,7 @@ import (
 	"net/http"
 
 	"github.com/charmbracelet/crush/internal/backend"
+	"github.com/charmbracelet/crush/internal/permission"
 	"github.com/charmbracelet/crush/internal/proto"
 	"github.com/charmbracelet/crush/internal/session"
 	"github.com/google/uuid"
@@ -1131,7 +1132,14 @@ func (c *controllerV1) handlePostWorkspacePermissionsSkip(w http.ResponseWriter,
 		return
 	}
 
-	if err := c.backend.SetPermissionsSkip(id, req.Skip); err != nil {
+	if req.Mode != "" {
+		if err := c.backend.SetPermissionsMode(id, req.SessionID, permission.Mode(req.Mode)); err != nil {
+			c.handleError(w, r, err)
+		}
+		return
+	}
+
+	if err := c.backend.SetPermissionsSkip(id, req.SessionID, req.Skip); err != nil {
 		c.handleError(w, r, err)
 		return
 	}
@@ -1149,12 +1157,18 @@ func (c *controllerV1) handlePostWorkspacePermissionsSkip(w http.ResponseWriter,
 //	@Router			/workspaces/{id}/permissions/skip [get]
 func (c *controllerV1) handleGetWorkspacePermissionsSkip(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	skip, err := c.backend.GetPermissionsSkip(id)
+	sessionID := r.URL.Query().Get("session_id")
+	skip, err := c.backend.GetPermissionsSkip(id, sessionID)
 	if err != nil {
 		c.handleError(w, r, err)
 		return
 	}
-	jsonEncode(w, proto.PermissionSkipRequest{Skip: skip})
+	mode, err := c.backend.GetPermissionsMode(id, sessionID)
+	if err != nil {
+		c.handleError(w, r, err)
+		return
+	}
+	jsonEncode(w, proto.PermissionSkipRequest{Skip: skip, Mode: string(mode)})
 }
 
 // handleError maps backend errors to HTTP status codes and writes the

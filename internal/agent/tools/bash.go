@@ -241,6 +241,9 @@ func NewBashTool(permissions permission.Service, workingDir string, attribution 
 					return fantasy.ToolResponse{}, err
 				}
 				if !p {
+					if permissions.SessionMode(sessionID) == permission.ModePlan {
+						return NewPlanModeDeniedResponse(), nil
+					}
 					return NewPermissionDeniedResponse(), nil
 				}
 			}

@@ -69,6 +69,14 @@ func NewPermissionDeniedResponse() fantasy.ToolResponse {
 	return resp
 }
 
+// NewPlanModeDeniedResponse returns a tool response indicating the action
+// was denied because the agent is in Plan Mode.
+func NewPlanModeDeniedResponse() fantasy.ToolResponse {
+	// Do not set StopTurn = true. In Plan Mode, the agent is expected to
+	// continue reading and planning even if a destructive command is blocked.
+	return fantasy.NewTextErrorResponse("Action denied: Crush is in Plan Mode (read-only). To execute this command, ask the user to switch to Normal or Yolo mode.")
+}
+
 // ghAvailable indicates whether the `gh` CLI is available on PATH.
 var ghAvailable = func() bool {
 	if testing.Testing() {

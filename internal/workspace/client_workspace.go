@@ -241,6 +241,10 @@ func (w *ClientWorkspace) AgentCancel(sessionID string) {
 	_ = w.client.CancelAgentSession(context.Background(), w.workspaceID(), sessionID)
 }
 
+func (w *ClientWorkspace) AgentWakeupCancel(_ string) {
+	// Wakeup cancel is local-only; no server RPC needed.
+}
+
 func (w *ClientWorkspace) AgentIsBusy() bool {
 	info, err := w.client.GetAgentInfo(context.Background(), w.workspaceID())
 	if err != nil {
@@ -390,15 +394,43 @@ func (w *ClientWorkspace) PermissionDeny(perm permission.PermissionRequest) bool
 }
 
 func (w *ClientWorkspace) PermissionSkipRequests() bool {
-	skip, err := w.client.GetPermissionsSkipRequests(context.Background(), w.workspaceID())
+	return w.PermissionSessionSkipRequests("")
+}
+
+func (w *ClientWorkspace) PermissionSetSkipRequests(skip bool) {
+	w.PermissionSetSessionSkipRequests("", skip)
+}
+
+func (w *ClientWorkspace) PermissionMode() permission.Mode {
+	return w.PermissionSessionMode("")
+}
+
+func (w *ClientWorkspace) PermissionSetMode(mode permission.Mode) {
+	w.PermissionSetSessionMode("", mode)
+}
+
+func (w *ClientWorkspace) PermissionSessionSkipRequests(sessionID string) bool {
+	skip, err := w.client.GetPermissionsSkipRequests(context.Background(), w.workspaceID(), sessionID)
 	if err != nil {
 		return false
 	}
 	return skip
 }
 
-func (w *ClientWorkspace) PermissionSetSkipRequests(skip bool) {
-	_ = w.client.SetPermissionsSkipRequests(context.Background(), w.workspaceID(), skip)
+func (w *ClientWorkspace) PermissionSetSessionSkipRequests(sessionID string, skip bool) {
+	_ = w.client.SetPermissionsSkipRequests(context.Background(), w.workspaceID(), sessionID, skip)
+}
+
+func (w *ClientWorkspace) PermissionSessionMode(sessionID string) permission.Mode {
+	mode, err := w.client.GetPermissionsMode(context.Background(), w.workspaceID(), sessionID)
+	if err != nil || mode == "" {
+		return permission.ModeNormal
+	}
+	return permission.Mode(mode)
+}
+
+func (w *ClientWorkspace) PermissionSetSessionMode(sessionID string, mode permission.Mode) {
+	_ = w.client.SetPermissionsMode(context.Background(), w.workspaceID(), sessionID, string(mode))
 }
 
 // -- Questions --

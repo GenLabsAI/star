@@ -1,0 +1,370 @@
+use std::env;
+use std::io::{self, Write};
+use std::path::PathBuf;
+use std::process::{Command, Stdio};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
+use std::thread;
+use std::time::Duration;
+
+#[link(name = "kernel32")]
+unsafe extern "system" {
+    fn GetConsoleMode(h_console: *mut std::ffi::c_void, lp_mode: *mut u32) -> i32;
+    fn GetStdHandle(n_std_handle: u32) -> *mut std::ffi::c_void;
+    fn GetConsoleScreenBufferInfo(
+        h_console: *mut std::ffi::c_void,
+        lp_info: *mut ConsoleScreenBufferInfo,
+    ) -> i32;
+}
+
+#[repr(C)]
+struct Coord {
+    x: i16,
+    y: i16,
+}
+
+#[repr(C)]
+struct SmallRect {
+    left: i16,
+    top: i16,
+    right: i16,
+    bottom: i16,
+}
+
+#[repr(C)]
+struct ConsoleScreenBufferInfo {
+    dw_size: Coord,
+    dw_cursor_position: Coord,
+    w_attributes: u16,
+    sr_window: SmallRect,
+    dw_maximum_window_size: Coord,
+}
+
+const STD_OUTPUT_HANDLE: u32 = 0xFFFFFFF5;
+
+#[link(name = "kernel32")]
+unsafe extern "system" {
+    fn CreateEventW(
+        lp_event_attributes: *mut std::ffi::c_void,
+        b_manual_reset: i32,
+        b_initial_state: i32,
+        lp_name: *const u16,
+    ) -> *mut std::ffi::c_void;
+    fn SetEvent(h_event: *mut std::ffi::c_void) -> i32;
+    fn WaitForSingleObject(h_handle: *mut std::ffi::c_void, dw_milliseconds: u32) -> u32;
+    fn CloseHandle(h_object: *mut std::ffi::c_void) -> i32;
+}
+
+fn wide(s: &str) -> Vec<u16> {
+    s.encode_utf16().chain(std::iter::once(0)).collect()
+}
+
+fn is_tty() -> bool {
+    let handle = unsafe { GetStdHandle(STD_OUTPUT_HANDLE) };
+    let mut mode: u32 = 0;
+    unsafe { GetConsoleMode(handle, &mut mode) != 0 }
+}
+
+fn console_size() -> (u16, u16) {
+    let handle = unsafe { GetStdHandle(STD_OUTPUT_HANDLE) };
+    let mut info = ConsoleScreenBufferInfo {
+        dw_size: Coord { x: 0, y: 0 },
+        dw_cursor_position: Coord { x: 0, y: 0 },
+        w_attributes: 0,
+        sr_window: SmallRect { left: 0, top: 0, right: 0, bottom: 0 },
+        dw_maximum_window_size: Coord { x: 0, y: 0 },
+    };
+    let ok = unsafe { GetConsoleScreenBufferInfo(handle, &mut info) };
+    if ok == 0 {
+        return (80, 24);
+    }
+    let w = (info.sr_window.right - info.sr_window.left + 1).max(1) as u16;
+    let h = (info.sr_window.bottom - info.sr_window.top + 1).max(1) as u16;
+    (w, h)
+}
+
+fn find_core() -> PathBuf {
+    let exe = env::current_exe().unwrap_or_else(|_| PathBuf::from("star.exe"));
+    let dir = exe.parent().map(PathBuf::from).unwrap_or_default();
+    dir.join("star-core.exe")
+}
+
+fn main() {
+    let mut stdout = io::stdout();
+    let tty = is_tty();
+    let stop = Arc::new(AtomicBool::new(false));
+    let pulse_finished = Arc::new(AtomicBool::new(false));
+
+    if tty {
+        // Set alt screen, hide cursor, set bg to black, clear screen
+        let _ = stdout.write_all(b"\x1b[?1049h\x1b[?25l\x1b[48;2;0;0;0m\x1b[H\x1b[2J");
+        let _ = stdout.flush();
+
+        let stop_clone = Arc::clone(&stop);
+        let pulse_finished_clone = Arc::clone(&pulse_finished);
+        thread::spawn(move || {
+            let label = [
+                "╭──╮╶─┬─╴╭──╮ ╭──╮",
+                "╰──╮  │  ├──┤ ├─┬╯",
+                "╰──╯  ╵  ╵  ╵ ╵ ╰╴",
+            ];
+            let braille = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+            let star_symbol = '✦';
+            let (cols, rows) = console_size();
+            let label_width = label.iter().map(|line| line.chars().count()).max().unwrap_or(0);
+            // spinner(1) + gap(3) + label
+            let spinner_gap = 3;
+            let full_width = 1 + spinner_gap + label_width;
+            let label_height = label.len();
+            let top = ((rows as usize).saturating_sub(label_height)) / 2;
+            let cx = ((cols as usize).saturating_sub(full_width)) / 2;
+            let text_start = cx + 1 + spinner_gap;
+            let spinner_col = cx;
+            let mut out = io::stdout();
+            let mut tick: usize = 0;
+
+            let pulse_frames: usize = 72;
+            let glow_width: isize = 11;
+            let glow_height: isize = 5;
+            
+            // Generate a sparse, random star field
+            let num_stars = (cols as usize * rows as usize) / 130;
+            let mut stars = Vec::with_capacity(num_stars);
+            let mut seed = 123456789u32;
+            for _ in 0..num_stars {
+                seed = seed.wrapping_mul(1664525).wrapping_add(1013904223);
+                let x = (seed % cols as u32) as usize;
+                seed = seed.wrapping_mul(1664525).wrapping_add(1013904223);
+                let y = (seed % rows as u32) as usize;
+                // Don't place stars behind the logo/glow area
+                let is_near_logo = y >= top.saturating_sub(glow_height as usize) && y <= top + label_height + glow_height as usize && x >= cx.saturating_sub(glow_width as usize) && x <= cx + full_width + glow_width as usize;
+                if !is_near_logo {
+                    stars.push((x, y));
+                }
+            }
+
+            // Paint the whole screen black once up front. From then on we only
+            // repaint cells that change, which eliminates the full-screen
+            // clear that caused the STAR text to flicker each frame.
+            let mut init = String::with_capacity(cols as usize * rows as usize + 32);
+            init.push_str("\x1b[H\x1b[48;2;0;0;0m\x1b[2J");
+            let _ = out.write_all(init.as_bytes());
+            let _ = out.flush();
+
+            while !stop_clone.load(Ordering::Relaxed) {
+                let mut buf = String::with_capacity(4096);
+                let pulse_active = tick < pulse_frames;
+                let t = if pulse_active {
+                    tick as f64 / (pulse_frames - 1) as f64
+                } else {
+                    1.0
+                };
+                // Smoothstep eases the beam's travel. A sine envelope makes
+                // the light itself fade in at the left and fade out at the
+                // right instead of abruptly appearing or disappearing.
+                let eased_t = t * t * (3.0 - 2.0 * t);
+                let pulse_envelope = (std::f64::consts::PI * t).sin().powf(0.65);
+                let sweep_col = spinner_col as f64 - 6.0 + eased_t * (full_width as f64 + 12.0);
+
+                // Composite each row of the logo band in a single pass: glow
+                // background and text glyph are computed per cell and written
+                // together, so a cell is drawn exactly once per frame. No
+                // clear-then-redraw layering means no flicker as the light
+                // passes over the letters.
+                if pulse_active || tick == pulse_frames {
+                    let center_y = top as f64 + (label_height as f64 - 1.0) / 2.0;
+                    for dy in -glow_height..=(label_height as isize + glow_height) {
+                        let row = top as isize + dy;
+                        if row < 0 || row >= rows as isize {
+                            continue;
+                        }
+
+                        let vertical = (-0.5 * ((row as f64 - center_y) / 3.1).powi(2)).exp();
+
+                        // The text glyphs for this row, if any.
+                        let text_line: Option<&&str> = if row >= top as isize
+                            && (row as usize) < top + label_height
+                        {
+                            label.get(row as usize - top)
+                        } else {
+                            None
+                        };
+                        buf.push_str(&format!("\x1b[{};1H", row + 1));
+
+                        let mut last_bg = (0u8, 0u8, 0u8);
+                        buf.push_str("\x1b[48;2;0;0;0m");
+                        for col in 0..cols as usize {
+                            // Background glow for this cell.
+                            let (mut bg_r, mut bg_g, mut bg_b) = (0u8, 0u8, 0u8);
+                            if pulse_active {
+                                let horizontal =
+                                    (-0.5 * ((col as f64 - sweep_col) / 4.25).powi(2)).exp();
+                                let intensity = horizontal * vertical * pulse_envelope;
+                                if intensity >= 0.015 {
+                                    bg_r = (76.0 * intensity).round() as u8;
+                                    bg_g = (52.0 * intensity).round() as u8;
+                                    bg_b = (6.0 * intensity).round() as u8;
+                                }
+                            }
+                            if (bg_r, bg_g, bg_b) != last_bg {
+                                buf.push_str(&format!("\x1b[48;2;{};{};{}m", bg_r, bg_g, bg_b));
+                                last_bg = (bg_r, bg_g, bg_b);
+                            }
+
+                            // Text glyph, if this cell is inside the label.
+                            let glyph = text_line.and_then(|line| {
+                                if col >= text_start {
+                                    line.chars().nth(col - text_start)
+                                } else {
+                                    None
+                                }
+                            });
+
+                            match glyph {
+                                Some(c) if c != ' ' => {
+                                    let char_col = col as f64;
+                                    let intensity = if pulse_active {
+                                        (-0.5 * ((char_col - sweep_col) / 2.15).powi(2)).exp()
+                                            * pulse_envelope
+                                    } else {
+                                        0.0
+                                    };
+                                    let fg_g = 255 - (40.0 * intensity) as u8;
+                                    let fg_b = 255 - (255.0 * intensity) as u8;
+
+                                    buf.push_str(&format!(
+                                        "\x1b[38;2;255;{};{}m{}",
+                                        fg_g, fg_b, c
+                                    ));
+                                }
+                                _ => buf.push(' '),
+                            }
+                        }
+                    }
+                }
+
+                // Draw twinkling stars with staggered animation phases. Each
+                // star is followed by a space to erase the right-edge overhang
+                // the glyph leaves in the next cell.
+                for &(x, y) in &stars {
+                    // Brightness follows a smooth sinusoid so stars breathe
+                    // rather than hard-flicker.
+                    let symbol = star_symbol;
+                    let twinkle_t = tick as f64 * 0.075 + (x * 31 + y * 17) as f64 * 0.05;
+                    let twinkle = (twinkle_t.sin() + 1.0) * 0.5;
+                    let brightness = (65.0 + 125.0 * twinkle).round() as u8;
+                    buf.push_str(&format!(
+                        "\x1b[{};{}H\x1b[48;2;0;0;0m\x1b[38;2;{};{};{}m{}\x1b[{};{}H ",
+                        y + 1,
+                        x + 1,
+                        brightness,
+                        brightness,
+                        brightness,
+                        symbol,
+                        y + 1,
+                        x + 2,
+                    ));
+                }
+
+                let spinner = braille[tick % braille.len()];
+                let spinner_intensity = if pulse_active {
+                    (-0.5 * ((spinner_col as f64 - sweep_col) / 2.15).powi(2)).exp()
+                        * pulse_envelope
+                } else {
+                    0.0
+                };
+                let spinner_bg_r = (76.0 * spinner_intensity).round() as u8;
+                let spinner_bg_g = (52.0 * spinner_intensity).round() as u8;
+                let spinner_bg_b = (6.0 * spinner_intensity).round() as u8;
+                let spinner_fg_g = 180 + (75.0 * spinner_intensity).round() as u8;
+                let spinner_fg_b = 180 - (180.0 * spinner_intensity).round() as u8;
+                buf.push_str(&format!(
+                    "\x1b[{};{}H\x1b[48;2;{};{};{}m\x1b[38;2;255;{};{}m{}",
+                    top + label_height / 2 + 1,
+                    spinner_col + 1,
+                    spinner_bg_r,
+                    spinner_bg_g,
+                    spinner_bg_b,
+                    spinner_fg_g,
+                    spinner_fg_b,
+                    spinner,
+                ));
+
+                buf.push_str("\x1b[0m");
+                let _ = out.write_all(buf.as_bytes());
+                let _ = out.flush();
+
+                tick += 1;
+                if tick > pulse_frames {
+                    pulse_finished_clone.store(true, Ordering::Release);
+                }
+                thread::sleep(Duration::from_millis(50));
+            }
+        });
+    }
+
+    let core = find_core();
+    let args: Vec<String> = env::args().skip(1).collect();
+
+    let pid = std::process::id();
+    let ready_name = wide(&format!("Local\\star-ready-{pid}"));
+    let release_name = wide(&format!("Local\\star-release-{pid}"));
+    let rendered_name = wide(&format!("Local\\star-rendered-{pid}"));
+
+    let ready_event = unsafe { CreateEventW(std::ptr::null_mut(), 1, 0, ready_name.as_ptr()) };
+    let release_event = unsafe { CreateEventW(std::ptr::null_mut(), 1, 0, release_name.as_ptr()) };
+    let rendered_event = unsafe { CreateEventW(std::ptr::null_mut(), 1, 0, rendered_name.as_ptr()) };
+
+    let mut child = match Command::new(&core)
+        .args(&args)
+        .env("STAR_LAUNCHER_HANDSHAKE", "1")
+        .env("STAR_LAUNCHER_PID", pid.to_string())
+        .stdin(Stdio::inherit())
+        .stdout(Stdio::inherit())
+        .stderr(Stdio::inherit())
+        .spawn()
+    {
+        Ok(c) => c,
+        Err(e) => {
+            let _ = stdout.write_all(b"\x1b[?25h\x1b[?1049l");
+            let _ = stdout.flush();
+            eprintln!("failed to launch star-core: {e}");
+            std::process::exit(1);
+        }
+    };
+
+    unsafe { WaitForSingleObject(ready_event, u32::MAX) };
+
+    while !pulse_finished.load(Ordering::Acquire) {
+        thread::sleep(Duration::from_millis(10));
+    }
+
+    thread::sleep(Duration::from_millis(1000));
+
+    stop.store(true, Ordering::Relaxed);
+    thread::sleep(Duration::from_millis(50));
+
+    // The terminal is currently in the alt-screen with a hidden cursor and black background.
+    // We MUST exit alt-screen and reset all graphics modes before handing off to Bubble Tea,
+    // otherwise Bubble Tea's renderer gets confused about terminal state (scroll regions, wrapping).
+    // This ensures Go gets the exact same pristine terminal state it would get if launched directly.
+    let _ = stdout.write_all(b"\x1b[?1049l\x1b[?25h\x1b[0m");
+    let _ = stdout.flush();
+
+    unsafe { SetEvent(release_event) };
+
+    unsafe { WaitForSingleObject(rendered_event, u32::MAX) };
+
+    unsafe {
+        CloseHandle(ready_event);
+        CloseHandle(release_event);
+        CloseHandle(rendered_event);
+    }
+
+    let status = child.wait();
+
+    match status {
+        Ok(s) => std::process::exit(s.code().unwrap_or(0)),
+        Err(_) => std::process::exit(1),
+    }
+}

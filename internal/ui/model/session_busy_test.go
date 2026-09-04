@@ -14,6 +14,7 @@ import (
 	"github.com/charmbracelet/crush/internal/config"
 	"github.com/charmbracelet/crush/internal/lsp"
 	"github.com/charmbracelet/crush/internal/message"
+	"github.com/charmbracelet/crush/internal/permission"
 	"github.com/charmbracelet/crush/internal/pubsub"
 	"github.com/charmbracelet/crush/internal/session"
 	"github.com/charmbracelet/crush/internal/ui/attachments"
@@ -32,6 +33,7 @@ type countingWorkspace struct {
 	ready     bool
 	agentBusy bool
 	yolo      bool
+	permMode  permission.Mode
 	queued    []string
 	model     workspace.AgentModel
 	lspStates map[string]workspace.LSPClientInfo
@@ -76,6 +78,18 @@ func (w *countingWorkspace) PermissionSkipRequests() bool { w.permCalls++; retur
 func (w *countingWorkspace) PermissionSetSkipRequests(skip bool) {
 	w.permSetCalls++
 	w.yolo = skip
+}
+
+func (w *countingWorkspace) PermissionMode() permission.Mode        { return w.permMode }
+func (w *countingWorkspace) PermissionSetMode(mode permission.Mode) { w.permMode = mode }
+
+func (w *countingWorkspace) PermissionSessionSkipRequests(sessionID string) bool { return w.PermissionSkipRequests() }
+func (w *countingWorkspace) PermissionSetSessionSkipRequests(sessionID string, skip bool) {
+	w.PermissionSetSkipRequests(skip)
+}
+func (w *countingWorkspace) PermissionSessionMode(sessionID string) permission.Mode { return w.PermissionMode() }
+func (w *countingWorkspace) PermissionSetSessionMode(sessionID string, mode permission.Mode) {
+	w.PermissionSetMode(mode)
 }
 
 func (w *countingWorkspace) AgentClearQueue(string) { w.clearQueueCalls++; w.queued = nil }
@@ -760,7 +774,7 @@ func TestRemoteYoloToggleUpdatesEditorPrompt(t *testing.T) {
 	m.textarea.Focus()
 	m.textarea.SetWidth(40)
 	m.yoloCache.set(false)
-	m.setEditorPrompt(false)
+	m.setEditorPrompt(false, permission.ModeNormal)
 	normalPrompt := ansi.Strip(m.textarea.View())
 
 	// A remote toggle flips yolo on; delivered via an off-thread refresh.

@@ -11,6 +11,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/crush/internal/commands"
 	"github.com/charmbracelet/crush/internal/config"
+	"github.com/charmbracelet/crush/internal/permission"
 	"github.com/charmbracelet/crush/internal/ui/common"
 	"github.com/charmbracelet/crush/internal/ui/list"
 	"github.com/charmbracelet/crush/internal/ui/styles"
@@ -534,9 +535,19 @@ func (c *Commands) defaultCommands() []*CommandItem {
 	notificationLabel := "Notification Style"
 	commands = append(commands, NewCommandItem(c.com.Styles, "select_notifications", notificationLabel, "", ActionOpenDialog{DialogID: NotificationsID}))
 
+	currentMode := c.com.Workspace.PermissionMode()
+	if currentMode != permission.ModeYolo {
+		commands = append(commands, NewCommandItem(c.com.Styles, "yolo", "Set Mode: Yolo", "ctrl+y", ActionToggleYoloMode{}))
+	}
+	if currentMode != permission.ModePlan {
+		commands = append(commands, NewCommandItem(c.com.Styles, "plan", "Set Mode: Plan", "", ActionSetModePlan{}))
+	}
+	if currentMode != permission.ModeNormal {
+		commands = append(commands, NewCommandItem(c.com.Styles, "normal", "Set Mode: Normal", "", ActionSetModeNormal{}))
+	}
+
 	commands = append(
 		commands,
-		NewCommandItem(c.com.Styles, "toggle_yolo", "Toggle Yolo Mode", "ctrl+y", ActionToggleYoloMode{}),
 		NewCommandItem(c.com.Styles, "toggle_help", "Toggle Help", "ctrl+g", ActionToggleHelp{}),
 		NewCommandItem(c.com.Styles, "init", "Initialize Project", "", ActionInitializeProject{}),
 	)

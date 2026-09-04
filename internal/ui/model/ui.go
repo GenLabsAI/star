@@ -132,6 +132,8 @@ type shellStreamMsg struct {
 }
 
 type (
+	// wakeupTickMsg triggers a UI repaint for the wakeup countdown overlay.
+	wakeupTickMsg struct{}
 	// cancelTimerExpiredMsg is sent when the cancel timer expires.
 	cancelTimerExpiredMsg struct{}
 	// userCommandsLoadedMsg is sent when user commands are loaded.
@@ -279,6 +281,10 @@ type UI struct {
 		yesInitializeSelected bool
 	}
 
+	// wakeup pending state
+	pendingWakeup *pubsub.WakeupEvent
+	wakeupEndTime time.Time
+
 	// lspStates / lspDiagnostics memoize the workspace LSP state and
 	// per-server severity counts (each probe behind them is a synchronous
 	// HTTP round-trip in client/server mode, and the sidebar, landing view,
@@ -351,7 +357,8 @@ type UI struct {
 	// probes (synchronous HTTP round-trips in client/server mode). Reads
 	// never probe; refreshes happen off-thread (see workspace_cache.go).
 	agentBusyCache    ttlCache
-	yoloCache         ttlCache
+	modeCache         ttlCacheMode
+	yoloCache         ttlCache // kept for UI flag mapping for now
 	busyFetchInFlight bool
 	// agentReady / agentModel memoize the coordinator readiness and
 	// selected model (AgentIsReady/AgentModel are synchronous HTTP GETs in
@@ -490,7 +497,7 @@ func New(com *common.Common, initialSessionID string, continueLast bool) *UI {
 		ui.agentReady = true
 		ui.agentModel = com.Workspace.AgentModel()
 	}
-	ui.setEditorPrompt(yolo)
+	ui.setEditorPrompt(yolo, com.Workspace.PermissionMode())
 	ui.randomizePlaceholders()
 	ui.textarea.Placeholder = ui.readyPlaceholder
 	ui.status = status
@@ -969,7 +976,7 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, cmd)
 		}
 		if cmd := m.sendNotification(notification.Notification{
-			Title:   "Crush is waiting...",
+			Title:   "Star is waiting...",
 			Message: fmt.Sprintf("Permission required to execute \"%s\"", msg.Payload.ToolName),
 		}); cmd != nil {
 			cmds = append(cmds, cmd)
@@ -982,13 +989,53 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, cmd)
 		}
 		if cmd := m.sendNotification(notification.Notification{
-			Title:   "Crush is waiting...",
+			Title:   "Star is waiting...",
 			Message: fmt.Sprintf("%d questions need your input", len(msg.Payload.Questions)),
 		}); cmd != nil {
 			cmds = append(cmds, cmd)
 		}
 	case pubsub.Event[question.Notification]:
 		m.handleQuestionNotification(msg.Payload)
+	case pubsub.Event[pubsub.WakeupScheduledEvent]:
+		if m.session != nil && msg.Payload.SessionID == m.session.ID {
+			wk := pubsub.WakeupEvent{
+				SessionID: msg.Payload.SessionID,
+				Reason:    msg.Payload.Reason,
+				Prompt:    msg.Payload.Prompt,
+			}
+			m.pendingWakeup = &wk
+			m.wakeupEndTime = msg.Payload.EndTime
+			cmds = append(cmds, wakeupTickCmd())
+		}
+	case pubsub.Event[pubsub.WakeupCanceledEvent]:
+		if m.session != nil && msg.Payload.SessionID == m.session.ID {
+			m.pendingWakeup = nil
+		}
+	case pubsub.Event[pubsub.WakeupEvent]:
+		if m.session != nil && msg.Payload.SessionID == m.session.ID {
+			m.pendingWakeup = nil
+			m.agentBusyCache.set(true)
+			m.busyFetchGen++
+			m.invalidatePromptQueue()
+			cmds = append(cmds, func() tea.Msg {
+				err := m.com.Workspace.AgentRun(
+					context.Background(),
+					msg.Payload.SessionID,
+					msg.Payload.Prompt,
+				)
+				if err != nil && !errors.Is(err, context.Canceled) {
+					return util.InfoMsg{
+						Type: util.InfoTypeError,
+						Msg:  fmt.Sprintf("%v", err),
+					}
+				}
+				return agentRunSubmittedMsg{}
+			})
+		}
+	case wakeupTickMsg:
+		if m.pendingWakeup != nil {
+			cmds = append(cmds, wakeupTickCmd())
+		}
 	case cancelTimerExpiredMsg:
 		m.isCanceling = false
 	case tea.TerminalVersionMsg:
@@ -1372,9 +1419,9 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		cmds = append(cmds, clearInfoMsgCmd(ttl))
 	case app.UpdateAvailableMsg:
-		text := fmt.Sprintf("Crush update available: v%s → v%s.", msg.CurrentVersion, msg.LatestVersion)
+		text := fmt.Sprintf("Star update available: v%s → v%s.", msg.CurrentVersion, msg.LatestVersion)
 		if msg.IsDevelopment {
-			text = fmt.Sprintf("This is a development version of Crush. The latest version is v%s.", msg.LatestVersion)
+			text = fmt.Sprintf("This is a development version of Star. The latest version is v%s.", msg.LatestVersion)
 		}
 		ttl := 10 * time.Second
 		m.status.SetInfoMsg(util.InfoMsg{
@@ -1509,7 +1556,7 @@ func (m *UI) setSessionMessages(msgs []message.Message) tea.Cmd {
 func (m *UI) handleConnectionEvent(msg workspace.ConnectionEvent) []tea.Cmd {
 	info := util.InfoMsg{
 		Type: util.InfoTypeWarn,
-		Msg:  "Lost connection to the Crush server — reconnecting…",
+		Msg:  "Lost connection to the Star server — reconnecting…",
 		TTL:  30 * time.Second,
 	}
 	switch msg.State {
@@ -1517,13 +1564,13 @@ func (m *UI) handleConnectionEvent(msg workspace.ConnectionEvent) []tea.Cmd {
 		slog.Warn("Server connection degraded", "error", msg.Err, "stuck", msg.Stuck)
 		if msg.Stuck {
 			info.Type = util.InfoTypeError
-			info.Msg = "Can't restore the connection to the Crush server. Restart Crush to recover."
+			info.Msg = "Can't restore the connection to the Star server. Restart Star to recover."
 			info.TTL = time.Minute
 		}
 	case workspace.ConnectionRecovered:
 		info = util.InfoMsg{
 			Type: util.InfoTypeSuccess,
-			Msg:  "Reconnected to the Crush server.",
+			Msg:  "Reconnected to the Star server.",
 			TTL:  DefaultStatusTTL,
 		}
 	}
@@ -1919,6 +1966,12 @@ func (m *UI) handleDialogMsg(msg tea.Msg) tea.Cmd {
 		}
 
 	// Command dialog messages.
+	case dialog.ActionSetModePlan:
+		m.setPermissionMode(permission.ModePlan)
+		m.dialog.CloseDialog(dialog.CommandsID)
+	case dialog.ActionSetModeNormal:
+		m.setPermissionMode(permission.ModeNormal)
+		m.dialog.CloseDialog(dialog.CommandsID)
 	case dialog.ActionToggleYoloMode:
 		m.toggleYoloMode()
 		m.dialog.CloseDialog(dialog.CommandsID)
@@ -1936,10 +1989,6 @@ func (m *UI) handleDialogMsg(msg tea.Msg) tea.Cmd {
 		}
 		m.dialog.CloseDialog(dialog.NotificationsID)
 	case dialog.ActionNewSession:
-		if m.isAgentBusy() {
-			cmds = append(cmds, util.ReportWarn("Agent is busy, please wait before starting a new session..."))
-			break
-		}
 		if cmd := m.newSession(); cmd != nil {
 			cmds = append(cmds, cmd)
 		}
@@ -2285,11 +2334,6 @@ func (m *UI) restoreModelFromSession(msgs []message.Message) tea.Cmd {
 func (m *UI) handleSelectModel(msg dialog.ActionSelectModel) tea.Cmd {
 	var cmds []tea.Cmd
 
-	// we ignore dialogs with the oauth id as they need to be able to be dismissed
-	if m.isAgentBusy() && !m.dialog.ContainsDialog(dialog.OAuthID) {
-		return util.ReportWarn("Agent is busy, please wait...")
-	}
-
 	cfg := m.com.Config()
 	if cfg == nil {
 		return util.ReportError(errors.New("configuration not found"))
@@ -2537,6 +2581,12 @@ func (m *UI) handleKeyPressMsg(msg tea.KeyPressMsg) tea.Cmd {
 
 	// Handle cancel key when agent is busy.
 	if key.Matches(msg, m.keyMap.Chat.Cancel) {
+		if m.pendingWakeup != nil {
+			m.com.Workspace.AgentWakeupCancel(m.pendingWakeup.SessionID)
+			m.pendingWakeup = nil
+			return tea.Batch(cmds...)
+		}
+
 		if m.isAgentBusy() {
 			if cmd := m.cancelAgent(); cmd != nil {
 				cmds = append(cmds, cmd)
@@ -2621,7 +2671,7 @@ func (m *UI) handleKeyPressMsg(msg tea.KeyPressMsg) tea.Cmd {
 
 				if m.bangMode && value != "" {
 					m.bangMode = false
-					m.setEditorPrompt(m.yoloModeCached())
+					m.setEditorPrompt(m.yoloModeCached(), m.modeCache.val)
 					m.randomizePlaceholders()
 					m.historyReset()
 					return tea.Batch(m.runShellCommand(value))
@@ -2639,10 +2689,6 @@ func (m *UI) handleKeyPressMsg(msg tea.KeyPressMsg) tea.Cmd {
 				return tea.Batch(m.sendMessage(value, attachments...), m.loadPromptHistory())
 			case key.Matches(msg, m.keyMap.Chat.NewSession):
 				if !m.hasSession() {
-					break
-				}
-				if m.isAgentBusy() {
-					cmds = append(cmds, util.ReportWarn("Agent is busy, please wait before starting a new session..."))
 					break
 				}
 				if cmd := m.newSession(); cmd != nil {
@@ -2717,7 +2763,7 @@ func (m *UI) handleKeyPressMsg(msg tea.KeyPressMsg) tea.Cmd {
 				if m.bangMode && m.bangWasEmpty && msg.Code == tea.KeyBackspace {
 					m.bangMode = false
 					m.bangWasEmpty = false
-					m.setEditorPrompt(m.yoloModeCached())
+					m.setEditorPrompt(m.yoloModeCached(), m.modeCache.val)
 					break
 				}
 
@@ -2766,7 +2812,7 @@ func (m *UI) handleKeyPressMsg(msg tea.KeyPressMsg) tea.Cmd {
 					m.textarea.SetValue(stripped)
 					m.textarea.SetCursorColumn(max(0, col-(len(newVal)-len(stripped))))
 					_ = line // cursor line doesn't change; prefix removed
-					m.setEditorPrompt(m.yoloModeCached())
+					m.setEditorPrompt(m.yoloModeCached(), m.modeCache.val)
 				} else if m.bangMode && newVal == "" && curValue != "" {
 					// Just cleared last character; mark empty, stay in bang mode.
 					m.bangWasEmpty = true
@@ -2815,10 +2861,6 @@ func (m *UI) handleKeyPressMsg(msg tea.KeyPressMsg) tea.Cmd {
 				}
 			case key.Matches(msg, m.keyMap.Chat.NewSession):
 				if !m.hasSession() {
-					break
-				}
-				if m.isAgentBusy() {
-					cmds = append(cmds, util.ReportWarn("Agent is busy, please wait before starting a new session..."))
 					break
 				}
 				m.focus = uiFocusEditor
@@ -3130,7 +3172,7 @@ func (m *UI) View() tea.View {
 		v.MouseMode = tea.MouseModeCellMotion
 	}
 	v.ReportFocus = m.caps.ReportFocusEvents
-	v.WindowTitle = "crush " + home.Short(m.com.Workspace.WorkingDir())
+	v.WindowTitle = "star " + home.Short(m.com.Workspace.WorkingDir())
 
 	canvas := uv.NewScreenBuffer(m.width, m.height)
 	v.Cursor = m.Draw(canvas, canvas.Bounds())
@@ -3850,16 +3892,38 @@ func (m *UI) openEditor(value string) tea.Cmd {
 
 // setEditorPrompt configures the textarea prompt function based on whether
 // yolo mode or bang mode is enabled.
-func (m *UI) setEditorPrompt(yolo bool) {
+func (m *UI) setEditorPrompt(yolo bool, mode permission.Mode) {
 	if m.bangMode {
 		m.textarea.SetPromptFunc(4, m.bangPromptFunc)
 		return
 	}
-	if yolo {
+	if yolo || mode == permission.ModeYolo {
 		m.textarea.SetPromptFunc(4, m.yoloPromptFunc)
 		return
 	}
+	if mode == permission.ModePlan {
+		m.textarea.SetPromptFunc(4, m.planPromptFunc)
+		return
+	}
 	m.textarea.SetPromptFunc(4, m.normalPromptFunc)
+}
+
+// planPromptFunc returns the plan mode editor prompt style with info icon
+// and colored dots.
+func (m *UI) planPromptFunc(info textarea.PromptInfo) string {
+	// Use the normal style but with a different icon for now, ideally this would be styled.
+	t := m.com.Styles
+	if info.LineNumber == 0 {
+		if info.Focused {
+			return " 👁> "
+		} else {
+			return " 👁> "
+		}
+	}
+	if info.Focused {
+		return t.Editor.PromptNormalFocused.Render()
+	}
+	return t.Editor.PromptNormalBlurred.Render()
 }
 
 // normalPromptFunc returns the normal editor prompt style ("  > " on first
@@ -4116,11 +4180,50 @@ func (m *UI) renderEditorView(width int) string {
 	if len(m.attachments.List()) > 0 {
 		attachmentsView = m.attachments.Render(width)
 	}
+
+	var editorContent string
+	if m.pendingWakeup != nil {
+		editorContent = m.renderWakeupOverlay(width)
+	} else {
+		editorContent = m.textarea.View()
+	}
+
 	return strings.Join([]string{
 		attachmentsView,
-		m.textarea.View(),
+		editorContent,
 		"", // margin at bottom of editor
 	}, "\n")
+}
+
+// renderWakeupOverlay renders the wakeup countdown in place of the chat textarea.
+func (m *UI) renderWakeupOverlay(width int) string {
+	remaining := time.Until(m.wakeupEndTime)
+	if remaining < 0 {
+		remaining = 0
+	}
+	minutes := int(remaining.Minutes())
+	seconds := int(remaining.Seconds()) % 60
+
+	reason := ""
+	if m.pendingWakeup != nil && m.pendingWakeup.Reason != "" {
+		reason = " — " + m.pendingWakeup.Reason
+	}
+	countdown := fmt.Sprintf("Star will wake up in %02d:%02d%s", minutes, seconds, reason)
+	cancel := "[Cancel]"
+
+	countdownStyle := m.com.Styles.Editor.Textarea.Focused.CursorLine
+	cancelStyle := m.com.Styles.Status.WarnMessage
+
+	countdownStr := countdownStyle.Render(countdown)
+	cancelStr := cancelStyle.Render(cancel)
+
+	separator := " "
+	total := lipgloss.Width(countdownStr) + len(separator) + lipgloss.Width(cancelStr)
+	if total < width {
+		separator += strings.Repeat(" ", width-total-len(separator))
+	}
+
+	return countdownStr + separator + cancelStr
 }
 
 // cacheSidebarLogo renders and caches the sidebar logo at the specified width.
@@ -4355,6 +4458,12 @@ func (m *UI) runShellCommandInternal(command string, isFirstMessage bool) tea.Cm
 const cancelTimerDuration = 2 * time.Second
 
 // cancelTimerCmd creates a command that expires the cancel timer.
+func wakeupTickCmd() tea.Cmd {
+	return tea.Tick(time.Second, func(time.Time) tea.Msg {
+		return wakeupTickMsg{}
+	})
+}
+
 func cancelTimerCmd() tea.Cmd {
 	return tea.Tick(cancelTimerDuration, func(time.Time) tea.Msg {
 		return cancelTimerExpiredMsg{}
@@ -4684,7 +4793,7 @@ func (m *UI) handleAgentNotification(n notify.Notification) tea.Cmd {
 	case notify.TypeAgentFinished:
 		common.StopTurn()
 		cmds = append(cmds, m.sendNotification(notification.Notification{
-			Title:   "Crush is waiting...",
+			Title:   "Star is waiting...",
 			Message: fmt.Sprintf("Agent's turn completed in \"%s\"", n.SessionTitle),
 		}))
 		if m.com.IsHyper() {
@@ -4830,7 +4939,7 @@ func (m *UI) checkBangModeAfterPaste() {
 	m.textarea.SetValue(stripped)
 	col := m.textarea.Column()
 	m.textarea.SetCursorColumn(max(0, col-(len(val)-len(stripped))))
-	m.setEditorPrompt(m.yoloModeCached())
+	m.setEditorPrompt(m.yoloModeCached(), m.modeCache.val)
 }
 
 // handlePasteMsg handles a paste message.

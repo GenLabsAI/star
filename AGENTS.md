@@ -1,13 +1,16 @@
-# Crush Development Guide
+# Star Development Guide
 
 ## Project Overview
 
-Crush is a terminal-based AI coding assistant built in Go by
-[Charm](https://charm.land). It connects to LLMs and gives them tools to read,
-write, and execute code. It supports multiple providers (Anthropic, OpenAI,
-Gemini, Bedrock, Copilot, Hyper, MiniMax, Vercel, and more), integrates with
-LSPs for code intelligence, and supports extensibility via MCP servers and
-agent skills.
+**Star** is a rebranded fork of [Crush](https://github.com/charmbracelet/crush) (by [Charm](https://charm.land)), built as a terminal-based AI coding assistant.
+
+### Key Differences from Crush
+- **Rust Launcher**: The entry point is a Rust binary (`star.exe`) in the `launcher/` directory that displays a smooth, animated splash screen (with a spinner, glowing logo, and twinkling stars). It coordinates with the Go UI via Windows named events before cleanly handing off the terminal to Bubble Tea.
+- **Binary Names**: Deploys as `star.exe` (the launcher) and `star-core.exe` (the Go core).
+
+---
+
+Crush connects to LLMs and gives them tools to read, write, and execute code. It supports multiple providers (Anthropic, OpenAI, Gemini, Bedrock, Copilot, Hyper, MiniMax, Vercel, and more), integrates with LSPs for code intelligence, and supports extensibility via MCP servers and agent skills.
 
 The module path is `github.com/charmbracelet/crush`.
 
@@ -100,6 +103,12 @@ internal/
 - **Build**: `go build .` or `go run .`
 - **Test**: `task test` or `go test ./...` (run single test:
   `go test ./internal/llm/prompt -run TestGetContextFromPaths`)
+- **NEVER run `go test ./...` or multiple test packages at once on this
+  machine.** The Go linker spawns one process per package and each
+  consumes ~1 GB of RAM, which freezes the PC. To verify a build is
+  correct, always use `go build ./...` instead. Run tests only for a
+  single specific package and test at a time, e.g.
+  `go test ./internal/config -run TestName`.
 - **Update Golden Files**: `go test ./... -update` (regenerates `.golden`
   files when test output changes)
   - Update specific package:
@@ -232,3 +241,55 @@ func CharmtonePantera() Styles {
 **Adding a new theme**: Add a function in `themes.go` that returns the
 result of `quickStyle` with a `quickStyleOpts` palette (plus any needed
 overrides), then wire it into `ThemeForProvider`.
+
+## Launcher / Splash Screen Architecture
+
+The user-facing binary is called **Star** (not Crush). The startup uses a
+two-binary architecture for instant perceived startup:
+
+```
+star.exe (Rust launcher, ~200KB)
+  ├── Instantly prints a gold splash on the alt screen
+  └── Spawns star-core.exe (Go) with inherited stdio
+
+star-core.exe (Go, main.go -> internal/cmd)
+  ├── internal/cmd/splash.go: splashModel (Bubble Tea)
+  │   Shows animated spinner while workspace loads async
+  └── internal/cmd/root.go: wires splash -> tea.Program
+```
+
+### Why Two Binaries
+
+Go binaries have a ~1-2s startup overhead (runtime init, config loading).
+The Rust launcher (`launcher/`) is <1ms to first paint. It switches to the
+alt screen and shows "⠈ Star" in gold, then exec's the Go core. The Go
+`splashModel` takes over the same alt screen buffer seamlessly.
+
+### Key Files
+
+- `launcher/src/main.rs` — Rust launcher source
+- `launcher/Cargo.toml` — builds as `star.exe`
+- `internal/cmd/splash.go` — Go splash model (animated spinner)
+- `internal/cmd/root.go` — wires `splashModel` into `tea.Program`
+
+### Build
+
+```sh
+# Build Go core
+go build -o star-core.exe ./main.go
+
+# Build Rust launcher
+cd launcher && cargo build --release
+# Output: launcher/target/release/star.exe
+
+# Deploy: place star.exe and star-core.exe side by side
+```
+
+### Important Notes
+
+- The Go path for portable Go is: `C:/Users/leroy/tools/go/go/bin/go.exe`
+- The product is called **Star**, not Crush. The repo name is `crush-repo`
+  but the user-facing name is Star.
+- No admin access on this machine; all tools are portable installs.
+- Rust (cargo) is available on PATH.
+- CGO is disabled (`CGO_ENABLED=0`).

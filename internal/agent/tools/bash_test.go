@@ -39,6 +39,15 @@ func (m *mockBashPermissionService) SkipRequests() bool {
 	return false
 }
 
+func (m *mockBashPermissionService) SetMode(mode permission.Mode)                          {}
+func (m *mockBashPermissionService) GetMode() permission.Mode                              { return permission.ModeNormal }
+func (m *mockBashPermissionService) SetSessionSkipRequests(sessionID string, skip bool)    {}
+func (m *mockBashPermissionService) SessionSkipRequests(sessionID string) bool             { return false }
+func (m *mockBashPermissionService) SetSessionMode(sessionID string, mode permission.Mode) {}
+func (m *mockBashPermissionService) SessionMode(sessionID string) permission.Mode {
+	return permission.ModeNormal
+}
+
 func (m *mockBashPermissionService) SubscribeNotifications(ctx context.Context) <-chan pubsub.Event[permission.PermissionNotification] {
 	return make(<-chan pubsub.Event[permission.PermissionNotification])
 }
@@ -108,6 +117,15 @@ func (m *recordingPermissionService) SetSkipRequests(skip bool) {}
 
 func (m *recordingPermissionService) SkipRequests() bool {
 	return false
+}
+
+func (m *recordingPermissionService) SetMode(mode permission.Mode)                          {}
+func (m *recordingPermissionService) GetMode() permission.Mode                              { return permission.ModeNormal }
+func (m *recordingPermissionService) SetSessionSkipRequests(sessionID string, skip bool)    {}
+func (m *recordingPermissionService) SessionSkipRequests(sessionID string) bool             { return false }
+func (m *recordingPermissionService) SetSessionMode(sessionID string, mode permission.Mode) {}
+func (m *recordingPermissionService) SessionMode(sessionID string) permission.Mode {
+	return permission.ModeNormal
 }
 
 func (m *recordingPermissionService) SubscribeNotifications(ctx context.Context) <-chan pubsub.Event[permission.PermissionNotification] {

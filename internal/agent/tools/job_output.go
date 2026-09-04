@@ -5,6 +5,7 @@ import (
 	_ "embed"
 	"fmt"
 	"strings"
+	"time"
 
 	"charm.land/fantasy"
 	"github.com/charmbracelet/crush/internal/shell"
@@ -19,7 +20,9 @@ var jobOutputDescription string
 
 type JobOutputParams struct {
 	ShellID string `json:"shell_id" description:"The ID of the background shell to retrieve output from"`
-	Wait    bool   `json:"wait" description:"If true, block until the background shell completes before returning output"`
+	Wait    bool   `json:"wait" description:"If true, block until the background shell completes, the keyword (if set) appears in the output, or the timeout elapses"`
+	Timeout int    `json:"timeout,omitempty" description:"Required when wait=true. Seconds to wait before returning current output (max 600)."`
+	Keyword string `json:"keyword,omitempty" description:"Optional. When wait=true, return as soon as this substring appears in stdout/stderr, instead of waiting for completion."`
 }
 
 type JobOutputResponseMetadata struct {
@@ -45,8 +48,23 @@ func NewJobOutputTool() fantasy.AgentTool {
 				return fantasy.NewTextErrorResponse(fmt.Sprintf("background shell not found: %s", params.ShellID)), nil
 			}
 
+			var keywordFound bool
 			if params.Wait {
-				bgShell.WaitContext(ctx)
+				if params.Timeout <= 0 {
+					return fantasy.NewTextErrorResponse("timeout is required when wait=true; set a value between 1 and 600 seconds"), nil
+				}
+				timeoutSecs := params.Timeout
+				if timeoutSecs > 600 {
+					timeoutSecs = 600
+				}
+				waitCtx, cancel := context.WithTimeout(ctx, time.Duration(timeoutSecs)*time.Second)
+				defer cancel()
+				if params.Keyword != "" {
+					bgShell.WaitForKeyword(waitCtx, params.Keyword)
+					keywordFound = strings.Contains(bgShell.PeekOutput(), params.Keyword)
+				} else {
+					bgShell.WaitContext(waitCtx)
+				}
 			}
 
 			stdout, stderr, done, err := bgShell.GetOutput()
@@ -85,7 +103,15 @@ func NewJobOutputTool() fantasy.AgentTool {
 				output = BashNoOutput
 			}
 
-			result := fmt.Sprintf("Status: %s\n\n%s", status, output)
+			header := fmt.Sprintf("Status: %s", status)
+			if params.Keyword != "" && params.Wait {
+				if keywordFound {
+					header += fmt.Sprintf(" (keyword %q found)", params.Keyword)
+				} else if !done {
+					header += fmt.Sprintf(" (timed out waiting for keyword %q)", params.Keyword)
+				}
+			}
+			result := fmt.Sprintf("%s\n\n%s", header, output)
 			return fantasy.WithResponseMetadata(fantasy.NewTextResponse(result), metadata), nil
 		},
 	)

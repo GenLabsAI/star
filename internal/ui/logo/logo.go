@@ -146,12 +146,12 @@ func Render(base lipgloss.Style, version string, compact bool, o Opts) string {
 	return logo
 }
 
-// SmallRender renders a smaller version of the Crush logo, suitable for
+// SmallRender renders a smaller version of the Star logo, suitable for
 // smaller windows or sidebar usage.
 func SmallRender(t *styles.Styles, width int, o Opts) string {
-	name := "Crush"
+	name := "Star"
 	if o.Hyper {
-		name = "HYPERCRUSH"
+		name = "HYPERSTAR"
 	}
 	charm := "Charm™"
 	title := t.Logo.SmallCharm.Render(charm)

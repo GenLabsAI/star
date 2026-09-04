@@ -30,6 +30,9 @@ const (
 	PayloadTypeUpdateAvailable        PayloadType = "update_available"
 	PayloadTypeQuestionRequest        PayloadType = "question_batch_request"
 	PayloadTypeQuestionNotification   PayloadType = "question_batch_notification"
+	PayloadTypeWakeup                 PayloadType = "wakeup"
+	PayloadTypeWakeupScheduled        PayloadType = "wakeup_scheduled"
+	PayloadTypeWakeupCanceled         PayloadType = "wakeup_canceled"
 )
 
 // Payload wraps a discriminated JSON payload with a type tag.

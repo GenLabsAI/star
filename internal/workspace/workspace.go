@@ -35,7 +35,7 @@ var (
 	// ErrServerUnreachable means the client could not reach the server
 	// to determine the agent's status (server down, or the workspace was
 	// torn down out from under the client).
-	ErrServerUnreachable = errors.New("lost connection to the crush server")
+	ErrServerUnreachable = errors.New("lost connection to the star server")
 	// ErrWorkspaceGone means the server is reachable but no longer knows
 	// this client's workspace: it was torn down, or the server was
 	// replaced underneath the client. The subscription loop re-registers
@@ -139,6 +139,7 @@ type Workspace interface {
 	AgentRun(ctx context.Context, sessionID, prompt string, attachments ...message.Attachment) error
 	AgentRunShellCommand(ctx context.Context, sessionID, command string, termWidth int, onProgress func(string), isFirstMessage bool) (proto.ShellCommandResponse, error)
 	AgentCancel(sessionID string)
+	AgentWakeupCancel(sessionID string)
 	AgentIsBusy() bool
 	AgentIsSessionBusy(sessionID string) bool
 	AgentModel() AgentModel
@@ -173,6 +174,12 @@ type Workspace interface {
 	PermissionDeny(perm permission.PermissionRequest) bool
 	PermissionSkipRequests() bool
 	PermissionSetSkipRequests(skip bool)
+	PermissionMode() permission.Mode
+	PermissionSetMode(mode permission.Mode)
+	PermissionSessionSkipRequests(sessionID string) bool
+	PermissionSetSessionSkipRequests(sessionID string, skip bool)
+	PermissionSessionMode(sessionID string) permission.Mode
+	PermissionSetSessionMode(sessionID string, mode permission.Mode)
 
 	// Questions
 	//
