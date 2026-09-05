@@ -97,12 +97,12 @@ func (b *BashToolRenderContext) RenderTool(sty *styles.Styles, width int, opts *
 	if output == "" && opts.Result.Content != tools.BashNoOutput {
 		output = opts.Result.Content
 	}
-	if output == "" {
+	if output == "" || !opts.ExpandedContent {
 		return header
 	}
 
 	bodyWidth := cappedWidth - toolBodyLeftPaddingTotal
-	body := sty.Tool.Body.Render(toolOutputPlainContent(sty, output, bodyWidth, opts.ExpandedContent))
+	body := sty.Tool.Body.Render(toolOutputPlainContent(sty, output, bodyWidth, true))
 	return joinToolParts(header, body)
 }
 
@@ -220,12 +220,12 @@ func renderJobTool(sty *styles.Styles, opts *ToolRenderOpts, width int, action, 
 		return joinToolParts(header, earlyState)
 	}
 
-	if content == "" {
+	if content == "" || !opts.ExpandedContent {
 		return header
 	}
 
 	bodyWidth := width - toolBodyLeftPaddingTotal
-	body := sty.Tool.Body.Render(toolOutputPlainContent(sty, content, bodyWidth, opts.ExpandedContent))
+	body := sty.Tool.Body.Render(toolOutputPlainContent(sty, content, bodyWidth, true))
 	return joinToolParts(header, body)
 }
 

@@ -65,7 +65,7 @@ func (v *ViewToolRenderContext) RenderTool(sty *styles.Styles, width int, opts *
 		return joinToolParts(header, earlyState)
 	}
 
-	if !opts.HasResult() {
+	if !opts.HasResult() || !opts.ExpandedContent {
 		return header
 	}
 

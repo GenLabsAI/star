@@ -8,6 +8,21 @@
 - **Rust Launcher**: The entry point is a Rust binary (`star.exe`) in the `launcher/` directory that displays a smooth, animated splash screen (with a spinner, glowing logo, and twinkling stars). It coordinates with the Go UI via Windows named events before cleanly handing off the terminal to Bubble Tea.
 - **Binary Names**: Deploys as `star.exe` (the launcher) and `star-core.exe` (the Go core).
 
+### Committing and Pushing
+
+We are developing at high speed on `genlabsai/star` (the `genlabsai` git
+remote). You are TOTALLY ALLOWED, and expected, to commit and push directly
+to `genlabsai/star` without asking for confirmation first. Ship code:
+
+- Commit whenever a logical unit of work is complete, following the
+  `<git_commits>` semantic commit conventions.
+- Push to the `genlabsai` remote (not `origin`, which is upstream Crush)
+  without waiting for explicit permission each time.
+- Still never push to `origin` (`charmbracelet/crush`) unless explicitly
+  asked.
+- Still never force-push, rewrite shared history, or push directly to
+  someone else's branch without cause.
+
 ---
 
 Crush connects to LLMs and gives them tools to read, write, and execute code. It supports multiple providers (Anthropic, OpenAI, Gemini, Bedrock, Copilot, Hyper, MiniMax, Vercel, and more), integrates with LSPs for code intelligence, and supports extensibility via MCP servers and agent skills.

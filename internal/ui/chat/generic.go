@@ -57,7 +57,7 @@ func (g *GenericToolRenderContext) RenderTool(sty *styles.Styles, width int, opt
 		return joinToolParts(header, earlyState)
 	}
 
-	if !opts.HasResult() || opts.Result.Content == "" {
+	if !opts.HasResult() || opts.Result.Content == "" || !opts.ExpandedContent {
 		return header
 	}
 

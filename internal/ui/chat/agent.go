@@ -184,8 +184,8 @@ func (r *AgentToolRenderContext) RenderTool(sty *styles.Styles, width int, opts 
 	result := lipgloss.JoinVertical(lipgloss.Left, parts...)
 
 	// Add body content when completed.
-	if opts.HasResult() && opts.Result.Content != "" {
-		body := toolOutputMarkdownContent(sty, opts.Result.Content, cappedWidth-toolBodyLeftPaddingTotal, opts.ExpandedContent)
+	if opts.HasResult() && opts.Result.Content != "" && opts.ExpandedContent {
+		body := toolOutputMarkdownContent(sty, opts.Result.Content, cappedWidth-toolBodyLeftPaddingTotal, true)
 		return joinToolParts(result, body)
 	}
 
@@ -353,8 +353,8 @@ func (r *AgenticFetchToolRenderContext) RenderTool(sty *styles.Styles, width int
 	result := lipgloss.JoinVertical(lipgloss.Left, parts...)
 
 	// Add body content when completed.
-	if opts.HasResult() && opts.Result.Content != "" {
-		body := toolOutputMarkdownContent(sty, opts.Result.Content, cappedWidth-toolBodyLeftPaddingTotal, opts.ExpandedContent)
+	if opts.HasResult() && opts.Result.Content != "" && opts.ExpandedContent {
+		body := toolOutputMarkdownContent(sty, opts.Result.Content, cappedWidth-toolBodyLeftPaddingTotal, true)
 		return joinToolParts(result, body)
 	}
 

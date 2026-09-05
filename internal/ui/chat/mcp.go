@@ -68,7 +68,7 @@ func (b *MCPToolRenderContext) RenderTool(sty *styles.Styles, width int, opts *T
 		return joinToolParts(header, earlyState)
 	}
 
-	if !opts.HasResult() || opts.Result.Content == "" {
+	if !opts.HasResult() || opts.Result.Content == "" || !opts.ExpandedContent {
 		return header
 	}
 

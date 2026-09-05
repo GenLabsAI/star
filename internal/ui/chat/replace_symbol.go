@@ -49,7 +49,7 @@ func (r *ReplaceSymbolToolRenderContext) RenderTool(sty *styles.Styles, width in
 		return joinToolParts(header, earlyState)
 	}
 
-	if !opts.HasResult() {
+	if !opts.HasResult() || !opts.ExpandedContent {
 		return header
 	}
 

@@ -126,10 +126,13 @@ func (d *DockerMCPToolRenderContext) RenderTool(sty *styles.Styles, width int, o
 	}
 
 	if tool == "mcp-find" {
+		if !opts.ExpandedContent {
+			return header
+		}
 		return joinToolParts(header, d.renderMCPServers(sty, opts, cappedWidth))
 	}
 
-	if !opts.HasResult() {
+	if !opts.HasResult() || !opts.ExpandedContent {
 		return header
 	}
 
@@ -138,7 +141,7 @@ func (d *DockerMCPToolRenderContext) RenderTool(sty *styles.Styles, width int, o
 
 	// Handle text content.
 	if opts.Result.Content != "" {
-		body := renderToolResultTextContent(sty, opts.Result.Content, toolResultContentWidths{Body: bodyWidth, Diff: cappedWidth}, opts.ExpandedContent)
+		body := renderToolResultTextContent(sty, opts.Result.Content, toolResultContentWidths{Body: bodyWidth, Diff: cappedWidth}, true)
 		parts = append(parts, body)
 	}
 

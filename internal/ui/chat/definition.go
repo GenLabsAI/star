@@ -47,7 +47,7 @@ func (r *DefinitionToolRenderContext) RenderTool(sty *styles.Styles, width int, 
 		return joinToolParts(header, earlyState)
 	}
 
-	if opts.HasEmptyResult() {
+	if opts.HasEmptyResult() || !opts.ExpandedContent {
 		return header
 	}
 

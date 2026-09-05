@@ -59,12 +59,12 @@ func (g *GlobToolRenderContext) RenderTool(sty *styles.Styles, width int, opts *
 		return joinToolParts(header, earlyState)
 	}
 
-	if !opts.HasResult() || opts.Result.Content == "" {
+	if !opts.HasResult() || opts.Result.Content == "" || !opts.ExpandedContent {
 		return header
 	}
 
 	bodyWidth := cappedWidth - toolBodyLeftPaddingTotal
-	body := sty.Tool.Body.Render(toolOutputPlainContent(sty, opts.Result.Content, bodyWidth, opts.ExpandedContent))
+	body := sty.Tool.Body.Render(toolOutputPlainContent(sty, opts.Result.Content, bodyWidth, true))
 	return joinToolParts(header, body)
 }
 
@@ -124,12 +124,12 @@ func (g *GrepToolRenderContext) RenderTool(sty *styles.Styles, width int, opts *
 		return joinToolParts(header, earlyState)
 	}
 
-	if opts.HasEmptyResult() {
+	if opts.HasEmptyResult() || !opts.ExpandedContent {
 		return header
 	}
 
 	bodyWidth := cappedWidth - toolBodyLeftPaddingTotal
-	body := sty.Tool.Body.Render(toolOutputPlainContent(sty, opts.Result.Content, bodyWidth, opts.ExpandedContent))
+	body := sty.Tool.Body.Render(toolOutputPlainContent(sty, opts.Result.Content, bodyWidth, true))
 	return joinToolParts(header, body)
 }
 
@@ -184,12 +184,12 @@ func (l *LSToolRenderContext) RenderTool(sty *styles.Styles, width int, opts *To
 		return joinToolParts(header, earlyState)
 	}
 
-	if opts.HasEmptyResult() {
+	if opts.HasEmptyResult() || !opts.ExpandedContent {
 		return header
 	}
 
 	bodyWidth := cappedWidth - toolBodyLeftPaddingTotal
-	body := sty.Tool.Body.Render(toolOutputPlainContent(sty, opts.Result.Content, bodyWidth, opts.ExpandedContent))
+	body := sty.Tool.Body.Render(toolOutputPlainContent(sty, opts.Result.Content, bodyWidth, true))
 	return joinToolParts(header, body)
 }
 
@@ -246,11 +246,11 @@ func (s *SourcegraphToolRenderContext) RenderTool(sty *styles.Styles, width int,
 		return joinToolParts(header, earlyState)
 	}
 
-	if opts.HasEmptyResult() {
+	if opts.HasEmptyResult() || !opts.ExpandedContent {
 		return header
 	}
 
 	bodyWidth := cappedWidth - toolBodyLeftPaddingTotal
-	body := sty.Tool.Body.Render(toolOutputPlainContent(sty, opts.Result.Content, bodyWidth, opts.ExpandedContent))
+	body := sty.Tool.Body.Render(toolOutputPlainContent(sty, opts.Result.Content, bodyWidth, true))
 	return joinToolParts(header, body)
 }
