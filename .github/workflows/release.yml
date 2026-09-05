@@ -2,19 +2,44 @@ name: release
 
 on:
   push:
-    tags:
-      - "v*.*.*"
+    branches: [main]
   workflow_dispatch:
 
 permissions:
   contents: write
 
 concurrency:
-  group: release-${{ github.ref }}
+  group: release
   cancel-in-progress: false
 
 jobs:
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.bump.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Compute next version
+        id: bump
+        run: |
+          latest=$(git tag --list 'v*.*.*' --sort=-v:refname | head -n1)
+          if [ -z "$latest" ]; then
+            next="v0.1.0"
+          else
+            base=${latest#v}
+            major=$(echo "$base" | cut -d. -f1)
+            minor=$(echo "$base" | cut -d. -f2)
+            patch=$(echo "$base" | cut -d. -f3)
+            next="v${major}.${minor}.$((patch + 1))"
+          fi
+          echo "version=$next" >> "$GITHUB_OUTPUT"
+          echo "Next version: $next"
+
   build:
+    needs: version
     strategy:
       fail-fast: false
       matrix:
@@ -40,6 +65,8 @@ jobs:
             goarch: arm64
             artifact: star-darwin-arm64
     runs-on: ${{ matrix.os }}
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -58,11 +85,11 @@ jobs:
           CGO_ENABLED: "0"
         run: |
           New-Item -ItemType Directory -Force dist/${{ matrix.artifact }}
-          go build -trimpath -ldflags "-s -w" -o dist/${{ matrix.artifact }}/star-core.exe .
-          $target = if ('${{ matrix.goarch }}' -eq 'arm64') { 'aarch64-pc-windows-msvc' } else { 'x86_64-pc-windows-msvc' }
-          rustup target add $target
-          cargo build --release --manifest-path launcher/Cargo.toml --target $target
-          Copy-Item launcher/target/$target/release/star.exe dist/${{ matrix.artifact }}/star.exe
+          $ldflags = "-s -w -X github.com/charmbracelet/crush/internal/version.Version=$env:VERSION -X github.com/charmbracelet/crush/internal/version.Commit=$env:GITHUB_SHA"
+          go build -trimpath -ldflags "$ldflags" -o dist/${{ matrix.artifact }}/star-core.exe .
+          rustup target add x86_64-pc-windows-msvc
+          cargo build --release --manifest-path launcher/Cargo.toml --target x86_64-pc-windows-msvc
+          Copy-Item launcher/target/x86_64-pc-windows-msvc/release/star.exe dist/${{ matrix.artifact }}/star.exe
           Compress-Archive -Path dist/${{ matrix.artifact }}/* -DestinationPath dist/${{ matrix.artifact }}.zip
       - name: Build Unix binary
         if: matrix.goos != 'windows'
@@ -72,7 +99,8 @@ jobs:
           CGO_ENABLED: "0"
         run: |
           mkdir -p dist/${{ matrix.artifact }}
-          go build -trimpath -ldflags "-s -w" -o dist/${{ matrix.artifact }}/star .
+          ldflags="-s -w -X github.com/charmbracelet/crush/internal/version.Version=${VERSION} -X github.com/charmbracelet/crush/internal/version.Commit=${GITHUB_SHA}"
+          go build -trimpath -ldflags "$ldflags" -o dist/${{ matrix.artifact }}/star .
           tar -C dist -czf dist/${{ matrix.artifact }}.tar.gz ${{ matrix.artifact }}
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
@@ -83,15 +111,21 @@ jobs:
           if-no-files-found: error
 
   release:
-    if: github.event_name == 'push'
-    needs: build
+    needs: [version, build]
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           path: dist
           merge-multiple: true
-      - name: Create GitHub release
+      - name: Tag and publish release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "${{ github.ref_name }}" dist/* --generate-notes --verify-tag
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          git tag "$VERSION"
+          git push origin "$VERSION"
+          gh release create "$VERSION" dist/* --generate-notes --title "$VERSION"
