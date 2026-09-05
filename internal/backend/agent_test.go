@@ -9,6 +9,7 @@ import (
 	"charm.land/fantasy"
 	"github.com/charmbracelet/crush/internal/agent"
 	"github.com/charmbracelet/crush/internal/app"
+	"github.com/charmbracelet/crush/internal/config"
 	"github.com/charmbracelet/crush/internal/message"
 	"github.com/charmbracelet/crush/internal/proto"
 	"github.com/google/uuid"
@@ -48,6 +49,7 @@ func (c *blockingCoordinator) RunAccepted(ctx context.Context, accept *agent.Acc
 
 func (c *blockingCoordinator) BeginAccepted(sessionID string) *agent.AcceptedRun { return nil }
 func (c *blockingCoordinator) Cancel(string)                                     {}
+func (c *blockingCoordinator) CancelWakeup(string)                               {}
 func (c *blockingCoordinator) CancelAll()                                        {}
 func (c *blockingCoordinator) IsBusy() bool                                      { return false }
 func (c *blockingCoordinator) IsSessionBusy(string) bool                         { return false }
@@ -56,8 +58,12 @@ func (c *blockingCoordinator) QueuedPromptsList(string) []string                
 func (c *blockingCoordinator) ClearQueue(string)                                 {}
 func (c *blockingCoordinator) Summarize(context.Context, string) error           { return nil }
 func (c *blockingCoordinator) Model() agent.Model                                { return agent.Model{} }
-func (c *blockingCoordinator) UpdateModels(context.Context) error                { return nil }
-func (c *blockingCoordinator) GenerateTitle(context.Context, string, string)     {}
+func (c *blockingCoordinator) SessionModel(string) agent.Model                   { return agent.Model{} }
+func (c *blockingCoordinator) SetSessionModels(context.Context, string, map[config.SelectedModelType]config.SelectedModel) error {
+	return nil
+}
+func (c *blockingCoordinator) UpdateModels(context.Context) error            { return nil }
+func (c *blockingCoordinator) GenerateTitle(context.Context, string, string) {}
 
 // insertAgentWorkspace installs a synthetic workspace with the given
 // coordinator (or none) and a workspace run context, mirroring the

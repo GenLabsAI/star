@@ -16,6 +16,7 @@ import (
 	"github.com/charmbracelet/crush/internal/agent"
 	"github.com/charmbracelet/crush/internal/app"
 	"github.com/charmbracelet/crush/internal/backend"
+	"github.com/charmbracelet/crush/internal/config"
 	"github.com/charmbracelet/crush/internal/message"
 	"github.com/charmbracelet/crush/internal/proto"
 	"github.com/charmbracelet/crush/internal/pubsub"
@@ -204,6 +205,8 @@ func (c *scriptedCoordinator) Cancel(sessionID string) {
 	}
 }
 
+func (c *scriptedCoordinator) CancelWakeup(string) {}
+
 func (c *scriptedCoordinator) CancelAll() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -212,13 +215,17 @@ func (c *scriptedCoordinator) CancelAll() {
 	}
 }
 
-func (c *scriptedCoordinator) IsBusy() bool                                  { return false }
-func (c *scriptedCoordinator) IsSessionBusy(string) bool                     { return false }
-func (c *scriptedCoordinator) QueuedPrompts(string) int                      { return 0 }
-func (c *scriptedCoordinator) QueuedPromptsList(string) []string             { return nil }
-func (c *scriptedCoordinator) ClearQueue(string)                             {}
-func (c *scriptedCoordinator) Summarize(context.Context, string) error       { return nil }
-func (c *scriptedCoordinator) Model() agent.Model                            { return agent.Model{} }
+func (c *scriptedCoordinator) IsBusy() bool                            { return false }
+func (c *scriptedCoordinator) IsSessionBusy(string) bool               { return false }
+func (c *scriptedCoordinator) QueuedPrompts(string) int                { return 0 }
+func (c *scriptedCoordinator) QueuedPromptsList(string) []string       { return nil }
+func (c *scriptedCoordinator) ClearQueue(string)                       {}
+func (c *scriptedCoordinator) Summarize(context.Context, string) error { return nil }
+func (c *scriptedCoordinator) Model() agent.Model                      { return agent.Model{} }
+func (c *scriptedCoordinator) SessionModel(string) agent.Model         { return agent.Model{} }
+func (c *scriptedCoordinator) SetSessionModels(context.Context, string, map[config.SelectedModelType]config.SelectedModel) error {
+	return nil
+}
 func (c *scriptedCoordinator) UpdateModels(context.Context) error            { return nil }
 func (c *scriptedCoordinator) GenerateTitle(context.Context, string, string) {}
 

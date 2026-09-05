@@ -15,6 +15,7 @@ import (
 	"github.com/charmbracelet/crush/internal/agent"
 	"github.com/charmbracelet/crush/internal/app"
 	"github.com/charmbracelet/crush/internal/backend"
+	"github.com/charmbracelet/crush/internal/config"
 	"github.com/charmbracelet/crush/internal/message"
 	"github.com/charmbracelet/crush/internal/proto"
 	"github.com/google/uuid"
@@ -67,9 +68,10 @@ func (s *runCoordinator) RunAccepted(ctx context.Context, accept *agent.Accepted
 func (s *runCoordinator) BeginAccepted(sessionID string) *agent.AcceptedRun {
 	return nil
 }
-func (s *runCoordinator) Cancel(string) {}
-func (s *runCoordinator) CancelAll()    {}
-func (s *runCoordinator) IsBusy() bool  { return false }
+func (s *runCoordinator) Cancel(string)       {}
+func (s *runCoordinator) CancelWakeup(string) {}
+func (s *runCoordinator) CancelAll()          {}
+func (s *runCoordinator) IsBusy() bool        { return false }
 func (s *runCoordinator) IsSessionBusy(string) bool {
 	return false
 }
@@ -79,7 +81,11 @@ func (s *runCoordinator) ClearQueue(string)                 {}
 func (s *runCoordinator) Summarize(context.Context, string) error {
 	return nil
 }
-func (s *runCoordinator) Model() agent.Model                            { return agent.Model{} }
+func (s *runCoordinator) Model() agent.Model              { return agent.Model{} }
+func (s *runCoordinator) SessionModel(string) agent.Model { return agent.Model{} }
+func (s *runCoordinator) SetSessionModels(context.Context, string, map[config.SelectedModelType]config.SelectedModel) error {
+	return nil
+}
 func (s *runCoordinator) UpdateModels(context.Context) error            { return nil }
 func (s *runCoordinator) GenerateTitle(context.Context, string, string) {}
 
