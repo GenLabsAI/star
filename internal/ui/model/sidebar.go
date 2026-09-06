@@ -80,9 +80,13 @@ func (m *UI) updateSidebarScrollState() {
 	cwd := common.PrettyPath(t, m.com.Workspace.WorkingDir(), contentWidth)
 	sidebarLogo := m.sidebarLogo
 	if height < logoHeightBreakpoint {
-		sidebarLogo = lipgloss.JoinVertical(lipgloss.Left, logo.SmallRender(m.com.Styles, contentWidth, logo.Opts{
-			Hyper: m.com.IsHyper(),
-		}), "")
+		if m.updateAvailable != nil {
+			sidebarLogo = lipgloss.NewStyle().Foreground(m.com.Styles.Logo.VersionColor).Render("Update Now")
+		} else {
+			sidebarLogo = lipgloss.JoinVertical(lipgloss.Left, logo.SmallRender(m.com.Styles, contentWidth, logo.Opts{
+				Hyper: m.com.IsHyper(),
+			}), "")
+		}
 	}
 
 	var logoRect, contentRect image.Rectangle

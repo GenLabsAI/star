@@ -126,6 +126,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ needs.version.outputs.version }}
         run: |
+          cd dist
+          sha256sum star-* > checksums.txt
+          cd ..
           git tag "$VERSION"
           git push origin "$VERSION"
           gh release create "$VERSION" dist/* --generate-notes --title "$VERSION"

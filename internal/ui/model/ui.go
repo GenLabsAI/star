@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"image"
 	"log/slog"
+	"maps"
 	"math/rand"
 	"net/http"
 	"os"
@@ -132,6 +133,9 @@ type shellStreamMsg struct {
 }
 
 type (
+	// startUpdateMsg signals that the UI should exit with the update code
+	startUpdateMsg struct{}
+
 	// wakeupTickMsg triggers a UI repaint for the wakeup countdown overlay.
 	wakeupTickMsg struct{}
 	// cancelTimerExpiredMsg is sent when the cancel timer expires.
@@ -307,6 +311,9 @@ type UI struct {
 
 	// sidebarLogo keeps a cached version of the sidebar sidebarLogo.
 	sidebarLogo string
+
+	updateAvailable   *app.UpdateAvailableMsg
+	updateDownloading bool
 
 	// Sidebar scroll state for virtual scrolling.
 	sidebarOffset           int  // current scroll offset in lines
@@ -1005,15 +1012,24 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			m.pendingWakeup = &wk
 			m.wakeupEndTime = msg.Payload.EndTime
+			m.dialog.CloseDialog(dialog.WakeupToastID)
+			m.dialog.OpenDialog(dialog.NewWakeupToast(
+				m.com,
+				msg.Payload.SessionID,
+				msg.Payload.Reason,
+				msg.Payload.EndTime,
+			))
 			cmds = append(cmds, wakeupTickCmd())
 		}
 	case pubsub.Event[pubsub.WakeupCanceledEvent]:
 		if m.session != nil && msg.Payload.SessionID == m.session.ID {
 			m.pendingWakeup = nil
+			m.dialog.CloseDialog(dialog.WakeupToastID)
 		}
 	case pubsub.Event[pubsub.WakeupEvent]:
 		if m.session != nil && msg.Payload.SessionID == m.session.ID {
 			m.pendingWakeup = nil
+			m.dialog.CloseDialog(dialog.WakeupToastID)
 			m.agentBusyCache.set(true)
 			m.busyFetchGen++
 			m.invalidatePromptQueue()
@@ -1033,7 +1049,8 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			})
 		}
 	case wakeupTickMsg:
-		if m.pendingWakeup != nil {
+		if toast, ok := m.dialog.Dialog(dialog.WakeupToastID).(*dialog.WakeupToast); ok {
+			toast.EndTime = m.wakeupEndTime
 			cmds = append(cmds, wakeupTickCmd())
 		}
 	case cancelTimerExpiredMsg:
@@ -1419,6 +1436,10 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		cmds = append(cmds, clearInfoMsgCmd(ttl))
 	case app.UpdateAvailableMsg:
+		m.updateAvailable = &msg
+		m.cacheSidebarLogo(m.layout.sidebar.Dx())
+		m.header.updateAvailable = true
+		m.header.refresh()
 		text := fmt.Sprintf("Star update available: v%s → v%s.", msg.CurrentVersion, msg.LatestVersion)
 		if msg.IsDevelopment {
 			text = fmt.Sprintf("This is a development version of Star. The latest version is v%s.", msg.LatestVersion)
@@ -1434,6 +1455,9 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmds = append(cmds, m.handleConnectionEvent(msg)...)
 	case util.ClearStatusMsg:
 		m.status.ClearInfoMsg()
+	case startUpdateMsg:
+		m.updateDownloading = true
+		return m, tea.Quit
 	case completions.CompletionItemsLoadedMsg:
 		if m.completionsOpen {
 			m.completions.SetItems(msg.Files, msg.Resources)
@@ -1723,6 +1747,23 @@ func (m *UI) appendSessionMessage(msg message.Message) tea.Cmd {
 }
 
 func (m *UI) handleClickFocus(msg tea.MouseClickMsg) (cmd tea.Cmd) {
+	if m.updateAvailable != nil && !m.updateDownloading {
+		// If the click is inside the logo/header area and we have an update, trigger it
+		// In full mode, the logo is top-left of sidebar
+		// In compact mode, the logo is left side of header
+		clickedUpdate := false
+		if !m.isCompact && image.Pt(msg.X, msg.Y).In(m.layout.sidebar) && msg.Y < m.layout.sidebar.Min.Y+5 {
+			clickedUpdate = true
+		} else if m.isCompact && image.Pt(msg.X, msg.Y).In(m.layout.header) && msg.X < m.layout.header.Min.X+30 {
+			clickedUpdate = true
+		}
+
+		if clickedUpdate {
+			m.updateDownloading = true
+			return m.startUpdate()
+		}
+	}
+
 	switch {
 	case m.state != uiChat:
 		return nil
@@ -1917,6 +1958,16 @@ func (m *UI) handleChildSessionMessage(event pubsub.Event[message.Message]) tea.
 	return tea.Sequence(cmds...)
 }
 
+func (m *UI) startUpdate() tea.Cmd {
+	return func() tea.Msg {
+		return startUpdateMsg{}
+	}
+}
+
+func (m *UI) UpdateRequested() bool {
+	return m.updateDownloading
+}
+
 func (m *UI) handleDialogMsg(msg tea.Msg) tea.Cmd {
 	var cmds []tea.Cmd
 	action := m.dialog.Update(msg)
@@ -1928,6 +1979,10 @@ func (m *UI) handleDialogMsg(msg tea.Msg) tea.Cmd {
 
 	switch msg := action.(type) {
 	// Generic dialog messages
+	case dialog.ActionCancelWakeup:
+		m.com.Workspace.AgentWakeupCancel(msg.SessionID)
+		m.pendingWakeup = nil
+		m.dialog.CloseDialog(dialog.WakeupToastID)
 	case dialog.ActionClose:
 		if isOnboarding && m.dialog.ContainsDialog(dialog.ModelsID) {
 			break
@@ -2289,6 +2344,9 @@ func (m *UI) restoreModelFromSession(msgs []message.Message) tea.Cmd {
 	}
 
 	currentLarge := cfg.Models[config.SelectedModelTypeLarge]
+	if m.hasSession() {
+		currentLarge = m.com.Workspace.AgentSessionModel(m.session.ID).ModelCfg
+	}
 	if currentLarge.Provider == lastAssistant.Provider && currentLarge.Model == lastAssistant.Model {
 		return nil
 	}
@@ -2304,23 +2362,28 @@ func (m *UI) restoreModelFromSession(msgs []message.Message) tea.Cmd {
 		Provider: lastAssistant.Provider,
 		Model:    lastAssistant.Model,
 	}
-	if err := m.com.Workspace.UpdatePreferredModel(config.ScopeGlobal, config.SelectedModelTypeLarge, selectedModel); err != nil {
+	models := maps.Clone(cfg.Models)
+	models[config.SelectedModelTypeLarge] = selectedModel
+	if _, ok := models[config.SelectedModelTypeSmall]; !ok {
+		models[config.SelectedModelTypeSmall] = m.com.Workspace.GetDefaultSmallModel(lastAssistant.Provider)
+	}
+	if m.hasSession() {
+		if err := m.com.Workspace.AgentSetSessionModels(context.Background(), m.session.ID, models); err != nil {
+			slog.Error("Failed to restore model from session", "error", err)
+			return nil
+		}
+	} else if err := m.com.Workspace.UpdatePreferredModel(config.ScopeGlobal, config.SelectedModelTypeLarge, selectedModel); err != nil {
 		slog.Error("Failed to restore model from session", "error", err)
 		return nil
 	}
 
 	m.applyThemeForProvider(lastAssistant.Provider)
 
-	if _, ok := cfg.Models[config.SelectedModelTypeSmall]; !ok {
-		smallModel := m.com.Workspace.GetDefaultSmallModel(lastAssistant.Provider)
-		if err := m.com.Workspace.UpdatePreferredModel(config.ScopeGlobal, config.SelectedModelTypeSmall, smallModel); err != nil {
-			slog.Error("Failed to set small model during session restore", "error", err)
-		}
-	}
-
 	return m.updateAgentModelCmd(func() tea.Msg {
-		if err := m.com.Workspace.UpdateAgentModel(context.TODO()); err != nil {
-			return util.ReportError(err)
+		if !m.hasSession() {
+			if err := m.com.Workspace.UpdateAgentModel(context.TODO()); err != nil {
+				return util.ReportError(err)
+			}
 		}
 		slog.Info("Restored model from session",
 			"provider", lastAssistant.Provider,
@@ -2369,7 +2432,18 @@ func (m *UI) handleSelectModel(msg dialog.ActionSelectModel) tea.Cmd {
 		return tea.Batch(cmds...)
 	}
 
-	if err := m.com.Workspace.UpdatePreferredModel(config.ScopeGlobal, msg.ModelType, msg.Model); err != nil {
+	models := maps.Clone(cfg.Models)
+	models[msg.ModelType] = msg.Model
+	if _, ok := models[config.SelectedModelTypeSmall]; !ok {
+		models[config.SelectedModelTypeSmall] = m.com.Workspace.GetDefaultSmallModel(providerID)
+	}
+	if m.hasSession() {
+		if err := m.com.Workspace.AgentSetSessionModels(context.Background(), m.session.ID, models); err != nil {
+			cmds = append(cmds, util.ReportError(err))
+		} else if msg.ModelType == config.SelectedModelTypeLarge {
+			m.applyThemeForProvider(providerID)
+		}
+	} else if err := m.com.Workspace.UpdatePreferredModel(config.ScopeGlobal, msg.ModelType, msg.Model); err != nil {
 		cmds = append(cmds, util.ReportError(err))
 	} else {
 		if msg.ModelType == config.SelectedModelTypeLarge {
@@ -2389,8 +2463,10 @@ func (m *UI) handleSelectModel(msg dialog.ActionSelectModel) tea.Cmd {
 	}
 
 	cmds = append(cmds, m.updateAgentModelCmd(func() tea.Msg {
-		if err := m.com.Workspace.UpdateAgentModel(context.TODO()); err != nil {
-			return util.ReportError(err)
+		if !m.hasSession() {
+			if err := m.com.Workspace.UpdateAgentModel(context.TODO()); err != nil {
+				return util.ReportError(err)
+			}
 		}
 
 		var (
@@ -2483,7 +2559,8 @@ func (m *UI) handleKeyPressMsg(msg tea.KeyPressMsg) tea.Cmd {
 			m.detailsOpen = !m.detailsOpen
 			m.updateLayoutAndSize()
 			return true
-		case key.Matches(msg, m.keyMap.Chat.EndFollow):
+		case key.Matches(msg, m.keyMap.Chat.EndFollow),
+			key.Matches(msg, m.keyMap.Chat.End) && m.focus == uiFocusEditor:
 			if m.state == uiChat && m.hasSession() {
 				if cmd := m.chat.ScrollToBottomAndSelectLast(); cmd != nil {
 					cmds = append(cmds, cmd)
@@ -2581,12 +2658,6 @@ func (m *UI) handleKeyPressMsg(msg tea.KeyPressMsg) tea.Cmd {
 
 	// Handle cancel key when agent is busy.
 	if key.Matches(msg, m.keyMap.Chat.Cancel) {
-		if m.pendingWakeup != nil {
-			m.com.Workspace.AgentWakeupCancel(m.pendingWakeup.SessionID)
-			m.pendingWakeup = nil
-			return tea.Batch(cmds...)
-		}
-
 		if m.isAgentBusy() {
 			if cmd := m.cancelAgent(); cmd != nil {
 				cmds = append(cmds, cmd)
@@ -4181,54 +4252,16 @@ func (m *UI) renderEditorView(width int) string {
 		attachmentsView = m.attachments.Render(width)
 	}
 
-	var editorContent string
-	if m.pendingWakeup != nil {
-		editorContent = m.renderWakeupOverlay(width)
-	} else {
-		editorContent = m.textarea.View()
-	}
-
 	return strings.Join([]string{
 		attachmentsView,
-		editorContent,
+		m.textarea.View(),
 		"", // margin at bottom of editor
 	}, "\n")
 }
 
-// renderWakeupOverlay renders the wakeup countdown in place of the chat textarea.
-func (m *UI) renderWakeupOverlay(width int) string {
-	remaining := time.Until(m.wakeupEndTime)
-	if remaining < 0 {
-		remaining = 0
-	}
-	minutes := int(remaining.Minutes())
-	seconds := int(remaining.Seconds()) % 60
-
-	reason := ""
-	if m.pendingWakeup != nil && m.pendingWakeup.Reason != "" {
-		reason = " — " + m.pendingWakeup.Reason
-	}
-	countdown := fmt.Sprintf("Star will wake up in %02d:%02d%s", minutes, seconds, reason)
-	cancel := "[Cancel]"
-
-	countdownStyle := m.com.Styles.Editor.Textarea.Focused.CursorLine
-	cancelStyle := m.com.Styles.Status.WarnMessage
-
-	countdownStr := countdownStyle.Render(countdown)
-	cancelStr := cancelStyle.Render(cancel)
-
-	separator := " "
-	total := lipgloss.Width(countdownStr) + len(separator) + lipgloss.Width(cancelStr)
-	if total < width {
-		separator += strings.Repeat(" ", width-total-len(separator))
-	}
-
-	return countdownStr + separator + cancelStr
-}
-
 // cacheSidebarLogo renders and caches the sidebar logo at the specified width.
 func (m *UI) cacheSidebarLogo(width int) {
-	m.sidebarLogo = renderLogo(m.com.Styles, true, m.com.IsHyper(), width)
+	m.sidebarLogo = renderLogo(m.com.Styles, true, m.com.IsHyper(), width, m.updateAvailable != nil)
 }
 
 // applyThemeForProvider swaps the active theme to the one associated with
@@ -5303,8 +5336,12 @@ func (m *UI) disableDockerMCP() tea.Msg {
 }
 
 // renderLogo renders the Crush logo with the given styles and dimensions.
-func renderLogo(t *styles.Styles, compact, hyper bool, width int) string {
-	return logo.Render(t.Logo.GradCanvas, version.Version, compact, logo.Opts{
+func renderLogo(t *styles.Styles, compact, hyper bool, width int, updateAvailable bool) string {
+	displayVersion := version.Version
+	if updateAvailable {
+		displayVersion = "Update Now"
+	}
+	return logo.Render(t.Logo.GradCanvas, displayVersion, compact, logo.Opts{
 		FieldColor:   t.Logo.FieldColor,
 		TitleColorA:  t.Logo.TitleColorA,
 		TitleColorB:  t.Logo.TitleColorB,

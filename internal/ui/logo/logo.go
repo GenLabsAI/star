@@ -99,7 +99,19 @@ func Render(base lipgloss.Style, version string, compact bool, o Opts) string {
 		version += " "
 	}
 	gap := max(0, crushWidth-lipgloss.Width(charm)-lipgloss.Width(version))
-	metaRow := fg(o.CharmColor, charm) + strings.Repeat(" ", gap) + fg(o.VersionColor, version)
+
+	var metaRow string
+	if version == "Update Now" {
+		// When rendering "Update Now", we want to render it instead of the version, and we might want to drop Charm too if it's compact.
+		gap = max(0, crushWidth-lipgloss.Width(version))
+		metaRow = strings.Repeat(" ", gap) + fg(o.VersionColor, version)
+		if !compact {
+			gap = max(0, crushWidth-lipgloss.Width(charm)-lipgloss.Width(version))
+			metaRow = fg(o.CharmColor, charm) + strings.Repeat(" ", gap) + fg(o.VersionColor, version)
+		}
+	} else {
+		metaRow = fg(o.CharmColor, charm) + strings.Repeat(" ", gap) + fg(o.VersionColor, version)
+	}
 
 	// Join the meta row and big Crush title.
 	crush = strings.TrimSpace(metaRow + "\n" + crush)

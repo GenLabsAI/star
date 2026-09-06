@@ -7,6 +7,14 @@ edition = "2024"
 name = "star"
 path = "src/main.rs"
 
+[dependencies]
+ureq = "3"
+zip = { version = "2", default-features = false, features = ["deflate"] }
+
+[target.'cfg(not(target_os = "windows"))'.dependencies]
+flate2 = "1"
+tar = "0.4"
+
 [profile.release]
 opt-level = "z"
 lto = true

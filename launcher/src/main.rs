@@ -1,9 +1,11 @@
+mod update;
+
 use std::env;
 use std::io::{self, Write};
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 use std::time::Duration;
 
@@ -71,7 +73,12 @@ fn console_size() -> (u16, u16) {
         dw_size: Coord { x: 0, y: 0 },
         dw_cursor_position: Coord { x: 0, y: 0 },
         w_attributes: 0,
-        sr_window: SmallRect { left: 0, top: 0, right: 0, bottom: 0 },
+        sr_window: SmallRect {
+            left: 0,
+            top: 0,
+            right: 0,
+            bottom: 0,
+        },
         dw_maximum_window_size: Coord { x: 0, y: 0 },
     };
     let ok = unsafe { GetConsoleScreenBufferInfo(handle, &mut info) };
@@ -89,7 +96,7 @@ fn find_core() -> PathBuf {
     dir.join("star-core.exe")
 }
 
-fn main() {
+fn run_core() -> i32 {
     let mut stdout = io::stdout();
     let tty = is_tty();
     let stop = Arc::new(AtomicBool::new(false));
@@ -111,7 +118,11 @@ fn main() {
             let braille = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
             let star_symbol = '✦';
             let (cols, rows) = console_size();
-            let label_width = label.iter().map(|line| line.chars().count()).max().unwrap_or(0);
+            let label_width = label
+                .iter()
+                .map(|line| line.chars().count())
+                .max()
+                .unwrap_or(0);
             // spinner(1) + gap(3) + label
             let spinner_gap = 3;
             let full_width = 1 + spinner_gap + label_width;
@@ -126,7 +137,7 @@ fn main() {
             let pulse_frames: usize = 72;
             let glow_width: isize = 11;
             let glow_height: isize = 5;
-            
+
             // Generate a sparse, random star field
             let num_stars = (cols as usize * rows as usize) / 130;
             let mut stars = Vec::with_capacity(num_stars);
@@ -137,7 +148,10 @@ fn main() {
                 seed = seed.wrapping_mul(1664525).wrapping_add(1013904223);
                 let y = (seed % rows as u32) as usize;
                 // Don't place stars behind the logo/glow area
-                let is_near_logo = y >= top.saturating_sub(glow_height as usize) && y <= top + label_height + glow_height as usize && x >= cx.saturating_sub(glow_width as usize) && x <= cx + full_width + glow_width as usize;
+                let is_near_logo = y >= top.saturating_sub(glow_height as usize)
+                    && y <= top + label_height + glow_height as usize
+                    && x >= cx.saturating_sub(glow_width as usize)
+                    && x <= cx + full_width + glow_width as usize;
                 if !is_near_logo {
                     stars.push((x, y));
                 }
@@ -182,13 +196,12 @@ fn main() {
                         let vertical = (-0.5 * ((row as f64 - center_y) / 3.1).powi(2)).exp();
 
                         // The text glyphs for this row, if any.
-                        let text_line: Option<&&str> = if row >= top as isize
-                            && (row as usize) < top + label_height
-                        {
-                            label.get(row as usize - top)
-                        } else {
-                            None
-                        };
+                        let text_line: Option<&&str> =
+                            if row >= top as isize && (row as usize) < top + label_height {
+                                label.get(row as usize - top)
+                            } else {
+                                None
+                            };
                         buf.push_str(&format!("\x1b[{};1H", row + 1));
 
                         let mut last_bg = (0u8, 0u8, 0u8);
@@ -232,10 +245,7 @@ fn main() {
                                     let fg_g = 255 - (40.0 * intensity) as u8;
                                     let fg_b = 255 - (255.0 * intensity) as u8;
 
-                                    buf.push_str(&format!(
-                                        "\x1b[38;2;255;{};{}m{}",
-                                        fg_g, fg_b, c
-                                    ));
+                                    buf.push_str(&format!("\x1b[38;2;255;{};{}m{}", fg_g, fg_b, c));
                                 }
                                 _ => buf.push(' '),
                             }
@@ -313,7 +323,8 @@ fn main() {
 
     let ready_event = unsafe { CreateEventW(std::ptr::null_mut(), 1, 0, ready_name.as_ptr()) };
     let release_event = unsafe { CreateEventW(std::ptr::null_mut(), 1, 0, release_name.as_ptr()) };
-    let rendered_event = unsafe { CreateEventW(std::ptr::null_mut(), 1, 0, rendered_name.as_ptr()) };
+    let rendered_event =
+        unsafe { CreateEventW(std::ptr::null_mut(), 1, 0, rendered_name.as_ptr()) };
 
     let mut child = match Command::new(&core)
         .args(&args)
@@ -364,7 +375,22 @@ fn main() {
     let status = child.wait();
 
     match status {
-        Ok(s) => std::process::exit(s.code().unwrap_or(0)),
-        Err(_) => std::process::exit(1),
+        Ok(s) => s.code().unwrap_or(0),
+        Err(_) => 1,
+    }
+}
+
+fn main() {
+    loop {
+        let exit_code = run_core();
+        if exit_code != 42 {
+            std::process::exit(exit_code);
+        }
+
+        let core = find_core();
+        if let Err(error) = update::perform_update(&core) {
+            eprintln!("Update failed: {error}");
+            std::process::exit(1);
+        }
     }
 }

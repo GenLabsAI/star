@@ -166,6 +166,9 @@ star --continue
 		if cfg := com.Config(); cfg != nil {
 			banner = cfg.Options.TUI.ExitBanner
 		}
+		if model.UpdateRequested() {
+			return ErrUpdateRequested
+		}
 		printSessionResume(model, banner)
 		return nil
 	},
@@ -199,6 +202,8 @@ func printSessionResume(model *ui.UI, banner config.ExitBanner) {
 }
 
 // copied from cobra:
+var ErrUpdateRequested = errors.New("update requested")
+
 const defaultVersionTemplate = `{{with .DisplayName}}{{printf "%s " .}}{{end}}{{printf "version %s" .Version}}
 `
 
@@ -232,6 +237,9 @@ func Execute() {
 		fang.WithVersion(version.Version),
 		fang.WithNotifySignal(os.Interrupt),
 	); err != nil {
+		if errors.Is(err, ErrUpdateRequested) {
+			os.Exit(42)
+		}
 		os.Exit(1)
 	}
 }
