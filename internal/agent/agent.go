@@ -87,6 +87,8 @@ type SessionAgentCall struct {
 	Prompt           string
 	ProviderOptions  fantasy.ProviderOptions
 	Attachments      []message.Attachment
+	LargeModel       *Model
+	SmallModel       *Model
 	MaxOutputTokens  int64
 	Temperature      *float64
 	TopP             *float64
@@ -659,6 +661,9 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
 	// Copy mutable fields under lock to avoid races with SetTools/SetModels.
 	agentTools := a.tools.Copy()
 	largeModel := a.largeModel.Get()
+	if call.LargeModel != nil {
+		largeModel = *call.LargeModel
+	}
 	systemPrompt := a.systemPrompt.Get()
 	promptPrefix := a.systemPromptPrefix.Get()
 	var instructions strings.Builder
@@ -941,7 +946,7 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
 		},
 		OnAuthRefresh: call.OnAuthRefresh,
 		ModelProvider: func() fantasy.LanguageModel {
-			m := a.largeModel.Get()
+			m := largeModel
 			slog.Info("ModelProvider called",
 				"provider", m.ModelCfg.Provider,
 				"model", m.ModelCfg.Model)

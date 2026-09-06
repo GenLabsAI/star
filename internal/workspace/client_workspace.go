@@ -272,6 +272,21 @@ func (w *ClientWorkspace) AgentModel() AgentModel {
 	}
 }
 
+func (w *ClientWorkspace) AgentSessionModel(sessionID string) AgentModel {
+	info, err := w.client.GetAgentSessionInfo(context.Background(), w.workspaceID(), sessionID)
+	if err != nil || info.ModelCfg.Model == "" {
+		return w.AgentModel()
+	}
+	return AgentModel{
+		CatwalkCfg: info.Model,
+		ModelCfg:   info.ModelCfg,
+	}
+}
+
+func (w *ClientWorkspace) AgentSetSessionModels(ctx context.Context, sessionID string, models map[config.SelectedModelType]config.SelectedModel) error {
+	return w.client.SetSessionModels(ctx, w.workspaceID(), sessionID, models)
+}
+
 func (w *ClientWorkspace) AgentIsReady() bool {
 	return w.AgentReadyErr() == nil
 }

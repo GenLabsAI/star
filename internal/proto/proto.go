@@ -164,12 +164,19 @@ type ShellCommandResponse struct {
 // AgentSession represents a session with its busy status.
 type AgentSession struct {
 	Session
-	IsBusy bool `json:"is_busy"`
+	IsBusy   bool                 `json:"is_busy"`
+	Model    catwalk.Model        `json:"model,omitempty"`
+	ModelCfg config.SelectedModel `json:"model_cfg,omitempty"`
 }
 
 // IsZero checks if the AgentSession is zero-valued.
 func (a AgentSession) IsZero() bool {
 	return a.ID == "" && !a.IsBusy
+}
+
+// SetSessionModelsRequest sets per-session model overrides.
+type SetSessionModelsRequest struct {
+	Models map[config.SelectedModelType]config.SelectedModel `json:"models"`
 }
 
 // PermissionAction represents an action taken on a permission request.

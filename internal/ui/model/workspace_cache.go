@@ -172,7 +172,7 @@ func (m *UI) dispatchBusyRefresh() tea.Cmd {
 		if ws.AgentIsReady() {
 			st.ready = true
 			st.agentBusy = ws.AgentIsBusy()
-			st.model = ws.AgentModel()
+			st.model = ws.AgentSessionModel(sessionID)
 		}
 		st.yolo = ws.PermissionSessionSkipRequests(sessionID)
 		st.mode = ws.PermissionSessionMode(sessionID)

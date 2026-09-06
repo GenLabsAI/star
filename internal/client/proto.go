@@ -560,6 +560,20 @@ func (c *Client) GetAgentSessionInfo(ctx context.Context, id string, sessionID s
 	return &info, nil
 }
 
+// SetSessionModels sets a per-session model override for a workspace
+// session.
+func (c *Client) SetSessionModels(ctx context.Context, id, sessionID string, models map[config.SelectedModelType]config.SelectedModel) error {
+	rsp, err := c.post(ctx, fmt.Sprintf("/workspaces/%s/agent/sessions/%s/models", id, sessionID), nil, jsonBody(proto.SetSessionModelsRequest{Models: models}), http.Header{"Content-Type": []string{"application/json"}})
+	if err != nil {
+		return fmt.Errorf("failed to set session models: %w", err)
+	}
+	defer rsp.Body.Close()
+	if rsp.StatusCode != http.StatusOK {
+		return fmt.Errorf("failed to set session models: status code %d", rsp.StatusCode)
+	}
+	return nil
+}
+
 // AgentSummarizeSession requests a session summarization.
 func (c *Client) AgentSummarizeSession(ctx context.Context, id string, sessionID string) error {
 	rsp, err := c.post(ctx, fmt.Sprintf("/workspaces/%s/agent/sessions/%s/summarize", id, sessionID), nil, nil, nil)

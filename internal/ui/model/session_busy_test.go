@@ -83,11 +83,15 @@ func (w *countingWorkspace) PermissionSetSkipRequests(skip bool) {
 func (w *countingWorkspace) PermissionMode() permission.Mode        { return w.permMode }
 func (w *countingWorkspace) PermissionSetMode(mode permission.Mode) { w.permMode = mode }
 
-func (w *countingWorkspace) PermissionSessionSkipRequests(sessionID string) bool { return w.PermissionSkipRequests() }
+func (w *countingWorkspace) PermissionSessionSkipRequests(sessionID string) bool {
+	return w.PermissionSkipRequests()
+}
 func (w *countingWorkspace) PermissionSetSessionSkipRequests(sessionID string, skip bool) {
 	w.PermissionSetSkipRequests(skip)
 }
-func (w *countingWorkspace) PermissionSessionMode(sessionID string) permission.Mode { return w.PermissionMode() }
+func (w *countingWorkspace) PermissionSessionMode(sessionID string) permission.Mode {
+	return w.PermissionMode()
+}
 func (w *countingWorkspace) PermissionSetSessionMode(sessionID string, mode permission.Mode) {
 	w.PermissionSetMode(mode)
 }
@@ -98,6 +102,10 @@ func (w *countingWorkspace) AgentCancel(string)     { w.cancelCalls++ }
 func (w *countingWorkspace) AgentModel() workspace.AgentModel {
 	w.modelCalls++
 	return w.model
+}
+
+func (w *countingWorkspace) AgentSessionModel(string) workspace.AgentModel {
+	return w.AgentModel()
 }
 
 func (w *countingWorkspace) LSPGetStates() map[string]workspace.LSPClientInfo {

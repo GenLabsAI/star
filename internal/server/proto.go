@@ -868,6 +868,38 @@ func (c *controllerV1) handleGetWorkspaceAgentSession(w http.ResponseWriter, r *
 	jsonEncode(w, agentSession)
 }
 
+// handlePostWorkspaceAgentSessionModels sets a per-session model
+// override.
+//
+//	@Summary		Set session model overrides
+//	@Tags			agent
+//	@Accept			json
+//	@Param			id		path	string							true	"Workspace ID"
+//	@Param			sid		path	string							true	"Session ID"
+//	@Param			request	body	proto.SetSessionModelsRequest	true	"Session model overrides"
+//	@Success		200
+//	@Failure		400	{object}	proto.Error
+//	@Failure		404	{object}	proto.Error
+//	@Failure		500	{object}	proto.Error
+//	@Router			/workspaces/{id}/agent/sessions/{sid}/models [post]
+func (c *controllerV1) handlePostWorkspaceAgentSessionModels(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	sid := r.PathValue("sid")
+
+	var req proto.SetSessionModelsRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		c.server.logError(r, "Failed to decode request", "error", err)
+		jsonError(w, http.StatusBadRequest, "failed to decode request")
+		return
+	}
+
+	if err := c.backend.SetSessionModels(r.Context(), id, sid, req.Models); err != nil {
+		c.handleError(w, r, err)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+}
+
 // handlePostWorkspaceAgentSessionCancel cancels a running agent session.
 //
 //	@Summary		Cancel agent session

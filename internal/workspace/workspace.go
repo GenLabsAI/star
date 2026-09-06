@@ -143,6 +143,8 @@ type Workspace interface {
 	AgentIsBusy() bool
 	AgentIsSessionBusy(sessionID string) bool
 	AgentModel() AgentModel
+	AgentSessionModel(sessionID string) AgentModel
+	AgentSetSessionModels(ctx context.Context, sessionID string, models map[config.SelectedModelType]config.SelectedModel) error
 	AgentIsReady() bool
 	// AgentReadyErr reports nil when the coder agent is ready to accept
 	// work, or a descriptive error otherwise: ErrAgentNotInitialized

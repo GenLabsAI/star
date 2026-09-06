@@ -111,19 +111,21 @@ type Coordinator interface {
 	ClearQueue(sessionID string)
 	Summarize(context.Context, string) error
 	Model() Model
+	SessionModel(sessionID string) Model
+	SetSessionModels(ctx context.Context, sessionID string, models map[config.SelectedModelType]config.SelectedModel) error
 	UpdateModels(ctx context.Context) error
 	GenerateTitle(ctx context.Context, sessionID, prompt string)
 }
 
 type coordinator struct {
-	cfg         *config.ConfigStore
-	sessions    session.Service
-	messages    message.Service
-	permissions permission.Service
-	questions   question.Service
-	history     history.Service
-	filetracker filetracker.Service
-	lspManager  *lsp.Manager
+	cfg             *config.ConfigStore
+	sessions        session.Service
+	messages        message.Service
+	permissions     permission.Service
+	questions       question.Service
+	history         history.Service
+	filetracker     filetracker.Service
+	lspManager      *lsp.Manager
 	notify          pubsub.Publisher[notify.Notification]
 	runComplete     pubsub.Publisher[notify.RunComplete]
 	wakeupScheduler *WakeupScheduler
@@ -151,21 +153,21 @@ type coordinator struct {
 // struct keeps the constructor self-documenting and avoids a long
 // positional parameter list.
 type CoordinatorOptions struct {
-	Config      *config.ConfigStore
-	Sessions    session.Service
-	Messages    message.Service
-	Permissions permission.Service
-	Questions   question.Service
-	History     history.Service
-	FileTracker filetracker.Service
-	LSPManager  *lsp.Manager
-	Notify      pubsub.Publisher[notify.Notification]
+	Config           *config.ConfigStore
+	Sessions         session.Service
+	Messages         message.Service
+	Permissions      permission.Service
+	Questions        question.Service
+	History          history.Service
+	FileTracker      filetracker.Service
+	LSPManager       *lsp.Manager
+	Notify           pubsub.Publisher[notify.Notification]
 	RunComplete      pubsub.Publisher[notify.RunComplete]
 	Wakeups          pubsub.Publisher[pubsub.WakeupEvent]
 	WakeupsScheduled pubsub.Publisher[pubsub.WakeupScheduledEvent]
 	WakeupsCanceled  pubsub.Publisher[pubsub.WakeupCanceledEvent]
 	Skills           *skills.Manager
-	Interactive bool
+	Interactive      bool
 }
 
 func NewCoordinator(ctx context.Context, opts CoordinatorOptions) (Coordinator, error) {
@@ -183,19 +185,19 @@ func NewCoordinator(ctx context.Context, opts CoordinatorOptions) (Coordinator, 
 	skillTracker := skills.NewTracker(activeSkills)
 
 	c := &coordinator{
-		cfg:          opts.Config,
-		sessions:     opts.Sessions,
-		messages:     opts.Messages,
-		permissions:  opts.Permissions,
-		questions:    opts.Questions,
-		history:      opts.History,
-		filetracker:  opts.FileTracker,
-		lspManager:   opts.LSPManager,
-		notify:       opts.Notify,
-		runComplete:  opts.RunComplete,
-		agents:       make(map[string]SessionAgent),
-		sessionModels: csync.NewMap[string, map[config.SelectedModelType]config.SelectedModel](),
-		allSkills:    allSkills,
+		cfg:             opts.Config,
+		sessions:        opts.Sessions,
+		messages:        opts.Messages,
+		permissions:     opts.Permissions,
+		questions:       opts.Questions,
+		history:         opts.History,
+		filetracker:     opts.FileTracker,
+		lspManager:      opts.LSPManager,
+		notify:          opts.Notify,
+		runComplete:     opts.RunComplete,
+		agents:          make(map[string]SessionAgent),
+		sessionModels:   csync.NewMap[string, map[config.SelectedModelType]config.SelectedModel](),
+		allSkills:       allSkills,
 		wakeupScheduler: NewWakeupScheduler(opts.Wakeups, opts.WakeupsScheduled, opts.WakeupsCanceled),
 		activeSkills:    activeSkills,
 		skillTracker:    skillTracker,
@@ -269,7 +271,16 @@ func (c *coordinator) run(ctx context.Context, accept *AcceptedRun, sessionID st
 		return nil, fmt.Errorf("failed to update models: %w", err)
 	}
 
+	var sessionLarge, sessionSmall *Model
 	model := c.currentAgent.Model()
+	if _, ok := c.sessionModels.Get(sessionID); ok {
+		large, small, err := c.buildAgentModels(ctx, sessionID, false)
+		if err != nil {
+			return nil, err
+		}
+		sessionLarge, sessionSmall = &large, &small
+		model = large
+	}
 	maxTokens := model.CatwalkCfg.DefaultMaxTokens
 	if model.ModelCfg.MaxTokens != 0 {
 		maxTokens = model.ModelCfg.MaxTokens
@@ -325,6 +336,8 @@ func (c *coordinator) run(ctx context.Context, accept *AcceptedRun, sessionID st
 			TopK:             topK,
 			FrequencyPenalty: freqPenalty,
 			PresencePenalty:  presPenalty,
+			LargeModel:       sessionLarge,
+			SmallModel:       sessionSmall,
 			OnComplete:       onComplete,
 			Accepted:         accept,
 			OnAuthRefresh:    c.makeAuthRefreshCallback(providerCfg),
@@ -641,7 +654,7 @@ func mergeCallOptions(model Model, cfg config.ProviderConfig) (fantasy.ProviderO
 }
 
 func (c *coordinator) buildAgent(ctx context.Context, prompt *prompt.Prompt, agent config.Agent, isSubAgent bool) (SessionAgent, error) {
-	large, small, err := c.buildAgentModels(ctx, isSubAgent)
+	large, small, err := c.buildAgentModels(ctx, "", isSubAgent)
 	if err != nil {
 		return nil, err
 	}
@@ -823,12 +836,19 @@ func (c *coordinator) buildTools(ctx context.Context, agent config.Agent, isSubA
 }
 
 // TODO: when we support multiple agents we need to change this so that we pass in the agent specific model config
-func (c *coordinator) buildAgentModels(ctx context.Context, isSubAgent bool) (Model, Model, error) {
-	largeModelCfg, ok := c.cfg.Config().Models[config.SelectedModelTypeLarge]
+func (c *coordinator) buildAgentModels(ctx context.Context, sessionID string, isSubAgent bool) (Model, Model, error) {
+	models := c.cfg.Config().Models
+	if sessionID != "" {
+		if override, ok := c.sessionModels.Get(sessionID); ok {
+			models = override
+		}
+	}
+
+	largeModelCfg, ok := models[config.SelectedModelTypeLarge]
 	if !ok {
 		return Model{}, Model{}, errLargeModelNotSelected
 	}
-	smallModelCfg, ok := c.cfg.Config().Models[config.SelectedModelTypeSmall]
+	smallModelCfg, ok := models[config.SelectedModelTypeSmall]
 	if !ok {
 		return Model{}, Model{}, errSmallModelNotSelected
 	}
@@ -896,16 +916,16 @@ func (c *coordinator) buildAgentModels(ctx context.Context, isSubAgent bool) (Mo
 	}
 
 	return Model{
-			Model:      largeModel,
-			CatwalkCfg: *largeCatwalkModel,
-			ModelCfg:   largeModelCfg,
-			FlatRate:   largeProviderCfg.FlatRate,
-		}, Model{
-			Model:      smallModel,
-			CatwalkCfg: *smallCatwalkModel,
-			ModelCfg:   smallModelCfg,
-			FlatRate:   smallProviderCfg.FlatRate,
-		}, nil
+		Model:      largeModel,
+		CatwalkCfg: *largeCatwalkModel,
+		ModelCfg:   largeModelCfg,
+		FlatRate:   largeProviderCfg.FlatRate,
+	}, Model{
+		Model:      smallModel,
+		CatwalkCfg: *smallCatwalkModel,
+		ModelCfg:   smallModelCfg,
+		FlatRate:   smallProviderCfg.FlatRate,
+	}, nil
 }
 
 func (c *coordinator) buildAnthropicProvider(baseURL, apiKey string, headers map[string]string, providerID string) (fantasy.Provider, error) {
@@ -1229,9 +1249,40 @@ func (c *coordinator) Model() Model {
 	return c.currentAgent.Model()
 }
 
+// SessionModel returns the effective large model for the given session:
+// its override if one was set via SetSessionModels, otherwise the
+// workspace-wide model.
+func (c *coordinator) SessionModel(sessionID string) Model {
+	if _, ok := c.sessionModels.Get(sessionID); ok {
+		large, _, err := c.buildAgentModels(context.Background(), sessionID, false)
+		if err == nil {
+			return large
+		}
+	}
+	return c.currentAgent.Model()
+}
+
+// SetSessionModels sets a per-session model override so subsequent runs
+// for this session use it instead of the workspace-wide model
+// selection. Passing a nil or empty map clears the override.
+func (c *coordinator) SetSessionModels(ctx context.Context, sessionID string, models map[config.SelectedModelType]config.SelectedModel) error {
+	if len(models) == 0 {
+		c.sessionModels.Del(sessionID)
+		return nil
+	}
+	// Validate the override builds successfully before storing it, so a
+	// bad selection surfaces immediately instead of on the next run.
+	c.sessionModels.Set(sessionID, models)
+	if _, _, err := c.buildAgentModels(ctx, sessionID, false); err != nil {
+		c.sessionModels.Del(sessionID)
+		return err
+	}
+	return nil
+}
+
 func (c *coordinator) UpdateModels(ctx context.Context) error {
 	// build the models again so we make sure we get the latest config
-	large, small, err := c.buildAgentModels(ctx, false)
+	large, small, err := c.buildAgentModels(ctx, "", false)
 	if err != nil {
 		return err
 	}

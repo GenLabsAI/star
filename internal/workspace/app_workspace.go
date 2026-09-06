@@ -194,6 +194,24 @@ func (w *AppWorkspace) AgentModel() AgentModel {
 	}
 }
 
+func (w *AppWorkspace) AgentSessionModel(sessionID string) AgentModel {
+	if w.app.AgentCoordinator == nil {
+		return AgentModel{}
+	}
+	m := w.app.AgentCoordinator.SessionModel(sessionID)
+	return AgentModel{
+		CatwalkCfg: m.CatwalkCfg,
+		ModelCfg:   m.ModelCfg,
+	}
+}
+
+func (w *AppWorkspace) AgentSetSessionModels(ctx context.Context, sessionID string, models map[config.SelectedModelType]config.SelectedModel) error {
+	if w.app.AgentCoordinator == nil {
+		return ErrAgentNotInitialized
+	}
+	return w.app.AgentCoordinator.SetSessionModels(ctx, sessionID, models)
+}
+
 func (w *AppWorkspace) AgentIsReady() bool {
 	return w.app.AgentCoordinator != nil
 }

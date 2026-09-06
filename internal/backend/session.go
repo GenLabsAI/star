@@ -3,6 +3,7 @@ package backend
 import (
 	"context"
 
+	"github.com/charmbracelet/crush/internal/config"
 	"github.com/charmbracelet/crush/internal/message"
 	"github.com/charmbracelet/crush/internal/proto"
 	"github.com/charmbracelet/crush/internal/session"
@@ -52,8 +53,12 @@ func (b *Backend) GetAgentSession(ctx context.Context, workspaceID, sessionID st
 	}
 
 	var isSessionBusy bool
+	var model proto.AgentSession
 	if ws.AgentCoordinator != nil {
 		isSessionBusy = ws.AgentCoordinator.IsSessionBusy(sessionID)
+		m := ws.AgentCoordinator.SessionModel(sessionID)
+		model.Model = m.CatwalkCfg
+		model.ModelCfg = m.ModelCfg
 	}
 
 	return proto.AgentSession{
@@ -61,8 +66,24 @@ func (b *Backend) GetAgentSession(ctx context.Context, workspaceID, sessionID st
 			ID:    se.ID,
 			Title: se.Title,
 		},
-		IsBusy: isSessionBusy,
+		IsBusy:   isSessionBusy,
+		Model:    model.Model,
+		ModelCfg: model.ModelCfg,
 	}, nil
+}
+
+// SetSessionModels sets a per-session model override for the given
+// workspace session so subsequent runs for that session use it instead
+// of the workspace-wide model selection.
+func (b *Backend) SetSessionModels(ctx context.Context, workspaceID, sessionID string, models map[config.SelectedModelType]config.SelectedModel) error {
+	ws, err := b.GetWorkspace(workspaceID)
+	if err != nil {
+		return err
+	}
+	if ws.AgentCoordinator == nil {
+		return ErrAgentNotInitialized
+	}
+	return ws.AgentCoordinator.SetSessionModels(ctx, sessionID, models)
 }
 
 // ListSessionMessages returns all messages for a session.
