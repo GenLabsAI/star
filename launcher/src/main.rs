@@ -1,3 +1,5 @@
+mod handshake;
+mod platform;
 mod update;
 
 use std::env;
@@ -9,96 +11,19 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 use std::time::Duration;
 
-#[link(name = "kernel32")]
-unsafe extern "system" {
-    fn GetConsoleMode(h_console: *mut std::ffi::c_void, lp_mode: *mut u32) -> i32;
-    fn GetStdHandle(n_std_handle: u32) -> *mut std::ffi::c_void;
-    fn GetConsoleScreenBufferInfo(
-        h_console: *mut std::ffi::c_void,
-        lp_info: *mut ConsoleScreenBufferInfo,
-    ) -> i32;
-}
-
-#[repr(C)]
-struct Coord {
-    x: i16,
-    y: i16,
-}
-
-#[repr(C)]
-struct SmallRect {
-    left: i16,
-    top: i16,
-    right: i16,
-    bottom: i16,
-}
-
-#[repr(C)]
-struct ConsoleScreenBufferInfo {
-    dw_size: Coord,
-    dw_cursor_position: Coord,
-    w_attributes: u16,
-    sr_window: SmallRect,
-    dw_maximum_window_size: Coord,
-}
-
-const STD_OUTPUT_HANDLE: u32 = 0xFFFFFFF5;
-
-#[link(name = "kernel32")]
-unsafe extern "system" {
-    fn CreateEventW(
-        lp_event_attributes: *mut std::ffi::c_void,
-        b_manual_reset: i32,
-        b_initial_state: i32,
-        lp_name: *const u16,
-    ) -> *mut std::ffi::c_void;
-    fn SetEvent(h_event: *mut std::ffi::c_void) -> i32;
-    fn WaitForSingleObject(h_handle: *mut std::ffi::c_void, dw_milliseconds: u32) -> u32;
-    fn CloseHandle(h_object: *mut std::ffi::c_void) -> i32;
-}
-
-fn wide(s: &str) -> Vec<u16> {
-    s.encode_utf16().chain(std::iter::once(0)).collect()
-}
-
-fn is_tty() -> bool {
-    let handle = unsafe { GetStdHandle(STD_OUTPUT_HANDLE) };
-    let mut mode: u32 = 0;
-    unsafe { GetConsoleMode(handle, &mut mode) != 0 }
-}
-
-fn console_size() -> (u16, u16) {
-    let handle = unsafe { GetStdHandle(STD_OUTPUT_HANDLE) };
-    let mut info = ConsoleScreenBufferInfo {
-        dw_size: Coord { x: 0, y: 0 },
-        dw_cursor_position: Coord { x: 0, y: 0 },
-        w_attributes: 0,
-        sr_window: SmallRect {
-            left: 0,
-            top: 0,
-            right: 0,
-            bottom: 0,
-        },
-        dw_maximum_window_size: Coord { x: 0, y: 0 },
-    };
-    let ok = unsafe { GetConsoleScreenBufferInfo(handle, &mut info) };
-    if ok == 0 {
-        return (80, 24);
-    }
-    let w = (info.sr_window.right - info.sr_window.left + 1).max(1) as u16;
-    let h = (info.sr_window.bottom - info.sr_window.top + 1).max(1) as u16;
-    (w, h)
-}
-
 fn find_core() -> PathBuf {
-    let exe = env::current_exe().unwrap_or_else(|_| PathBuf::from("star.exe"));
+    let exe = env::current_exe().unwrap_or_else(|_| PathBuf::from("star"));
     let dir = exe.parent().map(PathBuf::from).unwrap_or_default();
-    dir.join("star-core.exe")
+    if cfg!(target_os = "windows") {
+        dir.join("star-core.exe")
+    } else {
+        dir.join("star-core")
+    }
 }
 
 fn run_core() -> i32 {
     let mut stdout = io::stdout();
-    let tty = is_tty();
+    let tty = platform::is_tty();
     let stop = Arc::new(AtomicBool::new(false));
     let pulse_finished = Arc::new(AtomicBool::new(false));
 
@@ -117,7 +42,7 @@ fn run_core() -> i32 {
             ];
             let braille = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
             let star_symbol = '✦';
-            let (cols, rows) = console_size();
+            let (cols, rows) = platform::console_size();
             let label_width = label
                 .iter()
                 .map(|line| line.chars().count())
@@ -316,20 +241,13 @@ fn run_core() -> i32 {
     let core = find_core();
     let args: Vec<String> = env::args().skip(1).collect();
 
-    let pid = std::process::id();
-    let ready_name = wide(&format!("Local\\star-ready-{pid}"));
-    let release_name = wide(&format!("Local\\star-release-{pid}"));
-    let rendered_name = wide(&format!("Local\\star-rendered-{pid}"));
-
-    let ready_event = unsafe { CreateEventW(std::ptr::null_mut(), 1, 0, ready_name.as_ptr()) };
-    let release_event = unsafe { CreateEventW(std::ptr::null_mut(), 1, 0, release_name.as_ptr()) };
-    let rendered_event =
-        unsafe { CreateEventW(std::ptr::null_mut(), 1, 0, rendered_name.as_ptr()) };
+    let handshake = handshake::Handshake::new(std::process::id());
+    handshake.cleanup();
 
     let mut child = match Command::new(&core)
         .args(&args)
         .env("STAR_LAUNCHER_HANDSHAKE", "1")
-        .env("STAR_LAUNCHER_PID", pid.to_string())
+        .env("STAR_LAUNCHER_PID", handshake.env_pid())
         .stdin(Stdio::inherit())
         .stdout(Stdio::inherit())
         .stderr(Stdio::inherit())
@@ -344,7 +262,7 @@ fn run_core() -> i32 {
         }
     };
 
-    unsafe { WaitForSingleObject(ready_event, u32::MAX) };
+    handshake.wait_ready();
 
     while !pulse_finished.load(Ordering::Acquire) {
         thread::sleep(Duration::from_millis(10));
@@ -362,15 +280,9 @@ fn run_core() -> i32 {
     let _ = stdout.write_all(b"\x1b[?1049l\x1b[?25h\x1b[0m");
     let _ = stdout.flush();
 
-    unsafe { SetEvent(release_event) };
-
-    unsafe { WaitForSingleObject(rendered_event, u32::MAX) };
-
-    unsafe {
-        CloseHandle(ready_event);
-        CloseHandle(release_event);
-        CloseHandle(rendered_event);
-    }
+    handshake.signal_release();
+    handshake.wait_rendered();
+    handshake.cleanup();
 
     let status = child.wait();
 

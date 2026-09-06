@@ -75,7 +75,9 @@ jobs:
         with:
           go-version-file: go.mod
       - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
-        if: matrix.goos == 'windows'
+      - name: Install cross-compilation linker
+        if: matrix.goos == 'linux' && matrix.goarch == 'arm64'
+        run: sudo apt-get update && sudo apt-get install -y gcc-aarch64-linux-gnu
       - name: Build Windows binaries
         if: matrix.goos == 'windows'
         shell: pwsh
@@ -91,7 +93,7 @@ jobs:
           cargo build --release --manifest-path launcher/Cargo.toml --target x86_64-pc-windows-msvc
           Copy-Item launcher/target/x86_64-pc-windows-msvc/release/star.exe dist/${{ matrix.artifact }}/star.exe
           Compress-Archive -Path dist/${{ matrix.artifact }}/* -DestinationPath dist/${{ matrix.artifact }}.zip
-      - name: Build Unix binary
+      - name: Build Unix binaries
         if: matrix.goos != 'windows'
         env:
           GOOS: ${{ matrix.goos }}
@@ -100,7 +102,19 @@ jobs:
         run: |
           mkdir -p dist/${{ matrix.artifact }}
           ldflags="-s -w -X github.com/charmbracelet/crush/internal/version.Version=${VERSION} -X github.com/charmbracelet/crush/internal/version.Commit=${GITHUB_SHA}"
-          go build -trimpath -ldflags "$ldflags" -o dist/${{ matrix.artifact }}/star .
+          go build -trimpath -ldflags "$ldflags" -o dist/${{ matrix.artifact }}/star-core .
+          rust_target="${{ matrix.goarch }}"
+          if [ "$rust_target" = "amd64" ]; then rust_target="x86_64"; fi
+          if [ "$rust_target" = "arm64" ]; then rust_target="aarch64"; fi
+          if [ "${{ matrix.goos }}" = "linux" ]; then rust_triple="${rust_target}-unknown-linux-gnu"; fi
+          if [ "${{ matrix.goos }}" = "darwin" ]; then rust_triple="${rust_target}-apple-darwin"; fi
+          rustup target add "$rust_triple"
+          if [ "$rust_triple" = "aarch64-unknown-linux-gnu" ]; then
+            export CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc
+          fi
+          cargo build --release --manifest-path launcher/Cargo.toml --target "$rust_triple"
+          cp "launcher/target/${rust_triple}/release/star" dist/${{ matrix.artifact }}/star
+          chmod +x dist/${{ matrix.artifact }}/star dist/${{ matrix.artifact }}/star-core
           tar -C dist -czf dist/${{ matrix.artifact }}.tar.gz ${{ matrix.artifact }}
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
