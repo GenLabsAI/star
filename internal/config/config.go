@@ -861,6 +861,8 @@ func allToolNames() []string {
 		"bash",
 		"crush_info",
 		"crush_logs",
+		"enter_plan_mode",
+		"exit_plan_mode",
 		"job_output",
 		"job_kill",
 		"download",

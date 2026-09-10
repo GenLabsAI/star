@@ -747,6 +747,8 @@ func (c *coordinator) buildTools(ctx context.Context, agent config.Agent, isSubA
 		tools.NewBashTool(c.permissions, c.cfg.WorkingDir(), c.cfg.Config().Options.Attribution, modelID),
 		tools.NewCrushInfoTool(c.cfg, c.lspManager, c.allSkills, c.activeSkills, c.skillTracker),
 		tools.NewCrushLogsTool(logFile),
+		tools.NewEnterPlanModeTool(c.permissions),
+		tools.NewExitPlanModeTool(c.permissions),
 		tools.NewJobOutputTool(),
 		tools.NewJobKillTool(),
 		tools.NewDownloadTool(c.permissions, c.cfg.WorkingDir(), nil),
@@ -1482,6 +1484,12 @@ func (c *coordinator) runSubAgent(ctx context.Context, params subAgentParams) (f
 	if err != nil {
 		return fantasy.ToolResponse{}, fmt.Errorf("create session: %w", err)
 	}
+
+	// Sub-agent sessions must inherit the parent's permission mode.
+	// Without this, a sub-agent's tool calls (edit, write, bash, etc.)
+	// fall back to the global default mode and can trigger permission
+	// prompts even when the user is running in YOLO mode.
+	c.permissions.SetSessionMode(session.ID, c.permissions.SessionMode(params.SessionID))
 
 	// Call session setup function if provided
 	if params.SessionSetup != nil {
