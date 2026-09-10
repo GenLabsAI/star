@@ -16,25 +16,26 @@ import (
 // hookedTool wraps a fantasy.AgentTool to run PreToolUse hooks before
 // delegating to the inner tool.
 type hookedTool struct {
-	inner  fantasy.AgentTool
-	runner *hooks.Runner
+	inner      fantasy.AgentTool
+	preRunner  *hooks.Runner
+	postRunner *hooks.Runner
 }
 
-func newHookedTool(inner fantasy.AgentTool, runner *hooks.Runner) *hookedTool {
-	return &hookedTool{inner: inner, runner: runner}
+func newHookedTool(inner fantasy.AgentTool, preRunner, postRunner *hooks.Runner) *hookedTool {
+	return &hookedTool{inner: inner, preRunner: preRunner, postRunner: postRunner}
 }
 
 // wrapToolsWithHooks returns a tool slice with each entry wrapped in a
 // hookedTool. Returns the original slice unchanged when runner is nil or
 // when isSubAgent is true — sub-agents never fire hooks, the top-level
 // invocation of the sub-agent tool itself is wrapped on the caller's side.
-func wrapToolsWithHooks(tools []fantasy.AgentTool, runner *hooks.Runner, isSubAgent bool) []fantasy.AgentTool {
-	if runner == nil || isSubAgent {
+func wrapToolsWithHooks(tools []fantasy.AgentTool, preRunner, postRunner *hooks.Runner, isSubAgent bool) []fantasy.AgentTool {
+	if (preRunner == nil && postRunner == nil) || isSubAgent {
 		return tools
 	}
 	out := make([]fantasy.AgentTool, len(tools))
 	for i, tool := range tools {
-		out[i] = newHookedTool(tool, runner)
+		out[i] = newHookedTool(tool, preRunner, postRunner)
 	}
 	return out
 }
@@ -53,7 +54,11 @@ func (h *hookedTool) SetProviderOptions(opts fantasy.ProviderOptions) {
 
 func (h *hookedTool) Run(ctx context.Context, call fantasy.ToolCall) (fantasy.ToolResponse, error) {
 	sessionID := tools.GetSessionFromContext(ctx)
-	result, err := h.runner.Run(ctx, hooks.EventPreToolUse, sessionID, call.Name, call.Input)
+	var result hooks.AggregateResult
+	var err error
+	if h.preRunner != nil {
+		result, err = h.preRunner.Run(ctx, hooks.EventPreToolUse, sessionID, call.Name, call.Input)
+	}
 	if err != nil {
 		slog.Warn("Hook execution error, proceeding with tool call",
 			"tool", call.Name, "error", err)
@@ -86,6 +91,27 @@ func (h *hookedTool) Run(ctx context.Context, call fantasy.ToolCall) (fantasy.To
 	resp, err := h.inner.Run(ctx, call)
 	if err != nil {
 		return resp, err
+	}
+
+	if h.postRunner != nil {
+		postInput, marshalErr := json.Marshal(map[string]any{"tool_input": call.Input, "tool_response": resp.Content})
+		if marshalErr == nil {
+			postResult, postErr := h.postRunner.Run(ctx, hooks.EventPostToolUse, sessionID, call.Name, string(postInput))
+			if postErr != nil {
+				slog.Warn("Post-tool hook execution error", "tool", call.Name, "error", postErr)
+			} else {
+				if postResult.Context != "" {
+					if resp.Content != "" {
+						resp.Content += "\n"
+					}
+					resp.Content += postResult.Context
+				}
+				if postResult.Halt {
+					resp.StopTurn = true
+				}
+				resp.Metadata = mergeHookMetadata(resp.Metadata, postResult)
+			}
+		}
 	}
 
 	if result.Context != "" {

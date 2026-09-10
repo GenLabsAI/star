@@ -349,6 +349,12 @@ func (c *coordinator) run(ctx context.Context, accept *AcceptedRun, sessionID st
 			OnAuthRefresh:    c.makeAuthRefreshCallback(providerCfg),
 		})
 	}
+	c.fireLifecycleHook(ctx, sessionID, hooks.EventSessionStart, map[string]any{"prompt": prompt})
+	defer c.fireLifecycleHook(ctx, sessionID, hooks.EventStop, nil)
+
+	c.fireLifecycleHook(ctx, sessionID, hooks.EventSessionStart, map[string]any{"prompt": prompt})
+	defer c.fireLifecycleHook(ctx, sessionID, hooks.EventStop, nil)
+
 	beforeLoaded := c.skillTracker.LoadedNames()
 	result, originalErr := run()
 	logTurnSkillUsage(sessionID, prompt, c.activeSkills, c.skillTracker, beforeLoaded)
@@ -373,6 +379,28 @@ func (c *coordinator) run(ctx context.Context, accept *AcceptedRun, sessionID st
 		MarkRunCompletePublished(ctx)
 	}
 	return result, originalErr
+}
+
+func (c *coordinator) fireLifecycleHook(ctx context.Context, sessionID, eventName string, args map[string]any) {
+	hookMap := c.cfg.Config().Hooks[eventName]
+	if len(hookMap) == 0 {
+		return
+	}
+	runner := hooks.NewRunner(hookMap, c.cfg.WorkingDir(), c.cfg.WorkingDir())
+
+	inputBytes, err := json.Marshal(args)
+	if err != nil {
+		inputBytes = []byte("{}")
+	}
+
+	// Empty tool name: lifecycle events are not tied to a specific tool.
+	result, err := runner.Run(ctx, eventName, sessionID, "", string(inputBytes))
+	if err != nil {
+		slog.Warn("Lifecycle hook execution error", "event", eventName, "error", err)
+	}
+	if result.Decision == hooks.DecisionDeny || result.Halt {
+		slog.Warn("Lifecycle hook denied or halted", "event", eventName, "reason", result.Reason)
+	}
 }
 
 // effectiveReasoningEffort returns the reasoning effort to apply for provider calls.
@@ -742,10 +770,13 @@ func (c *coordinator) buildTools(ctx context.Context, agent config.Agent, isSubA
 
 	logFile := filepath.Join(c.cfg.Config().Options.DataDirectory, "logs", "crush.log")
 
-	// Build hook runner if PreToolUse hooks are configured.
-	var hookRunner *hooks.Runner
+	var preHookRunner *hooks.Runner
 	if preToolHooks := c.cfg.Config().Hooks[hooks.EventPreToolUse]; len(preToolHooks) > 0 {
-		hookRunner = hooks.NewRunner(preToolHooks, c.cfg.WorkingDir(), c.cfg.WorkingDir())
+		preHookRunner = hooks.NewRunner(preToolHooks, c.cfg.WorkingDir(), c.cfg.WorkingDir())
+	}
+	var postHookRunner *hooks.Runner
+	if postToolHooks := c.cfg.Config().Hooks[hooks.EventPostToolUse]; len(postToolHooks) > 0 {
+		postHookRunner = hooks.NewRunner(postToolHooks, c.cfg.WorkingDir(), c.cfg.WorkingDir())
 	}
 
 	allTools = append(
@@ -840,7 +871,7 @@ func (c *coordinator) buildTools(ctx context.Context, agent config.Agent, isSubA
 	// without hook interception to avoid firing the user's hook N times
 	// per delegated turn. The top-level invocation of the sub-agent tool
 	// itself is still wrapped from the coder's side.
-	filteredTools = wrapToolsWithHooks(filteredTools, hookRunner, isSubAgent)
+	filteredTools = wrapToolsWithHooks(filteredTools, preHookRunner, postHookRunner, isSubAgent)
 
 	return filteredTools, nil
 }
@@ -1515,6 +1546,9 @@ func (c *coordinator) runSubAgent(ctx context.Context, params subAgentParams) (f
 	if !ok {
 		return fantasy.ToolResponse{}, errModelProviderNotConfigured
 	}
+
+	c.fireLifecycleHook(ctx, session.ID, hooks.EventSubagentStart, map[string]any{"prompt": params.Prompt, "parent_session": params.SessionID})
+	defer c.fireLifecycleHook(ctx, session.ID, hooks.EventSubagentStop, map[string]any{"parent_session": params.SessionID})
 
 	// Run the agent
 	run := func() (*fantasy.AgentResult, error) {

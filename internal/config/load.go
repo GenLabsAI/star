@@ -27,6 +27,7 @@ import (
 	"github.com/charmbracelet/crush/internal/filepathext"
 	"github.com/charmbracelet/crush/internal/fsext"
 	"github.com/charmbracelet/crush/internal/home"
+	"github.com/charmbracelet/crush/internal/plugins"
 	"github.com/charmbracelet/crush/internal/shellconfig"
 	powernapConfig "github.com/charmbracelet/x/powernap/pkg/config"
 	"github.com/qjebbs/go-jsons"
@@ -78,6 +79,9 @@ func Load(workingDir, dataDir string, debug bool) (*ConfigStore, error) {
 			store.loadedPaths = append(store.loadedPaths, store.workspacePath)
 		}
 	}
+
+	configDir, _ := os.UserConfigDir()
+	cfg.mergePlugins(filepath.Join(configDir, "star", "plugins"))
 
 	// Validate hooks after all config merging is complete so workspace
 	// hooks also get their matcher regexes compiled.
@@ -1407,10 +1411,58 @@ func isAppleTerminal() bool { return os.Getenv("TERM_PROGRAM") == "Apple_Termina
 // normalizeHookEvent maps user-provided event names to their canonical
 // form. Matching is case-insensitive and accepts snake_case variants
 // (e.g. "pre_tool_use" → "PreToolUse").
+func (c *Config) mergePlugins(directory string) {
+	installed, err := plugins.List(directory)
+	if err != nil {
+		slog.Warn("Failed to discover plugins", "directory", directory, "error", err)
+		return
+	}
+	for _, plugin := range installed {
+		if !plugin.Enabled {
+			continue
+		}
+		for _, skillPath := range plugin.Skills {
+			path := filepath.Join(plugin.Path, skillPath)
+			if !slices.Contains(c.Options.SkillsPaths, path) {
+				c.Options.SkillsPaths = append(c.Options.SkillsPaths, path)
+			}
+		}
+		for event, pluginHooks := range plugin.Hooks {
+			for _, hook := range pluginHooks {
+				command := hook.Command
+				if command != "" && !filepath.IsAbs(command) {
+					command = filepath.Join(plugin.Path, command)
+				}
+				if c.Hooks == nil {
+					c.Hooks = make(map[string][]HookConfig)
+				}
+				c.Hooks[event] = append(c.Hooks[event], HookConfig{
+					Name:    hook.Name,
+					Matcher: hook.Matcher,
+					Command: command,
+					Timeout: hook.Timeout,
+				})
+			}
+		}
+	}
+}
+
 func normalizeHookEvent(name string) string {
 	switch strings.ToLower(strings.ReplaceAll(name, "_", "")) {
 	case "pretooluse":
 		return "PreToolUse"
+	case "posttooluse":
+		return "PostToolUse"
+	case "sessionstart":
+		return "SessionStart"
+	case "stop":
+		return "Stop"
+	case "subagentstart":
+		return "SubagentStart"
+	case "subagentstop":
+		return "SubagentStop"
+	case "permissionrequest":
+		return "PermissionRequest"
 	default:
 		return name
 	}
