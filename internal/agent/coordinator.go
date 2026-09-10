@@ -41,6 +41,7 @@ import (
 	"github.com/charmbracelet/crush/internal/question"
 	"github.com/charmbracelet/crush/internal/session"
 	"github.com/charmbracelet/crush/internal/skills"
+	"github.com/charmbracelet/crush/internal/teams"
 	"golang.org/x/sync/errgroup"
 
 	"charm.land/fantasy/providers/anthropic"
@@ -147,6 +148,8 @@ type coordinator struct {
 	activeSkills []*skills.Skill // Post-filter: active skills only.
 	skillTracker *skills.Tracker
 
+	teamStore *teams.Store
+
 	readyWg errgroup.Group
 }
 
@@ -203,6 +206,7 @@ func NewCoordinator(ctx context.Context, opts CoordinatorOptions) (Coordinator, 
 		wakeups:         opts.Wakeups,
 		activeSkills:    activeSkills,
 		skillTracker:    skillTracker,
+		teamStore:       teams.NewStore(opts.Config.WorkingDir()),
 		interactive:     opts.Interactive,
 	}
 
@@ -764,6 +768,7 @@ func (c *coordinator) buildTools(ctx context.Context, agent config.Agent, isSubA
 		tools.NewTodosTool(c.sessions),
 		tools.NewScheduleWakeupTool(c.wakeupScheduler),
 		tools.NewMonitorTool(c.wakeups),
+		tools.NewTeamTool(c.teamStore),
 		tools.NewViewTool(c.lspManager, c.permissions, c.filetracker, c.skillTracker, c.cfg.WorkingDir(), c.cfg.Config().Options.SkillsPaths...),
 		tools.NewWriteTool(c.lspManager, c.permissions, c.history, c.filetracker, c.cfg.WorkingDir()),
 	)
