@@ -129,6 +129,7 @@ type coordinator struct {
 	notify          pubsub.Publisher[notify.Notification]
 	runComplete     pubsub.Publisher[notify.RunComplete]
 	wakeupScheduler *WakeupScheduler
+	wakeups         pubsub.Publisher[pubsub.WakeupEvent]
 	interactive     bool
 
 	currentAgent SessionAgent
@@ -199,6 +200,7 @@ func NewCoordinator(ctx context.Context, opts CoordinatorOptions) (Coordinator, 
 		sessionModels:   csync.NewMap[string, map[config.SelectedModelType]config.SelectedModel](),
 		allSkills:       allSkills,
 		wakeupScheduler: NewWakeupScheduler(opts.Wakeups, opts.WakeupsScheduled, opts.WakeupsCanceled),
+		wakeups:         opts.Wakeups,
 		activeSkills:    activeSkills,
 		skillTracker:    skillTracker,
 		interactive:     opts.Interactive,
@@ -761,6 +763,7 @@ func (c *coordinator) buildTools(ctx context.Context, agent config.Agent, isSubA
 		tools.NewSourcegraphTool(nil),
 		tools.NewTodosTool(c.sessions),
 		tools.NewScheduleWakeupTool(c.wakeupScheduler),
+		tools.NewMonitorTool(c.wakeups),
 		tools.NewViewTool(c.lspManager, c.permissions, c.filetracker, c.skillTracker, c.cfg.WorkingDir(), c.cfg.Config().Options.SkillsPaths...),
 		tools.NewWriteTool(c.lspManager, c.permissions, c.history, c.filetracker, c.cfg.WorkingDir()),
 	)
