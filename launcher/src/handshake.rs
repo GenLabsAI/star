@@ -29,10 +29,14 @@ impl Handshake {
     }
 
     fn wait_for(path: &PathBuf) {
-        while !path.exists() {
+        let mut retries = 500; // 5 seconds max (500 * 10ms)
+        while !path.exists() && retries > 0 {
             thread::sleep(Duration::from_millis(10));
+            retries -= 1;
         }
-        let _ = fs::remove_file(path);
+        if path.exists() {
+            let _ = fs::remove_file(path);
+        }
     }
 
     pub fn wait_ready(&self) {

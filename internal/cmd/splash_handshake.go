@@ -1,6 +1,3 @@
-//go:build !windows
-// +build !windows
-
 package cmd
 
 import (
@@ -12,9 +9,8 @@ import (
 
 // launcherHandshake coordinates with the Rust launcher (star binary) so
 // that Bubble Tea never touches the terminal until the launcher's splash
-// animation has fully released the alt-screen buffer. It mirrors
-// splash_windows.go but uses sentinel files in the OS temp directory
-// instead of Win32 named events, since Unix has no portable equivalent.
+// animation has fully released the alt-screen buffer. It uses sentinel
+// files in the OS temp directory as a cross-platform IPC mechanism.
 type launcherHandshake struct {
 	active       bool
 	readyPath    string
