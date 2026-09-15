@@ -36,7 +36,7 @@ import (
 	"github.com/charmbracelet/crush/internal/server"
 	"github.com/charmbracelet/crush/internal/session"
 	"github.com/charmbracelet/crush/internal/skills"
-	"github.com/charmbracelet/crush/internal/ui/common"
+
 	"github.com/charmbracelet/crush/internal/ui/exitbanner"
 	ui "github.com/charmbracelet/crush/internal/ui/model"
 	"github.com/charmbracelet/crush/internal/version"
@@ -112,60 +112,44 @@ star --continue
 		sessionID, _ := cmd.Flags().GetString("session")
 		continueLast, _ := cmd.Flags().GetBool("continue")
 
-		// 1. Setup workspace synchronously while the Rust launcher runs its animation.
-		ws, cleanup, err := setupWorkspace(cmd)
-		if err != nil {
-			return err
-		}
-		defer cleanup()
-
-		if sessionID != "" {
-			sess, err := resolveWorkspaceSessionID(cmd.Context(), ws, sessionID)
-			if err != nil {
-				return err
-			}
-			sessionID = sess.ID
-		}
-
-		event.AppInitialized()
-
-		// 2. Perform the handshake: tell Rust we are ready, and wait for it to release the terminal.
-		handshake := newLauncherHandshake()
-		if err := handshake.awaitRelease(); err != nil {
-			return err
-		}
-
-		// 3. Create the real UI model.
-		com := common.DefaultCommon(ws)
-		model := ui.New(com, sessionID, continueLast)
+		// Create the splash model which initializes the workspace in the
+		// background while Bubble Tea renders an empty alt-screen. This
+		// lets the Rust launcher hand off the terminal immediately instead
+		// of blocking on DB migrations, MCP init, etc.
+		splash := newSplashModel(cmd, sessionID, continueLast)
+		splash.handshake = newLauncherHandshake()
 
 		inputFilter := ui.NewFilter()
 		var env uv.Environ = os.Environ()
 		program := tea.NewProgram(
-			model,
+			splash,
 			tea.WithEnvironment(env),
 			tea.WithContext(cmd.Context()),
 			tea.WithFilter(inputFilter.Filter),
 		)
-		go ws.Subscribe(program)
-
-		// 4. Start Bubble Tea. Once it renders, it will trigger the UI's View() which we'll use to notify the launcher.
-		go func() {
-			// We start a tiny goroutine to trigger notifyRendered shortly after the program starts.
-			// Ideally this would be triggered from View(), but root.go is simpler.
-			// A short sleep gives Bubble Tea time to render its first frame.
-			time.Sleep(50 * time.Millisecond)
-			handshake.notifyRendered()
-		}()
+		splash.Subscribe(program)
 
 		if _, err := program.Run(); err != nil {
 			event.Error(err)
 			slog.Error("TUI run error", "error", err)
 			return errors.New("Star crashed. If metrics are enabled, we were notified about it. If you'd like to report it, please copy the stacktrace above and open an issue at https://github.com/charmbracelet/crush/issues/new?template=bug.yml") //nolint:staticcheck
 		}
+		defer splash.Shutdown()
+
+		if splash.Err() != nil {
+			return splash.Err()
+		}
+
+		model := splash.ViewModel()
+		if model == nil {
+			return nil
+		}
+
 		var banner config.ExitBanner
-		if cfg := com.Config(); cfg != nil {
-			banner = cfg.Options.TUI.ExitBanner
+		if ws := splash.ws; ws != nil {
+			if cfg := ws.Config(); cfg != nil {
+				banner = cfg.Options.TUI.ExitBanner
+			}
 		}
 		if model.UpdateRequested() {
 			return ErrUpdateRequested

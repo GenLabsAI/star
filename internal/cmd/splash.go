@@ -20,6 +20,8 @@ type splashReadyMsg struct {
 	err     error
 }
 
+type launcherReleasedMsg struct{}
+
 type splashModel struct {
 	cmd               *cobra.Command
 	sessionID         string
@@ -33,6 +35,8 @@ type splashModel struct {
 	program           *tea.Program
 	handshake         *launcherHandshake
 	rendered          bool
+	pendingReady      *splashReadyMsg
+	launcherReleased  bool
 }
 
 func newSplashModel(cmd *cobra.Command, sessionID string, continueLast bool) *splashModel {
@@ -40,7 +44,7 @@ func newSplashModel(cmd *cobra.Command, sessionID string, continueLast bool) *sp
 }
 
 func (m *splashModel) Init() tea.Cmd {
-	return m.initialize()
+	return tea.Batch(m.initialize(), m.awaitReleaseCmd())
 }
 
 func (m *splashModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -57,22 +61,18 @@ func (m *splashModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.initializationErr = msg.err
 			return m, tea.Quit
 		}
-		// Release the launcher only once the workspace is ready, then let
-		// the UI take over. The launcher has already stopped drawing by the
-		// time awaitRelease returns, so there is no contention.
+		if m.launcherReleased {
+			return m, m.transitionToUI(&msg)
+		}
+		m.pendingReady = &msg
+	case launcherReleasedMsg:
+		m.launcherReleased = true
 		if m.handshake != nil {
-			_ = m.handshake.awaitRelease()
+			m.handshake.notifyRendered()
 		}
-		m.model = msg.model
-		m.ws = msg.ws
-		m.cleanup = msg.cleanup
-		if m.program != nil {
-			go m.ws.Subscribe(m.program)
+		if m.pendingReady != nil {
+			return m, m.transitionToUI(m.pendingReady)
 		}
-		newModel, updateCmd := m.model.Update(tea.WindowSizeMsg{Width: m.width, Height: m.height})
-		m.model = newModel.(*ui.UI)
-		initCmd := m.model.Init()
-		return m, tea.Batch(updateCmd, initCmd)
 	}
 	return m, nil
 }
@@ -86,14 +86,7 @@ func (m *splashModel) Draw(scr uv.Screen, area uv.Rectangle) *tea.Cursor {
 
 func (m *splashModel) View() tea.View {
 	if m.model != nil {
-		view := m.model.View()
-		if !m.rendered {
-			m.rendered = true
-			if m.handshake != nil {
-				m.handshake.notifyRendered()
-			}
-		}
-		return view
+		return m.model.View()
 	}
 
 	var v tea.View
@@ -102,6 +95,29 @@ func (m *splashModel) View() tea.View {
 	v.WindowTitle = "Star"
 	v.Content = ""
 	return v
+}
+
+func (m *splashModel) transitionToUI(ready *splashReadyMsg) tea.Cmd {
+	m.pendingReady = nil
+	m.model = ready.model
+	m.ws = ready.ws
+	m.cleanup = ready.cleanup
+	if m.program != nil {
+		go m.ws.Subscribe(m.program)
+	}
+	newModel, updateCmd := m.model.Update(tea.WindowSizeMsg{Width: m.width, Height: m.height})
+	m.model = newModel.(*ui.UI)
+	initCmd := m.model.Init()
+	return tea.Batch(updateCmd, initCmd)
+}
+
+func (m *splashModel) awaitReleaseCmd() tea.Cmd {
+	return func() tea.Msg {
+		if m.handshake != nil {
+			_ = m.handshake.awaitRelease()
+		}
+		return launcherReleasedMsg{}
+	}
 }
 
 func (m *splashModel) initialize() tea.Cmd {

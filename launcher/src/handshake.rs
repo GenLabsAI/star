@@ -29,10 +29,11 @@ impl Handshake {
     }
 
     fn wait_for(path: &PathBuf) {
-        let mut retries = 500; // 5 seconds max (500 * 10ms)
-        while !path.exists() && retries > 0 {
+        // No timeout here - if core crashes we rely on the OS to clean up temp files.
+        // If we timeout early, we can write our release signal while core is still
+        // setting up the DB, which creates a TOCTOU race condition where core hangs.
+        while !path.exists() {
             thread::sleep(Duration::from_millis(10));
-            retries -= 1;
         }
         if path.exists() {
             let _ = fs::remove_file(path);
