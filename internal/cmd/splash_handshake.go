@@ -44,18 +44,15 @@ func touchFile(path string) error {
 }
 
 func waitForFile(path string) {
-	timeout := time.After(5 * time.Second)
+	// Core blocks here until the Rust launcher signals it has released the terminal.
+	// We must not timeout here, otherwise we proceed to render Bubble Tea before
+	// the launcher has exited the alt-screen, breaking the terminal state.
 	for {
-		select {
-		case <-timeout:
+		if _, err := os.Stat(path); err == nil {
+			_ = os.Remove(path)
 			return
-		default:
-			if _, err := os.Stat(path); err == nil {
-				_ = os.Remove(path)
-				return
-			}
-			time.Sleep(10 * time.Millisecond)
 		}
+		time.Sleep(10 * time.Millisecond)
 	}
 }
 

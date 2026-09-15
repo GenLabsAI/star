@@ -20,6 +20,8 @@ type splashReadyMsg struct {
 	err     error
 }
 
+type launcherReleasedMsg struct{}
+
 type splashModel struct {
 	cmd               *cobra.Command
 	sessionID         string
@@ -33,6 +35,7 @@ type splashModel struct {
 	program           *tea.Program
 	handshake         *launcherHandshake
 	rendered          bool
+	pendingReady      *splashReadyMsg
 }
 
 func newSplashModel(cmd *cobra.Command, sessionID string, continueLast bool) *splashModel {
@@ -57,15 +60,17 @@ func (m *splashModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.initializationErr = msg.err
 			return m, tea.Quit
 		}
-		// Release the launcher only once the workspace is ready, then let
-		// the UI take over. The launcher has already stopped drawing by the
-		// time awaitRelease returns, so there is no contention.
-		if m.handshake != nil {
-			_ = m.handshake.awaitRelease()
+		m.pendingReady = &msg
+		return m, m.awaitReleaseCmd()
+	case launcherReleasedMsg:
+		if m.pendingReady == nil {
+			return m, nil
 		}
-		m.model = msg.model
-		m.ws = msg.ws
-		m.cleanup = msg.cleanup
+		ready := m.pendingReady
+		m.pendingReady = nil
+		m.model = ready.model
+		m.ws = ready.ws
+		m.cleanup = ready.cleanup
 		if m.program != nil {
 			go m.ws.Subscribe(m.program)
 		}
@@ -102,6 +107,15 @@ func (m *splashModel) View() tea.View {
 	v.WindowTitle = "Star"
 	v.Content = ""
 	return v
+}
+
+func (m *splashModel) awaitReleaseCmd() tea.Cmd {
+	return func() tea.Msg {
+		if m.handshake != nil {
+			_ = m.handshake.awaitRelease()
+		}
+		return launcherReleasedMsg{}
+	}
 }
 
 func (m *splashModel) initialize() tea.Cmd {
