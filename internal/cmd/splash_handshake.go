@@ -44,12 +44,18 @@ func touchFile(path string) error {
 }
 
 func waitForFile(path string) {
+	timeout := time.After(5 * time.Second)
 	for {
-		if _, err := os.Stat(path); err == nil {
-			_ = os.Remove(path)
+		select {
+		case <-timeout:
 			return
+		default:
+			if _, err := os.Stat(path); err == nil {
+				_ = os.Remove(path)
+				return
+			}
+			time.Sleep(10 * time.Millisecond)
 		}
-		time.Sleep(10 * time.Millisecond)
 	}
 }
 
