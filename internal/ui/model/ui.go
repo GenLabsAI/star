@@ -5343,7 +5343,7 @@ func (m *UI) disableDockerMCP() tea.Msg {
 
 // renderLogo renders the Crush logo with the given styles and dimensions.
 func renderLogo(t *styles.Styles, compact, hyper bool, width int, updateAvailable bool) string {
-	displayVersion := version.Version
+	displayVersion := strings.Replace(version.Version, "v", " ", 1)
 	if updateAvailable {
 		displayVersion = "Update Now"
 	}

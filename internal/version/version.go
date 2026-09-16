@@ -28,10 +28,9 @@ func init() {
 	if ok && Version == "devel" {
 		mainVersion := info.Main.Version
 		// Only use the build info version if it looks like a clean
-		// semver tag (e.g. "v1.2.3"), not a pseudo-version like
-		// "v0.91.1-0.20260915221056-83e735f6...". Pseudo-versions
-		// are confusing to display and break the update checker.
-		if mainVersion != "" && mainVersion != "(devel)" && !strings.Contains(mainVersion, "-0.") {
+		// semver tag (e.g. "v1.2.3"). Reject any pseudo-versions
+		// (which contain "-") because they break the update checker.
+		if mainVersion != "" && mainVersion != "(devel)" && !strings.Contains(mainVersion, "-") {
 			Version = mainVersion
 		}
 	}
