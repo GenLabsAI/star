@@ -140,7 +140,7 @@ func (c *CommandItem) Render(width int) string {
 	if c.hideInfo {
 		shortcut = ""
 	}
-	rendered := renderItem(styles, c.title, shortcut, c.focused, width, c.cache, &c.m)
+	rendered := renderItem(styles, c.title, shortcut, c.focused, false, width, c.cache, &c.m)
 	if c.description != "" {
 		descStyle := c.t.Dialog.SecondaryText
 		if c.focused {

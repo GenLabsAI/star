@@ -52,6 +52,7 @@ type SessionItem struct {
 	updateTitleInput textinput.Model
 	focused          bool
 	hideInfo         bool
+	busy             bool
 }
 
 // Finished implements list.Item. Session items are render-stable
@@ -152,7 +153,7 @@ func (s *SessionItem) Render(width int) string {
 		}
 	}
 
-	return renderItem(styles, s.Title, info, s.focused, width, s.cache, &s.m)
+	return renderItem(styles, s.Title, info, s.focused, s.busy, width, s.cache, &s.m)
 }
 
 type ListItemStyles struct {
@@ -162,7 +163,7 @@ type ListItemStyles struct {
 	InfoTextFocused lipgloss.Style
 }
 
-func renderItem(t ListItemStyles, title string, info string, focused bool, width int, cache map[int]string, m *fuzzy.Match) string {
+func renderItem(t ListItemStyles, title string, info string, focused bool, busy bool, width int, cache map[int]string, m *fuzzy.Match) string {
 	if cache == nil {
 		cache = make(map[int]string)
 	}
@@ -184,7 +185,14 @@ func renderItem(t ListItemStyles, title string, info string, focused bool, width
 
 	var infoText string
 	var infoWidth int
-	if len(info) > 0 {
+	if busy {
+		busyIndicator := t.InfoTextFocused.Render(styles.SpinnerIcon)
+		if !focused {
+			busyIndicator = t.InfoTextBlurred.Render(styles.SpinnerIcon)
+		}
+		infoText = fmt.Sprintf(" %s ", busyIndicator)
+		infoWidth = lipgloss.Width(infoText)
+	} else if len(info) > 0 {
 		// Cap the info column so a long value (e.g. a provider name) can
 		// truncate instead of overflowing the row or squeezing the title
 		// to nothing; the title keeps at least half the width.
@@ -253,10 +261,13 @@ func (s *SessionItem) SetFocused(focused bool) {
 
 // sessionItems takes a slice of [session.Session]s and convert them to a slice
 // of [ListItem]s.
-func sessionItems(t *styles.Styles, mode sessionsMode, sessions ...session.Session) []list.FilterableItem {
+func sessionItems(t *styles.Styles, mode sessionsMode, isBusy func(string) bool, sessions ...session.Session) []list.FilterableItem {
 	items := make([]list.FilterableItem, len(sessions))
 	for i, s := range sessions {
 		item := &SessionItem{Versioned: list.NewVersioned(), Session: s, t: t, sessionsMode: mode}
+		if isBusy != nil {
+			item.busy = isBusy(s.ID)
+		}
 		if mode == sessionsModeUpdating {
 			item.updateTitleInput = textinput.New()
 			item.updateTitleInput.SetVirtualCursor(false)
