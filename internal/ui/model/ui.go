@@ -1440,10 +1440,7 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.cacheSidebarLogo(m.layout.sidebar.Dx())
 		m.header.updateAvailable = true
 		m.header.refresh()
-		text := fmt.Sprintf("Star update available: v%s → v%s.", msg.CurrentVersion, msg.LatestVersion)
-		if msg.IsDevelopment {
-			text = fmt.Sprintf("This is a development version of Star. The latest version is v%s.", msg.LatestVersion)
-		}
+		text := fmt.Sprintf("Star v%s is available. Click Update Now to install.", msg.LatestVersion)
 		ttl := 10 * time.Second
 		m.status.SetInfoMsg(util.InfoMsg{
 			Type: util.InfoTypeUpdate,
@@ -1748,17 +1745,26 @@ func (m *UI) appendSessionMessage(msg message.Message) tea.Cmd {
 
 func (m *UI) handleClickFocus(msg tea.MouseClickMsg) (cmd tea.Cmd) {
 	if m.updateAvailable != nil && !m.updateDownloading {
-		// If the click is inside the logo/header area and we have an update, trigger it
-		// In full mode, the logo is top-left of sidebar
-		// In compact mode, the logo is left side of header
 		clickedUpdate := false
-		if !m.isCompact && image.Pt(msg.X, msg.Y).In(m.layout.sidebar) && msg.Y < m.layout.sidebar.Min.Y+5 {
+		pt := image.Pt(msg.X, msg.Y)
+
+		// In full chat mode, the logo is at the top of the sidebar.
+		if m.state == uiChat && !m.isCompact && pt.In(m.layout.sidebar) && msg.Y < m.layout.sidebar.Min.Y+10 {
 			clickedUpdate = true
-		} else if m.isCompact && image.Pt(msg.X, msg.Y).In(m.layout.header) && msg.X < m.layout.header.Min.X+30 {
+		}
+		// In compact chat mode, the logo is the left part of the header.
+		if m.state == uiChat && m.isCompact && pt.In(m.layout.header) {
 			clickedUpdate = true
+		}
+		// On the landing/onboarding page, the logo is in the header area.
+		if m.state == uiLanding || m.state == uiOnboarding || m.state == uiInitialize {
+			if pt.In(m.layout.header) {
+				clickedUpdate = true
+			}
 		}
 
 		if clickedUpdate {
+			slog.Info("Update Now clicked, triggering update flow")
 			m.updateDownloading = true
 			return m.startUpdate()
 		}

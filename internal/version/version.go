@@ -4,6 +4,7 @@ import (
 	"os"
 	"runtime/debug"
 	"strconv"
+	"strings"
 )
 
 // Build-time parameters set via -ldflags.
@@ -24,9 +25,13 @@ var (
 // is only set for `go install` and not for `go build`).
 func init() {
 	info, ok := debug.ReadBuildInfo()
-	if ok {
+	if ok && Version == "devel" {
 		mainVersion := info.Main.Version
-		if mainVersion != "" && mainVersion != "(devel)" {
+		// Only use the build info version if it looks like a clean
+		// semver tag (e.g. "v1.2.3"), not a pseudo-version like
+		// "v0.91.1-0.20260915221056-83e735f6...". Pseudo-versions
+		// are confusing to display and break the update checker.
+		if mainVersion != "" && mainVersion != "(devel)" && !strings.Contains(mainVersion, "-0.") {
 			Version = mainVersion
 		}
 	}

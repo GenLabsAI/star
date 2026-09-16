@@ -12,12 +12,15 @@ use std::thread;
 use std::time::Duration;
 
 fn find_core() -> PathBuf {
-    let exe = env::current_exe().unwrap_or_else(|_| PathBuf::from("star"));
-    let dir = exe.parent().map(PathBuf::from).unwrap_or_default();
+    let home = env::var_os("USERPROFILE")
+        .or_else(|| env::var_os("HOME"))
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("."));
+    let bin_dir = home.join("bin");
     if cfg!(target_os = "windows") {
-        dir.join("star-core.exe")
+        bin_dir.join("star-core.exe")
     } else {
-        dir.join("star-core")
+        bin_dir.join("star-core")
     }
 }
 
@@ -295,6 +298,9 @@ fn run_core() -> i32 {
 fn main() {
     loop {
         let exit_code = run_core();
+        let mut stdout = io::stdout();
+        let _ = stdout.write_all(b"\x1b[?1049l\x1b[?25h\x1b[0m\x1b[r\x1b[H");
+        let _ = stdout.flush();
         if exit_code != 42 {
             std::process::exit(exit_code);
         }

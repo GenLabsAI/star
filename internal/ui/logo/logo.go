@@ -40,11 +40,6 @@ type Opts struct {
 // The compact argument determines whether it renders compact for the sidebar
 // or wider for the main pane.
 func Render(base lipgloss.Style, version string, compact bool, o Opts) string {
-	charm := "Charm™"
-	if !o.Hyper {
-		charm = " " + charm
-	}
-
 	fg := func(c color.Color, s string) string {
 		return lipgloss.NewStyle().Foreground(c).Render(s)
 	}
@@ -91,26 +86,22 @@ func Render(base lipgloss.Style, version string, compact bool, o Opts) string {
 	}
 	crush = b.String()
 
-	// Charm and version.
+	// Diagonals and version.
 	metaRowGap := 1
-	maxVersionWidth := crushWidth - lipgloss.Width(charm) - metaRowGap
-	version = ansi.Truncate(version, maxVersionWidth, "…") // truncate version if too long.
+	maxVersionWidth := crushWidth - metaRowGap
+	version = ansi.Truncate(version, maxVersionWidth, "…")
 	if o.Hyper && compact {
 		version += " "
 	}
-	gap := max(0, crushWidth-lipgloss.Width(charm)-lipgloss.Width(version))
 
 	var metaRow string
 	if version == "Update Now" {
-		// When rendering "Update Now", we want to render it instead of the version, and we might want to drop Charm too if it's compact.
-		gap = max(0, crushWidth-lipgloss.Width(version))
-		metaRow = strings.Repeat(" ", gap) + fg(o.VersionColor, version)
-		if !compact {
-			gap = max(0, crushWidth-lipgloss.Width(charm)-lipgloss.Width(version))
-			metaRow = fg(o.CharmColor, charm) + strings.Repeat(" ", gap) + fg(o.VersionColor, version)
-		}
+		paddingLeft := max(0, (crushWidth-lipgloss.Width(version))/2)
+		paddingRight := max(0, crushWidth-lipgloss.Width(version)-paddingLeft)
+		metaRow = strings.Repeat(" ", paddingLeft) + fg(o.VersionColor, version) + strings.Repeat(" ", paddingRight)
 	} else {
-		metaRow = fg(o.CharmColor, charm) + strings.Repeat(" ", gap) + fg(o.VersionColor, version)
+		leftDiagonalsWidth := max(0, crushWidth-lipgloss.Width(version)-metaRowGap)
+		metaRow = fg(o.FieldColor, strings.Repeat(diag, leftDiagonalsWidth)) + fg(o.FieldColor, strings.Repeat(diag, metaRowGap)) + fg(o.VersionColor, version)
 	}
 
 	// Join the meta row and big Crush title.
@@ -165,9 +156,9 @@ func SmallRender(t *styles.Styles, width int, o Opts) string {
 	if o.Hyper {
 		name = "HYPERSTAR"
 	}
-	charm := "Charm™"
-	title := t.Logo.SmallCharm.Render(charm)
-	title = fmt.Sprintf("%s %s", title, styles.ApplyBoldForegroundGrad(t.Logo.GradCanvas, name, t.Logo.SmallGradFromColor, t.Logo.SmallGradToColor))
+	// Use diagonals instead of Charm™
+	diags := t.Logo.SmallDiagonals.Render("╱╱╱")
+	title := fmt.Sprintf("%s %s", diags, styles.ApplyBoldForegroundGrad(t.Logo.GradCanvas, name, t.Logo.SmallGradFromColor, t.Logo.SmallGradToColor))
 	remainingWidth := width - lipgloss.Width(title) - 1 // 1 for the space after the name
 	if remainingWidth > 0 {
 		lines := strings.Repeat("╱", remainingWidth)
