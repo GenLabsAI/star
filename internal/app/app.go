@@ -149,9 +149,6 @@ func New(ctx context.Context, conn *sql.DB, store *config.ConfigStore, skillsMgr
 		slog.Warn("Clipboard initialization failed", "error", err)
 	}
 
-	// Check for updates in the background.
-	go app.checkForUpdates(ctx)
-
 	// Arm initialization synchronously before launching it so WaitForInit
 	// blocks for the in-flight init instead of racing the goroutine and
 	// returning before any MCP tools register.

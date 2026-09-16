@@ -59,6 +59,7 @@ import (
 	"github.com/charmbracelet/crush/internal/ui/notification"
 	"github.com/charmbracelet/crush/internal/ui/styles"
 	"github.com/charmbracelet/crush/internal/ui/util"
+	"github.com/charmbracelet/crush/internal/update"
 	"github.com/charmbracelet/crush/internal/version"
 	"github.com/charmbracelet/crush/internal/workspace"
 	uv "github.com/charmbracelet/ultraviolet"
@@ -564,6 +565,11 @@ func (m *UI) Init() tea.Cmd {
 		cmds = append(cmds, cmd)
 	}
 	cmds = append(cmds, m.checkPendingMCPAuth())
+
+	// Check for updates off-thread now that the UI is running and
+	// subscribed to the event broker.
+	cmds = append(cmds, checkForUpdates())
+
 	return tea.Batch(cmds...)
 }
 
@@ -5341,7 +5347,23 @@ func (m *UI) disableDockerMCP() tea.Msg {
 	return util.NewInfoMsg("Docker MCP disabled successfully")
 }
 
-// renderLogo renders the Crush logo with the given styles and dimensions.
+func checkForUpdates() tea.Cmd {
+	return func() tea.Msg {
+		checkCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+
+		info, err := update.Check(checkCtx, version.Version, update.Default)
+		if err != nil || !info.Available() {
+			return nil
+		}
+		return app.UpdateAvailableMsg{
+			CurrentVersion: info.Current,
+			LatestVersion:  info.Latest,
+			IsDevelopment:  info.IsDevelopment(),
+		}
+	}
+}
+
 func renderLogo(t *styles.Styles, compact, hyper bool, width int, updateAvailable bool) string {
 	displayVersion := strings.Replace(version.Version, "v", " ", 1)
 	if updateAvailable {
