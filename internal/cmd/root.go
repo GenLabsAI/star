@@ -49,7 +49,10 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var clientHost string
+var (
+	clientHost      string
+	updateSessionID string
+)
 
 func init() {
 	rootCmd.PersistentFlags().StringP("cwd", "c", "", "Current working directory")
@@ -134,7 +137,7 @@ star --continue
 			slog.Error("TUI run error", "error", err)
 			return errors.New("Star crashed. If metrics are enabled, we were notified about it. If you'd like to report it, please copy the stacktrace above and open an issue at https://github.com/charmbracelet/crush/issues/new?template=bug.yml") //nolint:staticcheck
 		}
-		_, _ = os.Stdout.WriteString("\x1b[?1049l\x1b[?25h\x1b[0m\x1b[r\x1b[H")
+		_, _ = os.Stdout.WriteString("\x1b[?1049l\x1b[?25h\x1b[0m\x1b[r\x1b[H\x1b[2J")
 		defer splash.Shutdown()
 
 		if splash.Err() != nil {
@@ -153,6 +156,9 @@ star --continue
 			}
 		}
 		if model.UpdateRequested() {
+			if current := model.CurrentSession(); current != nil {
+				updateSessionID = current.ID
+			}
 			return ErrUpdateRequested
 		}
 		printSessionResume(model, banner)
@@ -224,6 +230,9 @@ func Execute() {
 		fang.WithNotifySignal(os.Interrupt),
 	); err != nil {
 		if errors.Is(err, ErrUpdateRequested) {
+			if updateSessionID != "" && os.Getenv("STAR_LAUNCHER_PID") != "" {
+				_ = os.WriteFile(filepath.Join(os.TempDir(), "star-update-session-"+os.Getenv("STAR_LAUNCHER_PID")), []byte(updateSessionID), 0600)
+			}
 			os.Exit(42)
 		}
 		os.Exit(1)
