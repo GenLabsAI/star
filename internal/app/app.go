@@ -10,6 +10,7 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -41,6 +42,7 @@ import (
 	"github.com/charmbracelet/crush/internal/ui/styles"
 	"github.com/charmbracelet/crush/internal/update"
 	"github.com/charmbracelet/crush/internal/version"
+	"github.com/charmbracelet/crush/internal/worktree"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/charmbracelet/x/term"
 )
@@ -66,7 +68,8 @@ type App struct {
 
 	Skills *skills.Manager
 
-	config *config.ConfigStore
+	worktreeManager worktree.Manager
+	config          *config.ConfigStore
 
 	serviceEventsWG *sync.WaitGroup
 	eventsCtx       context.Context
@@ -76,10 +79,10 @@ type App struct {
 	// global context and cleanup functions
 	globalCtx          context.Context
 	cleanupFuncs       []func(context.Context) error
-	agentNotifications  *pubsub.Broker[notify.Notification]
-	wakeups             *pubsub.Broker[pubsub.WakeupEvent]
-	wakeupsScheduled    *pubsub.Broker[pubsub.WakeupScheduledEvent]
-	wakeupsCanceled     *pubsub.Broker[pubsub.WakeupCanceledEvent]
+	agentNotifications *pubsub.Broker[notify.Notification]
+	wakeups            *pubsub.Broker[pubsub.WakeupEvent]
+	wakeupsScheduled   *pubsub.Broker[pubsub.WakeupScheduledEvent]
+	wakeupsCanceled    *pubsub.Broker[pubsub.WakeupCanceledEvent]
 	// runCompletions is the authoritative per-run completion signal,
 	// emitted once per top-level agent turn after all message
 	// updates have been flushed. Bridged into app.events so SSE
@@ -134,11 +137,11 @@ func New(ctx context.Context, conn *sql.DB, store *config.ConfigStore, skillsMgr
 		events:             pubsub.NewBroker[tea.Msg](),
 		serviceEventsWG:    &sync.WaitGroup{},
 		tuiWG:              &sync.WaitGroup{},
-		agentNotifications:  pubsub.NewBroker[notify.Notification](),
-		wakeups:             pubsub.NewBroker[pubsub.WakeupEvent](),
-		wakeupsScheduled:    pubsub.NewBroker[pubsub.WakeupScheduledEvent](),
-		wakeupsCanceled:     pubsub.NewBroker[pubsub.WakeupCanceledEvent](),
-		runCompletions:      pubsub.NewBroker[notify.RunComplete](),
+		agentNotifications: pubsub.NewBroker[notify.Notification](),
+		wakeups:            pubsub.NewBroker[pubsub.WakeupEvent](),
+		wakeupsScheduled:   pubsub.NewBroker[pubsub.WakeupScheduledEvent](),
+		wakeupsCanceled:    pubsub.NewBroker[pubsub.WakeupCanceledEvent](),
+		runCompletions:     pubsub.NewBroker[notify.RunComplete](),
 	}
 
 	app.setupEvents()
@@ -167,10 +170,12 @@ func New(ctx context.Context, conn *sql.DB, store *config.ConfigStore, skillsMgr
 	// Release the shared database connection on shutdown. The pool
 	// closes the underlying *sql.DB when the last reference is released.
 	dataDir := cfg.Options.DataDirectory
+	app.worktreeManager = worktree.NewManager(store.WorkingDir(), filepath.Join(dataDir, "worktrees"))
 	app.cleanupFuncs = append(
 		app.cleanupFuncs,
 		func(context.Context) error { return db.Release(dataDir) },
 		func(ctx context.Context) error { return mcp.Close(ctx) },
+		app.worktreeManager.Cleanup,
 	)
 
 	// TODO: remove the concept of agent config, most likely.
@@ -699,21 +704,22 @@ func (app *App) initCoderAgent(ctx context.Context, interactive bool) error {
 	}
 	var err error
 	app.AgentCoordinator, err = agent.NewCoordinator(ctx, agent.CoordinatorOptions{
-		Config:      app.config,
-		Sessions:    app.Sessions,
-		Messages:    app.Messages,
-		Permissions: app.Permissions,
-		Questions:   app.Questions,
-		History:     app.History,
-		FileTracker: app.FileTracker,
-		LSPManager:  app.LSPManager,
-		Notify:      app.agentNotifications,
+		Config:           app.config,
+		Sessions:         app.Sessions,
+		Messages:         app.Messages,
+		Permissions:      app.Permissions,
+		Questions:        app.Questions,
+		History:          app.History,
+		FileTracker:      app.FileTracker,
+		LSPManager:       app.LSPManager,
+		Notify:           app.agentNotifications,
 		RunComplete:      app.runCompletions,
 		Wakeups:          app.wakeups,
 		WakeupsScheduled: app.wakeupsScheduled,
 		WakeupsCanceled:  app.wakeupsCanceled,
 		Skills:           app.Skills,
-		Interactive: interactive,
+		WorktreeManager:  app.worktreeManager,
+		Interactive:      interactive,
 	})
 	if err != nil {
 		slog.Error("Failed to create coder agent", "err", err)

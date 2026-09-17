@@ -42,6 +42,7 @@ import (
 	"github.com/charmbracelet/crush/internal/session"
 	"github.com/charmbracelet/crush/internal/skills"
 	"github.com/charmbracelet/crush/internal/teams"
+	"github.com/charmbracelet/crush/internal/worktree"
 	"golang.org/x/sync/errgroup"
 
 	"charm.land/fantasy/providers/anthropic"
@@ -131,6 +132,7 @@ type coordinator struct {
 	runComplete     pubsub.Publisher[notify.RunComplete]
 	wakeupScheduler *WakeupScheduler
 	wakeups         pubsub.Publisher[pubsub.WakeupEvent]
+	worktreeMgr     worktree.Manager
 	interactive     bool
 
 	currentAgent SessionAgent
@@ -171,6 +173,7 @@ type CoordinatorOptions struct {
 	WakeupsScheduled pubsub.Publisher[pubsub.WakeupScheduledEvent]
 	WakeupsCanceled  pubsub.Publisher[pubsub.WakeupCanceledEvent]
 	Skills           *skills.Manager
+	WorktreeManager  worktree.Manager
 	Interactive      bool
 }
 
@@ -207,6 +210,7 @@ func NewCoordinator(ctx context.Context, opts CoordinatorOptions) (Coordinator, 
 		activeSkills:    activeSkills,
 		skillTracker:    skillTracker,
 		teamStore:       teams.NewStore(opts.Config.WorkingDir()),
+		worktreeMgr:     opts.WorktreeManager,
 		interactive:     opts.Interactive,
 	}
 
@@ -800,6 +804,8 @@ func (c *coordinator) buildTools(ctx context.Context, agent config.Agent, isSubA
 		tools.NewScheduleWakeupTool(c.wakeupScheduler),
 		tools.NewMonitorTool(c.wakeups),
 		tools.NewTeamTool(c.teamStore),
+		tools.NewEnterWorktreeTool(c.worktreeMgr),
+		tools.NewExitWorktreeTool(c.worktreeMgr),
 		tools.NewViewTool(c.lspManager, c.permissions, c.filetracker, c.skillTracker, c.cfg.WorkingDir(), c.cfg.Config().Options.SkillsPaths...),
 		tools.NewWriteTool(c.lspManager, c.permissions, c.history, c.filetracker, c.cfg.WorkingDir()),
 	)
@@ -1545,6 +1551,18 @@ func (c *coordinator) runSubAgent(ctx context.Context, params subAgentParams) (f
 	providerCfg, ok := c.cfg.Config().Providers.Get(model.ModelCfg.Provider)
 	if !ok {
 		return fantasy.ToolResponse{}, errModelProviderNotConfigured
+	}
+
+	if c.cfg.Config().Options.WorktreeIsolation != nil && *c.cfg.Config().Options.WorktreeIsolation && c.worktreeMgr != nil {
+		path, err := c.worktreeMgr.Create(ctx, session.ID, "")
+		if err != nil {
+			return fantasy.NewTextErrorResponse(fmt.Sprintf("Failed to create sub-agent worktree: %s", err)), nil
+		}
+		defer func() {
+			if err := c.worktreeMgr.Remove(context.WithoutCancel(ctx), session.ID); err != nil {
+				slog.Warn("Failed to remove sub-agent worktree", "session", session.ID, "path", path, "error", err)
+			}
+		}()
 	}
 
 	c.fireLifecycleHook(ctx, session.ID, hooks.EventSubagentStart, map[string]any{"prompt": params.Prompt, "parent_session": params.SessionID})
