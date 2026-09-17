@@ -228,7 +228,10 @@ fn run_core() -> i32 {
                     spinner,
                 ));
 
-                buf.push_str("\x1b[0m");
+                // Park the cursor off-screen instead of resetting SGR.
+                // A full \x1b[0m reset between frames causes the default
+                // background to flash through for one refresh cycle.
+                buf.push_str(&format!("\x1b[{};1H", rows + 1));
                 let _ = out.write_all(buf.as_bytes());
                 let _ = out.flush();
 
