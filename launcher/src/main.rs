@@ -298,13 +298,14 @@ fn run_core() -> i32 {
 fn main() {
     loop {
         let exit_code = run_core();
+
+        let mut stdout = io::stdout();
+        let _ = stdout.write_all(b"\x1b[?1049l\x1b[?25h\x1b[0m\x1b[r\x1b[H\x1b[2J");
+        let _ = stdout.flush();
+
         if exit_code != 42 {
             std::process::exit(exit_code);
         }
-
-        let mut stdout = io::stdout();
-        let _ = stdout.write_all(b"\x1b[?1049l\x1b[?25h\x1b[0m\x1b[r\x1b[H");
-        let _ = stdout.flush();
 
         let core = find_core();
         if let Err(error) = update::perform_update(&core) {
