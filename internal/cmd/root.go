@@ -137,7 +137,7 @@ star --continue
 			slog.Error("TUI run error", "error", err)
 			return errors.New("Star crashed. If metrics are enabled, we were notified about it. If you'd like to report it, please copy the stacktrace above and open an issue at https://github.com/charmbracelet/crush/issues/new?template=bug.yml") //nolint:staticcheck
 		}
-		_, _ = os.Stdout.WriteString("\x1b[?1049l\x1b[?25h\x1b[0m\x1b[r\x1b[H\x1b[2J")
+		_, _ = os.Stdout.WriteString("\x1b[?1049l\x1b[?25h\x1b[0m\x1b[r")
 		defer splash.Shutdown()
 
 		if splash.Err() != nil {

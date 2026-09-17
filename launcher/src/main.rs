@@ -242,7 +242,15 @@ fn run_core() -> i32 {
     }
 
     let core = find_core();
-    let args: Vec<String> = env::args().skip(1).collect();
+    let mut args: Vec<String> = env::args().skip(1).collect();
+
+    if let Ok(session) = env::var("STAR_UPDATE_SESSION") {
+        args.push("--session".into());
+        args.push(session);
+        unsafe {
+            env::remove_var("STAR_UPDATE_SESSION");
+        }
+    }
 
     let handshake = handshake::Handshake::new(std::process::id());
     handshake.cleanup();
@@ -296,21 +304,37 @@ fn run_core() -> i32 {
 }
 
 fn main() {
+    let update_session_path =
+        env::temp_dir().join(format!("star-update-session-{}", std::process::id()));
+
     loop {
         let exit_code = run_core();
-
-        let mut stdout = io::stdout();
-        let _ = stdout.write_all(b"\x1b[?1049l\x1b[?25h\x1b[0m\x1b[r\x1b[H\x1b[2J");
-        let _ = stdout.flush();
 
         if exit_code != 42 {
             std::process::exit(exit_code);
         }
 
+        // When restarting for an update, clear the screen completely
+        // so the new binary starts with a clean slate.
+        let mut stdout = io::stdout();
+        let _ = stdout.write_all(b"\x1b[?1049l\x1b[?25h\x1b[0m\x1b[r\x1b[H\x1b[2J");
+        let _ = stdout.flush();
+
         let core = find_core();
         if let Err(error) = update::perform_update(&core) {
+            let _ = std::fs::remove_file(&update_session_path);
             eprintln!("Update failed: {error}");
             std::process::exit(1);
+        }
+
+        if let Ok(session_id) = std::fs::read_to_string(&update_session_path) {
+            let session_id = session_id.trim();
+            if !session_id.is_empty() {
+                unsafe {
+                    env::set_var("STAR_UPDATE_SESSION", session_id);
+                }
+            }
+            let _ = std::fs::remove_file(&update_session_path);
         }
     }
 }
