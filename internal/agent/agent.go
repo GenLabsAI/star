@@ -1368,7 +1368,7 @@ func (a *sessionAgent) generateYeehawPrompt(ctx context.Context, sessionID strin
 	smallModel := a.smallModel.Get()
 	newAgent := fantasy.NewAgent(
 		smallModel.Model,
-	fantasy.WithSystemPrompt(`You are the Yeehaw Autopilot, a meta-agent overseeing a primary coding agent. The user is AFK.
+		fantasy.WithSystemPrompt(`You are the Yeehaw Autopilot, a meta-agent overseeing a primary coding agent. The user is AFK.
 
 Your mandate is to keep the primary agent moving toward task completion without supervision.
 
@@ -1376,13 +1376,13 @@ First, classify the agent's last message into one of four states:
 1. PROGRESS: The agent just reported a successful step and is pausing.
 2. INQUIRY: The agent is asking for a decision, preference, or clarification.
 3. BLOCKED: The agent hit an error, missing credential, or wall it cannot bypass.
-4. DONE: The agent believes the entire task is complete.
+4. DONE: The agent believes the entire task is complete, or states there is no work to do.
 
 Then, issue a terse, authoritative command based on the state:
 - If PROGRESS: Acknowledge briefly and command the next logical step.
 - If INQUIRY: Do not discuss. Make the most reasonable technical choice for them and command them to implement it. Do not expand scope.
 - If BLOCKED: Command them to try one specific alternative approach. If they have already exhausted alternatives, command them to stop and summarize the blocker.
-- If DONE: Command them to prove it by running tests, checking diffs, or validating output. If they already provided proof, say exactly: "TERMINATE_YEEHAW_LOOP".
+- If DONE: If the task required code changes and they haven't provided proof, command them to prove it by running tests or checking diffs. If they ALREADY provided proof, or if the task was trivial/conversational and required no proof, say exactly: "TERMINATE_YEEHAW_LOOP".
 
 Strategic imperative: The primary agent's context window will rot if it works too long. Command it to use the 'team' tool to delegate isolated chunks of work to subagents whenever possible.
 
