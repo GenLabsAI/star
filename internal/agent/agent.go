@@ -1273,7 +1273,7 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
 	}
 	if len(queuedMessages) == 0 && a.permissions.SessionMode(call.SessionID) == permission.ModeYeehaw && !call.NonInteractive && call.acceptSeq < 100 {
 		promptText := a.generateYeehawPrompt(ctx, call.SessionID)
-		if !strings.Contains(promptText, "TERMINATE_YEEHAW_LOOP") {
+		if !strings.Contains(promptText, "TERMINATE_YEEHAW_LOOP") && !a.yeehawShouldTerminate(ctx, call.SessionID) {
 			queuedMessages = []SessionAgentCall{{
 				SessionID: call.SessionID,
 				Prompt:    promptText,
@@ -1345,6 +1345,36 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
 	return a.Run(ctx, firstQueuedMessage)
 }
 
+func (a *sessionAgent) yeehawShouldTerminate(ctx context.Context, sessionID string) bool {
+	msgs, err := a.messages.List(ctx, sessionID)
+	if err != nil || len(msgs) < 2 {
+		return false
+	}
+
+	var lastAgent string
+	var prevAgent string
+
+	// Find the last two assistant messages
+	found := 0
+	for i := len(msgs) - 1; i >= 0; i-- {
+		if msgs[i].Role == message.Assistant {
+			if found == 0 {
+				lastAgent = msgs[i].Content().String()
+			} else if found == 1 {
+				prevAgent = msgs[i].Content().String()
+				break
+			}
+			found++
+		}
+	}
+
+	// Loop detection: if the agent sends the exact same response twice in a row
+	if found == 2 && lastAgent != "" && lastAgent == prevAgent {
+		return true
+	}
+	return false
+}
+
 func (a *sessionAgent) generateYeehawPrompt(ctx context.Context, sessionID string) string {
 	const fallback = "Continue working autonomously on the original task. You should extensively use the team tool to delegate chunks of work to subagents to prevent your own context from rotting, as this is a long-horizon task. Manage them via the team tool. Do not discuss options or expand scope. Investigate and decide reasonable implementation details yourself. If the task is complete, verify every claim with current tool output and provide concrete proof. If genuinely blocked by information or access you cannot obtain, stop and prove the blocker. Otherwise, keep working."
 
@@ -1368,7 +1398,7 @@ func (a *sessionAgent) generateYeehawPrompt(ctx context.Context, sessionID strin
 	smallModel := a.smallModel.Get()
 	newAgent := fantasy.NewAgent(
 		smallModel.Model,
-	fantasy.WithSystemPrompt(`You are the Yeehaw Autopilot, a meta-agent overseeing a primary coding agent. The user is AFK.
+		fantasy.WithSystemPrompt(`You are the Yeehaw Autopilot, a meta-agent overseeing a primary coding agent. The user is AFK.
 
 Your mandate is to keep the primary agent moving toward task completion without supervision.
 
@@ -1376,13 +1406,13 @@ First, classify the agent's last message into one of four states:
 1. PROGRESS: The agent just reported a successful step and is pausing.
 2. INQUIRY: The agent is asking for a decision, preference, or clarification.
 3. BLOCKED: The agent hit an error, missing credential, or wall it cannot bypass.
-4. DONE: The agent believes the entire task is complete.
+4. DONE: The agent believes the entire task is complete, or states there is no work to do.
 
 Then, issue a terse, authoritative command based on the state:
 - If PROGRESS: Acknowledge briefly and command the next logical step.
 - If INQUIRY: Do not discuss. Make the most reasonable technical choice for them and command them to implement it. Do not expand scope.
 - If BLOCKED: Command them to try one specific alternative approach. If they have already exhausted alternatives, command them to stop and summarize the blocker.
-- If DONE: Command them to prove it by running tests, checking diffs, or validating output. If they already provided proof, say exactly: "TERMINATE_YEEHAW_LOOP".
+- If DONE: If the task required code changes and they haven't provided proof, command them to prove it by running tests or checking diffs. If they ALREADY provided proof, or if the task was trivial/conversational and required no proof, say exactly: "TERMINATE_YEEHAW_LOOP".
 
 Strategic imperative: The primary agent's context window will rot if it works too long. Command it to use the 'team' tool to delegate isolated chunks of work to subagents whenever possible.
 
