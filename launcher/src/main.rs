@@ -25,19 +25,23 @@ fn find_core() -> PathBuf {
 }
 
 fn run_core() -> i32 {
-    let mut stdout = io::stdout();
+    let stdout = Arc::new(std::sync::Mutex::new(io::stdout()));
     let tty = platform::is_tty();
     let stop = Arc::new(AtomicBool::new(false));
     let pulse_finished = Arc::new(AtomicBool::new(false));
+    let mut animation = None;
 
     if tty {
         // Set alt screen, hide cursor, set bg to black, clear screen
-        let _ = stdout.write_all(b"\x1b[?1049h\x1b[?25l\x1b[48;2;0;0;0m\x1b[H\x1b[2J");
-        let _ = stdout.flush();
+        if let Ok(mut out) = stdout.lock() {
+            let _ = out.write_all(b"\x1b[?1049h\x1b[?25l\x1b[48;2;0;0;0m\x1b[H\x1b[2J");
+            let _ = out.flush();
+        }
 
         let stop_clone = Arc::clone(&stop);
         let pulse_finished_clone = Arc::clone(&pulse_finished);
-        thread::spawn(move || {
+        let stdout_clone = Arc::clone(&stdout);
+        animation = Some(thread::spawn(move || {
             let label = [
                 "╭──╮╶─┬─╴╭──╮ ╭──╮",
                 "╰──╮  │  ├──┤ ├─┬╯",
@@ -59,7 +63,6 @@ fn run_core() -> i32 {
             let cx = ((cols as usize).saturating_sub(full_width)) / 2;
             let text_start = cx + 1 + spinner_gap;
             let spinner_col = cx;
-            let mut out = io::stdout();
             let mut tick: usize = 0;
 
             let pulse_frames: usize = 72;
@@ -90,8 +93,10 @@ fn run_core() -> i32 {
             // clear that caused the STAR text to flicker each frame.
             let mut init = String::with_capacity(cols as usize * rows as usize + 32);
             init.push_str("\x1b[H\x1b[48;2;0;0;0m\x1b[2J");
-            let _ = out.write_all(init.as_bytes());
-            let _ = out.flush();
+            if let Ok(mut out) = stdout_clone.lock() {
+                let _ = out.write_all(init.as_bytes());
+                let _ = out.flush();
+            }
 
             while !stop_clone.load(Ordering::Relaxed) {
                 let mut buf = String::with_capacity(4096);
@@ -232,8 +237,10 @@ fn run_core() -> i32 {
                 // A full \x1b[0m reset between frames causes the default
                 // background to flash through for one refresh cycle.
                 buf.push_str(&format!("\x1b[{};1H", rows + 1));
-                let _ = out.write_all(buf.as_bytes());
-                let _ = out.flush();
+                if let Ok(mut out) = stdout_clone.lock() {
+                    let _ = out.write_all(buf.as_bytes());
+                    let _ = out.flush();
+                }
 
                 tick += 1;
                 if tick > pulse_frames {
@@ -241,7 +248,7 @@ fn run_core() -> i32 {
                 }
                 thread::sleep(Duration::from_millis(50));
             }
-        });
+        }));
     }
 
     let core = find_core();
@@ -269,8 +276,10 @@ fn run_core() -> i32 {
     {
         Ok(c) => c,
         Err(e) => {
-            let _ = stdout.write_all(b"\x1b[?25h\x1b[?1049l");
-            let _ = stdout.flush();
+            if let Ok(mut out) = stdout.lock() {
+                let _ = out.write_all(b"\x1b[?25h\x1b[?1049l");
+                let _ = out.flush();
+            }
             eprintln!("failed to launch star-core: {e}");
             std::process::exit(1);
         }
@@ -285,14 +294,18 @@ fn run_core() -> i32 {
     thread::sleep(Duration::from_millis(1000));
 
     stop.store(true, Ordering::Relaxed);
-    thread::sleep(Duration::from_millis(50));
+    if let Some(animation) = animation {
+        let _ = animation.join();
+    }
 
     // The terminal is currently in the alt-screen with a hidden cursor and black background.
     // We MUST exit alt-screen and reset all graphics modes before handing off to Bubble Tea,
     // otherwise Bubble Tea's renderer gets confused about terminal state (scroll regions, wrapping).
     // This ensures Go gets the exact same pristine terminal state it would get if launched directly.
-    let _ = stdout.write_all(b"\x1b[?1049l\x1b[?25h\x1b[0m");
-    let _ = stdout.flush();
+    if let Ok(mut out) = stdout.lock() {
+        let _ = out.write_all(b"\x1b[?1049l\x1b[?25h\x1b[0m");
+        let _ = out.flush();
+    }
 
     handshake.signal_release();
     handshake.wait_rendered();
