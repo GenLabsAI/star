@@ -135,7 +135,8 @@ type shellStreamMsg struct {
 
 type (
 	// startUpdateMsg signals that the UI should exit with the update code
-	startUpdateMsg struct{}
+	startUpdateMsg      struct{}
+	updateSignalTickMsg struct{}
 
 	// wakeupTickMsg triggers a UI repaint for the wakeup countdown overlay.
 	wakeupTickMsg struct{}
@@ -568,7 +569,7 @@ func (m *UI) Init() tea.Cmd {
 
 	// Check for updates off-thread now that the UI is running and
 	// subscribed to the event broker.
-	cmds = append(cmds, checkForUpdates())
+	cmds = append(cmds, checkForUpdates(), watchForUpdateSignal())
 
 	return tea.Batch(cmds...)
 }
@@ -1461,6 +1462,14 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case startUpdateMsg:
 		m.updateDownloading = true
 		return m, tea.Quit
+	case updateSignalTickMsg:
+		if os.Getenv("STAR_LAUNCHER_PID") != "" {
+			if _, err := os.Stat(filepath.Join(os.TempDir(), "star-update-request")); err == nil {
+				m.updateDownloading = true
+				return m, tea.Quit
+			}
+		}
+		cmds = append(cmds, watchForUpdateSignal())
 	case completions.CompletionItemsLoadedMsg:
 		if m.completionsOpen {
 			m.completions.SetItems(msg.Files, msg.Resources)
@@ -5349,6 +5358,12 @@ func (m *UI) disableDockerMCP() tea.Msg {
 	}
 
 	return util.NewInfoMsg("Docker MCP disabled successfully")
+}
+
+func watchForUpdateSignal() tea.Cmd {
+	return tea.Tick(100*time.Millisecond, func(time.Time) tea.Msg {
+		return updateSignalTickMsg{}
+	})
 }
 
 func checkForUpdates() tea.Cmd {

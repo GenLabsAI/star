@@ -231,8 +231,11 @@ func Execute() {
 		fang.WithNotifySignal(os.Interrupt),
 	); err != nil {
 		if errors.Is(err, ErrUpdateRequested) {
-			if updateSessionID != "" && os.Getenv("STAR_LAUNCHER_PID") != "" {
-				_ = os.WriteFile(filepath.Join(os.TempDir(), "star-update-session-"+os.Getenv("STAR_LAUNCHER_PID")), []byte(updateSessionID), 0600)
+			if os.Getenv("STAR_LAUNCHER_PID") != "" {
+				_ = os.WriteFile(filepath.Join(os.TempDir(), "star-update-request"), []byte("1"), 0600)
+				if updateSessionID != "" {
+					_ = os.WriteFile(filepath.Join(os.TempDir(), "star-update-session-"+os.Getenv("STAR_LAUNCHER_PID")), []byte(updateSessionID), 0600)
+				}
 			}
 			os.Exit(42)
 		}

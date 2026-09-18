@@ -11,35 +11,6 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 use std::time::Duration;
 
-#[cfg(target_os = "windows")]
-fn stop_other_instances() -> Result<(), String> {
-    let current_pid = std::process::id().to_string();
-    let output = Command::new("taskkill")
-        .args([
-            "/F",
-            "/IM",
-            "star-core.exe",
-            "/FI",
-            &format!("PID ne {current_pid}"),
-        ])
-        .output()
-        .map_err(|error| format!("Failed to stop other Star instances: {error}"))?;
-
-    if output.status.success() || output.status.code() == Some(128) {
-        return Ok(());
-    }
-
-    Err(format!(
-        "Failed to stop other Star instances: {}",
-        String::from_utf8_lossy(&output.stderr).trim()
-    ))
-}
-
-#[cfg(not(target_os = "windows"))]
-fn stop_other_instances() -> Result<(), String> {
-    Ok(())
-}
-
 fn find_core() -> PathBuf {
     let home = env::var_os("USERPROFILE")
         .or_else(|| env::var_os("HOME"))
@@ -285,7 +256,10 @@ fn run_core() -> i32 {
 
     if let Ok(session) = env::var("STAR_UPDATE_SESSION") {
         args.retain(|arg| arg != "--continue" && arg != "-C");
-        if let Some(index) = args.iter().position(|arg| arg == "--session" || arg == "-s") {
+        if let Some(index) = args
+            .iter()
+            .position(|arg| arg == "--session" || arg == "-s")
+        {
             args.drain(index..=(index + 1).min(args.len() - 1));
         }
         args.push("--session".into());
@@ -353,8 +327,10 @@ fn run_core() -> i32 {
 }
 
 fn main() {
-    let update_session_path =
-        env::temp_dir().join(format!("star-update-session-{}", std::process::id()));
+    let launcher_pid = std::process::id();
+    let update_session_path = env::temp_dir().join(format!("star-update-session-{launcher_pid}"));
+    let update_request_path = env::temp_dir().join("star-update-request");
+    let update_lock_path = env::temp_dir().join("star-update-lock");
 
     loop {
         let exit_code = run_core();
@@ -363,23 +339,32 @@ fn main() {
             std::process::exit(exit_code);
         }
 
-        // When restarting for an update, clear the screen completely
-        // so the new binary starts with a clean slate.
         let mut stdout = io::stdout();
         let _ = stdout.write_all(b"\x1b[?1049l\x1b[?25h\x1b[0m\x1b[r\x1b[H\x1b[2J");
         let _ = stdout.flush();
 
-        if let Err(error) = stop_other_instances() {
-            let _ = std::fs::remove_file(&update_session_path);
-            eprintln!("Update failed: {error}");
-            std::process::exit(1);
-        }
+        let updater = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&update_lock_path)
+            .is_ok();
 
-        let core = find_core();
-        if let Err(error) = update::perform_update(&core) {
-            let _ = std::fs::remove_file(&update_session_path);
-            eprintln!("Update failed: {error}");
-            std::process::exit(1);
+        if updater {
+            thread::sleep(Duration::from_millis(500));
+            let core = find_core();
+            if let Err(error) = update::perform_update(&core) {
+                let _ = std::fs::remove_file(&update_lock_path);
+                let _ = std::fs::remove_file(&update_request_path);
+                let _ = std::fs::remove_file(&update_session_path);
+                eprintln!("Update failed: {error}");
+                std::process::exit(1);
+            }
+            let _ = std::fs::remove_file(&update_request_path);
+            let _ = std::fs::remove_file(&update_lock_path);
+        } else {
+            while update_request_path.exists() || update_lock_path.exists() {
+                thread::sleep(Duration::from_millis(100));
+            }
         }
 
         if let Ok(session_id) = std::fs::read_to_string(&update_session_path) {
