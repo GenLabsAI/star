@@ -182,8 +182,19 @@ fn atomic_replace(dest: &Path, data: &[u8]) -> Result<(), String> {
         .map_err(|e| format!("Failed to sync temp file: {e}"))?;
     drop(f);
 
-    fs::rename(&tmp, dest)
-        .map_err(|e| format!("Failed to rename temp to {}: {e}", dest.display()))?;
+    let mut retries = 0;
+    loop {
+        match fs::rename(&tmp, dest) {
+            Ok(_) => break,
+            Err(e) => {
+                if retries >= 10 {
+                    return Err(format!("Failed to rename temp to {}: {e}", dest.display()));
+                }
+                std::thread::sleep(std::time::Duration::from_millis(500));
+                retries += 1;
+            }
+        }
+    }
 
     Ok(())
 }

@@ -3980,7 +3980,7 @@ func (m *UI) setEditorPrompt(yolo bool, mode permission.Mode) {
 		m.textarea.SetPromptFunc(4, m.bangPromptFunc)
 		return
 	}
-	if yolo || mode == permission.ModeYolo {
+	if yolo || mode == permission.ModeYolo || mode == permission.ModeYeehaw {
 		m.textarea.SetPromptFunc(4, m.yoloPromptFunc)
 		return
 	}
@@ -4259,6 +4259,10 @@ func (m *UI) randomizePlaceholders() {
 
 // renderEditorView renders the editor view with attachments if any.
 func (m *UI) renderEditorView(width int) string {
+	if m.modeCache.val == permission.ModeYeehaw && m.isAgentBusy() {
+		return "  Yeehaw mode: working autonomously (Esc to stop)\n"
+	}
+
 	var attachmentsView string
 	if len(m.attachments.List()) > 0 {
 		attachmentsView = m.attachments.Render(width)
@@ -5349,12 +5353,15 @@ func (m *UI) disableDockerMCP() tea.Msg {
 
 func checkForUpdates() tea.Cmd {
 	return func() tea.Msg {
-		checkCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		checkCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 
 		info, err := update.Check(checkCtx, version.Version, update.Default)
 		if err != nil || !info.Available() {
-			return nil
+			// Try again in a bit if not available or failed.
+			return tea.Tick(15*time.Minute, func(t time.Time) tea.Msg {
+				return checkForUpdates()()
+			})()
 		}
 		return app.UpdateAvailableMsg{
 			CurrentVersion: info.Current,
