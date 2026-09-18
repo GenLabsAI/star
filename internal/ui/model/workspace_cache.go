@@ -217,7 +217,7 @@ func (m *UI) applyBusyState(msg busyStateMsg) []tea.Cmd {
 		// prompt function so the prompt icon/style tracks the new mode.
 		// The cache is written above and the placeholder is refreshed by
 		// the Update tail.
-		m.setEditorPrompt(msg.yolo || msg.mode == permission.ModeYolo, msg.mode)
+		m.setEditorPrompt(msg.yolo || msg.mode == permission.ModeYolo || msg.mode == permission.ModeYeehaw, msg.mode)
 	}
 
 	var cmds []tea.Cmd
@@ -332,7 +332,6 @@ func (m *UI) setPermissionMode(mode permission.Mode) {
 	m.com.Workspace.PermissionSetSessionMode(sessionID, mode)
 	m.modeCache.set(mode)
 	yolo := mode == permission.ModeYolo
-	m.com.Workspace.PermissionSetSessionSkipRequests(sessionID, yolo)
 	m.yoloCache.set(yolo)
 	m.busyFetchGen++
 	m.setEditorPrompt(yolo, mode)

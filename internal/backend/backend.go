@@ -416,8 +416,11 @@ func (b *Backend) CreateWorkspace(args proto.Workspace) (*Workspace, proto.Works
 		return nil, proto.Workspace{}, fmt.Errorf("failed to initialize config: %w", err)
 	}
 
-	cfg.Overrides().SkipPermissionRequests = args.YOLO
-	if args.YOLO {
+	cfg.Overrides().SkipPermissionRequests = args.YOLO || args.Yeehaw
+	if args.Yeehaw {
+		cfg.Overrides().PermissionMode = "yeehaw"
+		cfg.Overrides().YeehawMode = true
+	} else if args.YOLO {
 		cfg.Overrides().PermissionMode = "yolo"
 	}
 	cfg.Overrides().EnabledChannels = args.Channels
@@ -1074,7 +1077,8 @@ func workspaceToProto(ws *Workspace) proto.Workspace {
 	out := proto.Workspace{
 		ID:       ws.ID,
 		Path:     ws.Path,
-		YOLO:     ws.Cfg.Overrides().SkipPermissionRequests || ws.Cfg.Overrides().PermissionMode == "yolo",
+		YOLO:     ws.Cfg.Overrides().SkipPermissionRequests || ws.Cfg.Overrides().PermissionMode == "yolo" || ws.Cfg.Overrides().PermissionMode == "yeehaw",
+		Yeehaw:   ws.Cfg.Overrides().YeehawMode,
 		Channels: ws.Cfg.Overrides().EnabledChannels,
 		DataDir:  cfg.Options.DataDirectory,
 		Debug:    cfg.Options.Debug,

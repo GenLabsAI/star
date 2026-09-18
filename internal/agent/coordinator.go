@@ -706,6 +706,7 @@ func (c *coordinator) buildAgent(ctx context.Context, prompt *prompt.Prompt, age
 		IsSubAgent:           isSubAgent,
 		DisableAutoSummarize: c.cfg.Config().Options.DisableAutoSummarize,
 		IsYolo:               c.permissions.SkipRequests(),
+		Permissions:          c.permissions,
 		Sessions:             c.sessions,
 		Messages:             c.messages,
 		Tools:                nil,

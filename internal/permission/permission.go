@@ -70,6 +70,8 @@ const (
 	ModeNormal Mode = "normal"
 	// ModeYolo auto-approves all permission requests.
 	ModeYolo Mode = "yolo"
+	// ModeYeehaw is YOLO mode but also fully autonomous (auto-pilot answers questions).
+	ModeYeehaw Mode = "yeehaw"
 	// ModePlan restricts the agent to read-only tools.
 	ModePlan Mode = "plan"
 )
@@ -205,7 +207,7 @@ func (s *permissionService) Request(ctx context.Context, opts CreatePermissionRe
 		return false, nil
 	}
 
-	if sessionMode == ModeYolo {
+	if sessionMode == ModeYolo || sessionMode == ModeYeehaw {
 		return true, nil
 	}
 

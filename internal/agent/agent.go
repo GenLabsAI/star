@@ -42,6 +42,7 @@ import (
 	"github.com/charmbracelet/crush/internal/config"
 	"github.com/charmbracelet/crush/internal/csync"
 	"github.com/charmbracelet/crush/internal/message"
+	"github.com/charmbracelet/crush/internal/permission"
 	"github.com/charmbracelet/crush/internal/pubsub"
 	"github.com/charmbracelet/crush/internal/session"
 	"github.com/charmbracelet/crush/internal/stringext"
@@ -180,6 +181,7 @@ type sessionAgent struct {
 	messages             message.Service
 	disableAutoSummarize bool
 	isYolo               bool
+	permissions          permission.Service
 	notify               pubsub.Publisher[notify.Notification]
 	runComplete          pubsub.Publisher[notify.RunComplete]
 
@@ -235,6 +237,7 @@ type SessionAgentOptions struct {
 	Sessions             session.Service
 	Messages             message.Service
 	Tools                []fantasy.AgentTool
+	Permissions          permission.Service
 	Notify               pubsub.Publisher[notify.Notification]
 	RunComplete          pubsub.Publisher[notify.RunComplete]
 }
@@ -253,6 +256,7 @@ func NewSessionAgent(
 		disableAutoSummarize: opts.DisableAutoSummarize,
 		tools:                csync.NewSliceFrom(opts.Tools),
 		isYolo:               opts.IsYolo,
+		permissions:          opts.Permissions,
 		notify:               opts.Notify,
 		runComplete:          opts.RunComplete,
 		messageQueue:         csync.NewMap[string, []SessionAgentCall](),
@@ -1267,6 +1271,14 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
 		// RunID does not hang.
 		a.publishCanceledQueueDrops(canceledRunIDDrops)
 	}
+	if len(queuedMessages) == 0 && a.permissions.SessionMode(call.SessionID) == permission.ModeYeehaw && !call.NonInteractive && call.acceptSeq < 100 {
+		promptText := a.generateYeehawPrompt(ctx, call.SessionID)
+		queuedMessages = []SessionAgentCall{{
+			SessionID: call.SessionID,
+			Prompt:    promptText,
+			Accepted:  a.BeginAccepted(call.SessionID),
+		}}
+	}
 	if len(queuedMessages) == 0 {
 		// No queued work. Clear the cancel mark only when no accepted
 		// run remains in flight that it might still cover; otherwise a
@@ -1329,6 +1341,51 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
 		a.publishRunComplete(ctx, call, complete)
 	}
 	return a.Run(ctx, firstQueuedMessage)
+}
+
+func (a *sessionAgent) generateYeehawPrompt(ctx context.Context, sessionID string) string {
+	const fallback = "Continue working autonomously on the original task. You should extensively use the team tool to delegate chunks of work to subagents to prevent your own context from rotting, as this is a long-horizon task. Manage them via the team tool. Do not discuss options or expand scope. Investigate and decide reasonable implementation details yourself. If the task is complete, verify every claim with current tool output and provide concrete proof. If genuinely blocked by information or access you cannot obtain, stop and prove the blocker. Otherwise, keep working."
+
+	msgs, err := a.messages.List(ctx, sessionID)
+	if err != nil || len(msgs) == 0 {
+		return fallback
+	}
+
+	var lastAssistant string
+	for i := len(msgs) - 1; i >= 0; i-- {
+		if msgs[i].Role == message.Assistant {
+			lastAssistant = msgs[i].Content().String()
+			break
+		}
+	}
+
+	if lastAssistant == "" {
+		return fallback
+	}
+
+	smallModel := a.smallModel.Get()
+	newAgent := fantasy.NewAgent(
+		smallModel.Model,
+		fantasy.WithSystemPrompt("You are the autopilot for a fully autonomous coding agent.\nThe agent just finished a turn and yielded back to the user. Since the system is running in autonomous 'Yeehaw' mode, the user is not present.\nYour job is to read the agent's last message and provide a concise, personalized instruction to keep it moving forward.\n\nRules:\n1. DO NOT carry on a conversation. Be authoritative.\n2. DO NOT discuss options or expand scope.\n3. If the agent asks for a decision (e.g. 'Should I use approach A or B?'), tell it to investigate and decide reasonable implementation details itself.\n4. Tell the agent to extensively use the team tool to delegate chunks of work to subagents to prevent its own context from rotting (as this is a long-horizon task).\n5. If the agent thinks it is done, tell it to verify every claim with current tool output and provide concrete proof.\n6. If the agent is genuinely blocked by missing credentials, missing access, or missing information it cannot obtain via tools, tell it to 'stop and prove the blocker'.\n\nRespond ONLY with the instruction you want to send to the agent. No pleasantries."),
+		fantasy.WithMaxOutputTokens(300),
+		fantasy.WithUserAgent(userAgent),
+	)
+
+	streamCall := fantasy.AgentStreamCall{
+		Prompt:  "The agent's last message was:\n\n" + lastAssistant,
+		Headers: sessionHeaders(sessionID),
+	}
+
+	resp, err := newAgent.Stream(ctx, streamCall)
+	if err != nil {
+		return fallback
+	}
+
+	text := strings.TrimSpace(resp.Response.Content.Text())
+	if text == "" {
+		return fallback
+	}
+	return text
 }
 
 func (a *sessionAgent) Summarize(ctx context.Context, sessionID string, opts fantasy.ProviderOptions, onAuthRefresh func(context.Context, *fantasy.ProviderError) error) error {

@@ -1002,6 +1002,7 @@ func (w *ClientWorkspace) recreateArgs() proto.Workspace {
 		DataDir:  ws.DataDir,
 		Debug:    ws.Debug,
 		YOLO:     ws.YOLO,
+		Yeehaw:   ws.Yeehaw,
 		Channels: ws.Channels,
 		Env:      ws.Env,
 		Version:  version.Version,
