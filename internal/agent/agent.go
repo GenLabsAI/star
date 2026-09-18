@@ -1372,6 +1372,20 @@ func (a *sessionAgent) yeehawShouldTerminate(ctx context.Context, sessionID stri
 	if found == 2 && lastAgent != "" && lastAgent == prevAgent {
 		return true
 	}
+	
+	// Blocked standoff detection: if the last response is a block/done claim with no tool use,
+	// and the previous response was also a block/done claim, terminate.
+	// Simple heuristic: short messages asking for tasks or claiming blocked.
+	lastLower := strings.ToLower(lastAgent)
+	prevLower := strings.ToLower(prevAgent)
+	if strings.Contains(lastLower, "blocked") || strings.Contains(lastLower, "no task") || strings.Contains(lastLower, "complete") {
+		if strings.Contains(prevLower, "blocked") || strings.Contains(prevLower, "no task") || strings.Contains(prevLower, "complete") {
+			// Ensure they aren't massive code blocks by checking length
+			if len(lastAgent) < 2000 && len(prevAgent) < 2000 {
+				return true
+			}
+		}
+	}
 	return false
 }
 
