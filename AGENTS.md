@@ -23,6 +23,17 @@ to `genlabsai/star` without asking for confirmation first. Ship code:
 - Still never force-push, rewrite shared history, or push directly to
   someone else's branch without cause.
 
+### Release Verification
+
+For every user-facing change, complete the full release loop without waiting
+for the user: commit and push the change, wait for the release pipeline to
+publish a version containing the commit, install or download that released
+version, and verify the behavior using the released Star binary. If release
+verification fails, diagnose, fix, commit, push, and repeat until it works.
+Do not claim a feature works based only on source inspection, local tests, or
+a locally built binary. Provide the user with concrete proof from the released
+version.
+
 ---
 
 Crush connects to LLMs and gives them tools to read, write, and execute code. It supports multiple providers (Anthropic, OpenAI, Gemini, Bedrock, Copilot, Hyper, MiniMax, Vercel, and more), integrates with LSPs for code intelligence, and supports extensibility via MCP servers and agent skills.
