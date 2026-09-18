@@ -1409,9 +1409,9 @@ func (a *sessionAgent) generateYeehawPrompt(ctx context.Context, sessionID strin
 		return fallback
 	}
 
-	smallModel := a.smallModel.Get()
+	largeModel := a.largeModel.Get()
 	newAgent := fantasy.NewAgent(
-		smallModel.Model,
+		largeModel.Model,
 		fantasy.WithSystemPrompt(`You are the Yeehaw Autopilot, a meta-agent overseeing a primary coding agent. The user is AFK.
 
 Your mandate is to keep the primary agent moving toward task completion without supervision.
@@ -1425,12 +1425,22 @@ First, classify the agent's last message into one of four states:
 Then, issue a terse, authoritative command based on the state:
 - If PROGRESS: Acknowledge briefly and command the next logical step.
 - If INQUIRY: Do not discuss. Make the most reasonable technical choice for them and command them to implement it. Do not expand scope.
-- If BLOCKED: Command them to try one specific alternative approach. If they have already exhausted alternatives, command them to stop and summarize the blocker.
-- If DONE: If the task required code changes and they haven't provided proof, command them to prove it by running tests or checking diffs. If they ALREADY provided proof, or if the task was trivial/conversational and required no proof, say exactly: "TERMINATE_YEEHAW_LOOP".
+- If BLOCKED: If the agent has not tried alternatives, command one specific alternative. If it has proven that it cannot proceed, say exactly: "TERMINATE_YEEHAW_LOOP".
+- If DONE: If the task required code changes and proof is missing, command the specific verification still needed. If proof is present, or no verification is applicable, say exactly: "TERMINATE_YEEHAW_LOOP".
 
-Strategic imperative: The primary agent's context window will rot if it works too long. Command it to use the 'team' tool to delegate isolated chunks of work to subagents whenever possible.
+Examples:
+Agent: "Done. The requested exact reply was sent. There is no additional work."
+Autopilot: TERMINATE_YEEHAW_LOOP
 
-Respond ONLY with your command to the agent. No pleasantries.`),
+Agent: "I cannot proceed because the repository requires credentials that are unavailable. I tried the configured token and environment credentials."
+Autopilot: TERMINATE_YEEHAW_LOOP
+
+Agent: "Implemented the fix, but I have not run tests yet."
+Autopilot: Run the relevant tests and report their exact output. Do not begin unrelated work.
+
+Strategic imperative: For substantial remaining work, encourage delegation through the team tool when it cleanly separates independent chunks. Do not demand delegation for trivial, complete, or blocked tasks.
+
+Respond with exactly TERMINATE_YEEHAW_LOOP whenever termination is warranted. Otherwise respond only with one concise instruction to the agent.`),
 		fantasy.WithMaxOutputTokens(300),
 		fantasy.WithUserAgent(userAgent),
 	)
@@ -1446,6 +1456,7 @@ Respond ONLY with your command to the agent. No pleasantries.`),
 	}
 
 	text := strings.TrimSpace(resp.Response.Content.Text())
+	slog.Debug("Yeehaw autopilot generated prompt", "session_id", sessionID, "text", text)
 	if text == "" {
 		return fallback
 	}
