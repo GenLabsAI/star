@@ -52,8 +52,9 @@ type countingWorkspace struct {
 	lspDiagCalls    int
 }
 
-func (w *countingWorkspace) AgentIsReady() bool { w.readyCalls++; return w.ready }
-func (w *countingWorkspace) AgentIsBusy() bool  { w.agentBusyCalls++; return w.agentBusy }
+func (w *countingWorkspace) AgentIsReady() bool             { w.readyCalls++; return w.ready }
+func (w *countingWorkspace) AgentIsBusy() bool              { w.agentBusyCalls++; return w.agentBusy }
+func (w *countingWorkspace) AgentIsSessionBusy(string) bool { w.agentBusyCalls++; return w.agentBusy }
 
 func (w *countingWorkspace) AgentReadyErr() error {
 	w.readyCalls++
