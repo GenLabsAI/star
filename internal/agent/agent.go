@@ -1389,6 +1389,44 @@ func (a *sessionAgent) yeehawShouldTerminate(ctx context.Context, sessionID stri
 	return false
 }
 
+func buildYeehawTranscript(msgs []message.Message) string {
+	var b strings.Builder
+	for _, m := range msgs {
+		switch m.Role {
+		case message.User:
+			b.WriteString("User: ")
+			text := strings.TrimSpace(m.Content().String())
+			b.WriteString(text)
+			b.WriteString("\n\n")
+		case message.Assistant:
+			text := strings.TrimSpace(m.Content().String())
+			if text != "" {
+				b.WriteString("Agent: ")
+				b.WriteString(text)
+				b.WriteString("\n\n")
+			}
+			for _, tc := range m.ToolCalls() {
+				b.WriteString(fmt.Sprintf("[Tool Call: %s]\n", tc.Name))
+				// don't truncate tool inputs to give the autopilot visibility
+				input := tc.Input
+				b.WriteString(fmt.Sprintf("Input: %s\n\n", input))
+			}
+		case message.Tool:
+			for _, tr := range m.ToolResults() {
+				b.WriteString(fmt.Sprintf("[Tool Result: %s]\n", tr.Name))
+				out := tr.Content
+				// truncate tool outputs to 1000 chars - we want to see exit codes and match counts but not whole files
+				if len(out) > 1000 {
+					out = out[:997] + "..."
+				}
+				b.WriteString(out)
+				b.WriteString("\n\n")
+			}
+		}
+	}
+	return b.String()
+}
+
 func (a *sessionAgent) generateYeehawPrompt(ctx context.Context, sessionID string) string {
 	const fallback = "Continue working autonomously on the original task. You should extensively use the team tool to delegate chunks of work to subagents to prevent your own context from rotting, as this is a long-horizon task. Manage them via the team tool. Do not discuss options or expand scope. Investigate and decide reasonable implementation details yourself. If the task is complete, verify every claim with current tool output and provide concrete proof. If genuinely blocked by information or access you cannot obtain, stop and prove the blocker. Otherwise, keep working."
 
@@ -1397,15 +1435,8 @@ func (a *sessionAgent) generateYeehawPrompt(ctx context.Context, sessionID strin
 		return fallback
 	}
 
-	var lastAssistant string
-	for i := len(msgs) - 1; i >= 0; i-- {
-		if msgs[i].Role == message.Assistant {
-			lastAssistant = msgs[i].Content().String()
-			break
-		}
-	}
-
-	if lastAssistant == "" {
+	transcript := buildYeehawTranscript(msgs)
+	if transcript == "" {
 		return fallback
 	}
 
@@ -1446,7 +1477,7 @@ Respond with exactly TERMINATE_YEEHAW_LOOP whenever termination is warranted. Ot
 	)
 
 	streamCall := fantasy.AgentStreamCall{
-		Prompt:  "The agent's last message was:\n\n" + lastAssistant,
+		Prompt:  "Below is the full conversation and execution history. The first user message is the original task and is the primary source of truth. Review the entire trajectory, detect drift, and decide the single best next instruction or whether to terminate.\n\n" + transcript,
 		Headers: sessionHeaders(sessionID),
 	}
 
