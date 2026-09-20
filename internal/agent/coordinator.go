@@ -1535,7 +1535,11 @@ func (c *coordinator) runSubAgent(ctx context.Context, params subAgentParams) (f
 	// Without this, a sub-agent's tool calls (edit, write, bash, etc.)
 	// fall back to the global default mode and can trigger permission
 	// prompts even when the user is running in YOLO mode.
-	c.permissions.SetSessionMode(session.ID, c.permissions.SessionMode(params.SessionID))
+	parentMode := c.permissions.SessionMode(params.SessionID)
+	c.permissions.SetSessionMode(session.ID, parentMode)
+	if parentMode == permission.ModeYolo || parentMode == permission.ModeYeehaw {
+		c.permissions.AutoApproveSession(session.ID)
+	}
 
 	// Call session setup function if provided
 	if params.SessionSetup != nil {

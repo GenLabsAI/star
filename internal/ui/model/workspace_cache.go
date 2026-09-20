@@ -330,6 +330,7 @@ func (m *UI) staleWorkspaceRefreshCmds() []tea.Cmd {
 func (m *UI) setPermissionMode(mode permission.Mode) {
 	sessionID := m.currentSessionID()
 	m.com.Workspace.PermissionSetSessionMode(sessionID, mode)
+	m.com.Workspace.PermissionSetMode(mode)
 	m.modeCache.set(mode)
 	yolo := mode == permission.ModeYolo
 	m.yoloCache.set(yolo)
@@ -348,6 +349,7 @@ func (m *UI) toggleYoloMode() bool {
 		mode = permission.ModeYolo
 	}
 	m.com.Workspace.PermissionSetSessionMode(sessionID, mode)
+	m.com.Workspace.PermissionSetMode(mode)
 	m.modeCache.set(mode)
 
 	// Supersede any in-flight busy/yolo probe: its result carries the old
