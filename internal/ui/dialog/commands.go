@@ -550,6 +550,7 @@ func (c *Commands) defaultCommands() []*CommandItem {
 		commands,
 		NewCommandItem(c.com.Styles, "toggle_help", "Toggle Help", "ctrl+g", ActionToggleHelp{}),
 		NewCommandItem(c.com.Styles, "init", "Initialize Project", "", ActionInitializeProject{}),
+		NewCommandItem(c.com.Styles, "search", "Search", "ctrl+shift+f", ActionOpenDialog{SearchID}),
 	)
 
 	// Add transparent background toggle.

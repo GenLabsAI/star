@@ -893,6 +893,7 @@ func allToolNames() []string {
 		"schedule_wakeup",
 		"enter_worktree",
 		"exit_worktree",
+		"search_history",
 	}
 }
 

@@ -51,6 +51,7 @@ type Service interface {
 	List(ctx context.Context, sessionID string) ([]Message, error)
 	ListUserMessages(ctx context.Context, sessionID string) ([]Message, error)
 	ListAllUserMessages(ctx context.Context) ([]Message, error)
+	ListAllMessages(ctx context.Context) ([]Message, error)
 	GetLastAssistantMessage(ctx context.Context, sessionID string) (Message, error)
 	Delete(ctx context.Context, id string) error
 	DeleteSessionMessages(ctx context.Context, sessionID string) error
@@ -519,6 +520,21 @@ func (s *service) ListUserMessages(ctx context.Context, sessionID string) ([]Mes
 
 func (s *service) ListAllUserMessages(ctx context.Context) ([]Message, error) {
 	dbMessages, err := s.q.ListAllUserMessages(ctx)
+	if err != nil {
+		return nil, err
+	}
+	messages := make([]Message, len(dbMessages))
+	for i, dbMessage := range dbMessages {
+		messages[i], err = s.fromDBItem(dbMessage)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return messages, nil
+}
+
+func (s *service) ListAllMessages(ctx context.Context) ([]Message, error) {
+	dbMessages, err := s.q.ListAllMessages(ctx)
 	if err != nil {
 		return nil, err
 	}
