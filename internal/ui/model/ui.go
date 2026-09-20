@@ -2166,6 +2166,12 @@ func (m *UI) handleDialogMsg(msg tea.Msg) tea.Cmd {
 		cmds = append(cmds, m.initializeProject())
 		m.dialog.CloseDialog(dialog.CommandsID)
 
+	case dialog.ActionSearchJumpToMessage:
+		m.dialog.CloseDialog(dialog.SearchID)
+		cmds = append(cmds, m.loadSession(msg.SessionID))
+		// Note: scrolling precisely to msg.MessageID would require UI list support,
+		// for now jumping to the session is the MVP.
+
 	case dialog.ActionSelectModel:
 		if cmd := m.handleSelectModel(msg); cmd != nil {
 			cmds = append(cmds, cmd)
@@ -4614,6 +4620,10 @@ func (m *UI) openDialog(id string) tea.Cmd {
 		if cmd := m.openQuitDialog(); cmd != nil {
 			cmds = append(cmds, cmd)
 		}
+	case dialog.SearchID:
+		if cmd := m.openSearchDialog(); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
 	default:
 		// Unknown dialog
 		break
@@ -4677,6 +4687,22 @@ func (m *UI) openCommandsDialog() tea.Cmd {
 	m.dialog.OpenDialog(commands)
 
 	return commands.InitialCmd()
+}
+
+// openSearchDialog opens the search dialog.
+func (m *UI) openSearchDialog() tea.Cmd {
+	if m.dialog.ContainsDialog(dialog.SearchID) {
+		m.dialog.BringToFront(dialog.SearchID)
+		return nil
+	}
+
+	searchDialog, err := dialog.NewSearch(m.com)
+	if err != nil {
+		return util.ReportError(err)
+	}
+
+	m.dialog.OpenDialog(searchDialog)
+	return nil
 }
 
 // openReasoningDialog opens the reasoning effort dialog.

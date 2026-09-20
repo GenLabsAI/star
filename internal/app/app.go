@@ -35,6 +35,7 @@ import (
 	"github.com/charmbracelet/crush/internal/permission"
 	"github.com/charmbracelet/crush/internal/pubsub"
 	"github.com/charmbracelet/crush/internal/question"
+	"github.com/charmbracelet/crush/internal/search"
 	"github.com/charmbracelet/crush/internal/session"
 	"github.com/charmbracelet/crush/internal/shell"
 	"github.com/charmbracelet/crush/internal/skills"
@@ -61,6 +62,7 @@ type App struct {
 	Permissions permission.Service
 	Questions   question.Service
 	FileTracker filetracker.Service
+	Search      search.Service
 
 	AgentCoordinator agent.Coordinator
 
@@ -104,6 +106,7 @@ func New(ctx context.Context, conn *sql.DB, store *config.ConfigStore, skillsMgr
 	q := db.New(conn)
 	sessions := session.NewService(q, conn)
 	messages := message.NewService(q)
+	searchSvc := search.NewService(conn, messages)
 	files := history.NewService(q, conn)
 	cfg := store.Config()
 
@@ -127,6 +130,7 @@ func New(ctx context.Context, conn *sql.DB, store *config.ConfigStore, skillsMgr
 		Permissions: permission.NewPermissionService(store.WorkingDir(), skipPermissionsRequests, allowedTools, mode),
 		Questions:   question.NewService(),
 		FileTracker: filetracker.NewService(q),
+		Search:      searchSvc,
 		LSPManager:  lsp.NewManager(store),
 		Skills:      skillsMgr,
 
@@ -145,6 +149,26 @@ func New(ctx context.Context, conn *sql.DB, store *config.ConfigStore, skillsMgr
 	}
 
 	app.setupEvents()
+
+	go func() {
+		ch := app.Messages.Subscribe(ctx)
+		for ev := range ch {
+			switch ev.Type {
+			case pubsub.CreatedEvent, pubsub.UpdatedEvent:
+				_ = app.Search.Index(ctx, ev.Payload)
+			case pubsub.DeletedEvent:
+				_ = app.Search.Remove(ctx, ev.Payload.ID)
+			}
+		}
+	}()
+
+	// Background backfill if needed
+	go func() {
+		needsReindex, err := app.Search.NeedsReindex(ctx)
+		if err == nil && needsReindex {
+			_ = app.Search.Reindex(ctx, nil)
+		}
+	}()
 
 	// Initialize clipboard support. This is best-effort; if it fails
 	// (e.g., headless environment), clipboard operations will return nil.
@@ -720,6 +744,7 @@ func (app *App) initCoderAgent(ctx context.Context, interactive bool) error {
 		Skills:           app.Skills,
 		WorktreeManager:  app.worktreeManager,
 		Interactive:      interactive,
+		Search:           app.Search,
 	})
 	if err != nil {
 		slog.Error("Failed to create coder agent", "err", err)
