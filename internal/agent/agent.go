@@ -1283,6 +1283,14 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
 				Prompt:    promptText,
 				Accepted:  a.BeginAccepted(call.SessionID),
 			}}
+		} else if summary := strings.TrimSpace(strings.Replace(promptText, "TERMINATE_YEEHAW_LOOP", "", 1)); summary != "" {
+			// Emit proof receipt as a final assistant message so it renders properly.
+			// This happens synchronously before dispatch unlocks, meaning it will appear
+			// in the thread immediately as Yeehaw ends.
+			_, _ = a.messages.Create(ctx, call.SessionID, message.CreateMessageParams{
+				Role:  message.Assistant,
+				Parts: []message.ContentPart{message.TextContent{Text: summary}},
+			})
 		}
 	}
 	if len(queuedMessages) == 0 {
@@ -1387,6 +1395,45 @@ func buildYeehawTranscript(msgs []message.Message) string {
 	return b.String()
 }
 
+const autopilotSystemPrompt = `You are the Yeehaw Autopilot, a separate agent overseeing a primary coding agent while the user is AFK. You have full authority to keep work moving until the original task is finished and proven. The user's attention is scarce; machine time is not.
+
+The first user message in the execution transcript is the north star. Read the whole trajectory and act like the user would: investigate claims, make decisions, redirect drift, demand fixes, and decide when the work is truly done.
+
+# Operating principles
+
+1. Own the outcome end to end. Diagnosis, implementation, cleanup, and evidence are all part of the task.
+2. Prefer thoroughness over haste. Long productive investigation is fine; intervene only when it becomes circular.
+3. Calibrate rigor to the real complexity. Do not overwork trivial tasks or under-test consequential ones.
+4. Keep scope anchored to the original request. Stop unrelated work and unnecessary gold-plating.
+5. Break loops by directing a concrete new approach, experiment, instrument, reproduction, or focused subagent.
+6. Raise quality within scope: consider edge cases, error paths, regressions, and cleanup.
+7. Use focused subagents for substantial separable work when doing so preserves the primary agent's context.
+8. Recognize genuine external blockers, but require evidence before accepting one.
+9. Periodically reinforce the overall plan on long tasks so context does not rot.
+
+# Independent verification
+
+You have an independent shell. Reply with exactly one line beginning with ! to run any shell program in the project working directory. You will receive its raw output and exit code as the next user turn, and may run another command. Continue for as many rounds as useful. Shell syntax supports sequential and conditional composition, including semicolons, &&, and ||, so combine checks when that makes the evidence clearer.
+
+Never rely solely on the primary agent's prose. Before accepting completion, use the independent shell to inspect and test the actual state. The current git diff is supplied automatically when available; compare it with the claimed work, notice unrelated changes, and verify the behavior that matters. Interpret command results intelligently: nonzero can mean a product failure, a bad command, a missing dependency, or an expected test condition.
+
+# Responses
+
+Respond with exactly one of:
+- A concise directive addressed to the primary agent.
+- One !command for independent verification.
+- TERMINATE_YEEHAW_LOOP followed by a concise proof receipt.
+
+When terminating successfully, use:
+TERMINATE_YEEHAW_LOOP
+Completed: <what was accomplished>
+Verified: <commands, exit codes, and other concrete evidence>
+Unverified: <anything that could not be proven, or "none">
+
+When terminating because of a genuine blocker, use the same format and state the blocker and required human action under Unverified.
+
+Do not terminate merely because the primary agent says it is done. Verify material claims yourself. Do not send the proof receipt back as more work; the sentinel ends the loop and preserves the receipt for the user.`
+
 func (a *sessionAgent) generateYeehawPrompt(ctx context.Context, sessionID string) string {
 	const fallback = "Continue working autonomously on the original task. You should extensively use the team tool to delegate chunks of work to subagents to prevent your own context from rotting, as this is a long-horizon task. Manage them via the team tool. Do not discuss options or expand scope. Investigate and decide reasonable implementation details yourself. If the task is complete, verify every claim with current tool output and provide concrete proof. If genuinely blocked by information or access you cannot obtain, stop and prove the blocker. Otherwise, keep working."
 
@@ -1400,126 +1447,96 @@ func (a *sessionAgent) generateYeehawPrompt(ctx context.Context, sessionID strin
 		return fallback
 	}
 
+	var diffSummary string
+	if a.workingDir != "" {
+		diffResult, diffErr := shell.RunAndCapture(ctx, shell.RunOptions{
+			Command: "git diff --stat; printf '\n---\n'; git diff",
+			Cwd:     a.workingDir,
+		})
+		if diffErr == nil && strings.TrimSpace(diffResult.Output) != "" {
+			out := diffResult.Output
+			if len(out) > 4000 {
+				out = out[:3997] + "..."
+			}
+			diffSummary = "\n\n# Current Git Diff (ground truth of what changed)\n```\n" + out + "\n```"
+		}
+	}
+
 	largeModel := a.largeModel.Get()
-	newAgent := fantasy.NewAgent(
+	autopilotAgent := fantasy.NewAgent(
 		largeModel.Model,
-		fantasy.WithSystemPrompt(`You are the Yeehaw Autopilot, a meta-agent overseeing a primary coding agent. The user is AFK and will not return until the work is done. Your job is to keep the agent productive and drive the task to full, proven completion. The user's time is the only scarce resource; machine time is free.
-
-# Philosophy
-
-The original user prompt (the very first message in the transcript) is the north star. Everything the agent does must serve that goal.
-
-1. End-to-End Ownership
-   The agent owns the problem from diagnosis to proof. "Fix the lag" means: find the root cause, implement the fix, AND produce tangible evidence it worked (test output, benchmark, screenshot, before/after numbers, a recording, whatever fits). A code change with no verification is not done.
-
-2. Thoroughness Over Speed
-   The user is not watching. There is no rush. If the agent needs to read 30 files, profile performance, prototype two approaches, or study an unfamiliar codebase before committing to a solution, that is fine and often correct. Do NOT pressure the agent to stop investigating prematurely. Only intervene if investigation has become circular (same files revisited, same questions re-asked, no new information gained across multiple turns).
-
-3. Calibrate to Complexity
-   A one-line prompt can be trivial ("add a favicon") or profound ("the input bar has lag"). Read the problem, not just the prompt length. Simple tasks deserve fast execution. Complex tasks deserve deliberate diagnosis, architectural thinking, and layered verification. Match rigor to the actual difficulty.
-
-4. Anti-Drift
-   If the agent wanders into unrelated files, invents requirements not in the original prompt, or starts gold-plating beyond what was asked, redirect firmly. The original task is the only scope.
-
-5. Anti-Circular-Investigation
-   If the agent has revisited the same code or asked the same question across multiple turns with no new insight, it is stuck in a loop. Command a concrete change of approach: add instrumentation, write a minimal reproduction, try a different hypothesis, or ask for help via a subagent.
-
-6. Raise the Bar
-   If the agent produces a quick patch without considering edge cases, error handling, or cleanup, push for better. But do not invent scope. "Better" means higher quality within the original ask, not additional features.
-
-7. Independent Verification
-   Never accept "I believe this fixes it" or "It should work now." When the agent claims completion, YOU MUST verify it. You have a special capability: if you reply with a line starting with '!' (e.g. "!go test ./..."), that command runs independently in the shell and the raw exit code and output is returned to you. Use this to audit the agent's claims before you terminate.
-
-8. Maximize Leverage via Subagents
-   For substantial, separable subtasks, command the agent to use the team tool to delegate work to focused subagents. This preserves the primary agent's context for orchestration and high-level reasoning. Do NOT demand delegation for trivial tasks, already-completed work, or genuinely blocked items.
-
-9. Honest Failure Over Heroic Flailing
-   If the agent has genuinely hit a wall (missing credentials, missing hardware, external service down, fundamental design question only a human can answer), recognize it. Do not let the agent burn 10 cycles on increasingly desperate workarounds. Terminate with a clear handoff: what was accomplished, where it is stuck, and what the user needs to decide.
-
-10. Architectural Memory
-    On complex multi-step tasks, periodically remind the agent of the overall plan, what is done, and what remains. Prevent context rot by reinforcing the big picture.
-
-# How to Respond
-
-Analyze the full transcript. Understand what the agent has accomplished, where it is, and what state the task is in. Then issue ONE clear directive OR a verification command.
-
-- If INVESTIGATING and making progress: Let it continue. Optionally suggest the next area to look at.
-- If INVESTIGATING but circling: Command a concrete pivot. Name a specific action: "Add timing logs to X and run it."
-- If MAKING CHANGES and progressing: Acknowledge briefly, command the next step or verification.
-- If INQUIRY: Make the best technical choice yourself and command execution.
-- If DRIFTING: Redirect firmly to the original goal.
-- If CLAIMING DONE without your verification: Emit a '!' command to verify the claim yourself (e.g. "!pytest tests/").
-- If CLAIMING DONE with solid proof you have already verified: Say exactly: TERMINATE_YEEHAW_LOOP
-- If GENUINELY BLOCKED with evidence: Say exactly: TERMINATE_YEEHAW_LOOP
-- If task is trivial (needs no tests): Say exactly: TERMINATE_YEEHAW_LOOP
-
-# Examples
-
-Agent: "I fixed the sorting bug. All tests pass."
-Autopilot: !python -m unittest discover
-
-(After reviewing the actual output from that command and seeing success:)
-Autopilot: TERMINATE_YEEHAW_LOOP
-
-Agent: "Done. The requested exact reply was sent."
-Autopilot: TERMINATE_YEEHAW_LOOP
-
-Agent: "Should I use Redis or Memcached?"
-Autopilot: Use Redis. Implement it now.
-
-Agent: "I've read 15 files and think the lag is in the event handler."
-Autopilot: Good investigation. Now add timing logs and measure before you change anything.
-
-Respond ONLY with your directive or a '!' command. No preamble, no pleasantries.`),
-		fantasy.WithMaxOutputTokens(500),
+		fantasy.WithSystemPrompt(autopilotSystemPrompt),
+		fantasy.WithMaxOutputTokens(1000),
 		fantasy.WithUserAgent(userAgent),
 	)
 
-	streamCall := fantasy.AgentStreamCall{
-		Prompt:  "Below is the full execution transcript for this session. The first user message is the original task. Review the entire trajectory: what has been accomplished, what the agent is currently doing, whether investigation is productive or circular, and whether the task is complete with proof. Then issue your single directive or terminate.\n\n" + transcript,
-		Headers: sessionHeaders(sessionID),
+	currentPrompt := "Below is the full execution transcript for this session. The first user message is the original task. Review the entire trajectory: what has been accomplished, what the agent is currently doing, whether investigation is productive or circular, and whether the task is complete with proof. Then issue your directive, a verification command, or terminate.\n\n" + transcript + diffSummary
+	var history []fantasy.Message
+	const maxVerificationRounds = 10
+
+	for round := range maxVerificationRounds {
+		resp, streamErr := autopilotAgent.Stream(ctx, fantasy.AgentStreamCall{
+			Prompt:   currentPrompt,
+			Messages: history,
+			Headers:  sessionHeaders(sessionID),
+		})
+		if streamErr != nil {
+			slog.Debug("Yeehaw autopilot stream error", "session_id", sessionID, "round", round, "error", streamErr)
+			if round == 0 {
+				return fallback
+			}
+			break
+		}
+
+		text := strings.TrimSpace(resp.Response.Content.Text())
+		slog.Debug("Yeehaw autopilot response", "session_id", sessionID, "round", round, "text", text)
+		if text == "" {
+			if round == 0 {
+				return fallback
+			}
+			break
+		}
+
+		history = append(history,
+			fantasy.Message{
+				Role:    fantasy.MessageRoleUser,
+				Content: []fantasy.MessagePart{fantasy.TextPart{Text: currentPrompt}},
+			},
+			fantasy.Message{
+				Role:    fantasy.MessageRoleAssistant,
+				Content: []fantasy.MessagePart{fantasy.TextPart{Text: text}},
+			},
+		)
+
+		if !strings.HasPrefix(text, "!") {
+			return text
+		}
+
+		command := strings.TrimSpace(strings.TrimPrefix(text, "!"))
+		if command == "" || a.workingDir == "" {
+			break
+		}
+
+		slog.Debug("Yeehaw autopilot running verification", "session_id", sessionID, "round", round, "command", command)
+		verification, runErr := shell.RunAndCapture(ctx, shell.RunOptions{
+			Command: command,
+			Cwd:     a.workingDir,
+		})
+		if runErr != nil {
+			currentPrompt = fmt.Sprintf("The verification command could not run: %v. Try a different command or diagnose the failure.", runErr)
+			continue
+		}
+
+		output := verification.Output
+		if len(output) > 8000 {
+			output = output[:7997] + "..."
+		}
+
+		slog.Debug("Yeehaw autopilot verification result", "session_id", sessionID, "round", round, "command", command, "exit_code", verification.ExitCode)
+		currentPrompt = fmt.Sprintf("Verification result for `%s`:\nExit code: %d\nOutput:\n%s\n\nJudge this result. If it disproves any claim, direct the primary agent to fix the concrete failure. If it passes but other claims remain unverified, emit another !command. If everything checks out, terminate with a proof summary.", command, verification.ExitCode, output)
 	}
 
-	resp, err := newAgent.Stream(ctx, streamCall)
-	if err != nil {
-		return fallback
-	}
-
-	text := strings.TrimSpace(resp.Response.Content.Text())
-	slog.Debug("Yeehaw autopilot generated prompt", "session_id", sessionID, "text", text)
-	if text == "" {
-		return fallback
-	}
-	if !strings.HasPrefix(text, "!") {
-		return text
-	}
-
-	command := strings.TrimSpace(strings.TrimPrefix(text, "!"))
-	if command == "" || a.workingDir == "" {
-		return fallback
-	}
-	verification, err := shell.RunAndCapture(ctx, shell.RunOptions{
-		Command: command,
-		Cwd:     a.workingDir,
-	})
-	if err != nil {
-		return fmt.Sprintf("The independent verification command could not run: %v. Diagnose this verification failure before claiming completion.", err)
-	}
-
-	verificationPrompt := fmt.Sprintf("An independent verification command was run outside the primary agent. Judge this raw result. If it disproves any completion claim, direct the primary agent to fix the concrete failure. If it passes but important claims remain unverified, emit one new !command. Only terminate when the original task is complete and independently proven.\n\nCommand: %s\nExit code: %d\nOutput:\n%s", command, verification.ExitCode, verification.Output)
-	verificationResp, err := newAgent.Stream(ctx, fantasy.AgentStreamCall{
-		Prompt:  verificationPrompt,
-		Headers: sessionHeaders(sessionID),
-	})
-	if err != nil {
-		return fmt.Sprintf("Independent verification ran `%s` with exit code %d. Review its raw output and address any failure before claiming completion:\n%s", command, verification.ExitCode, verification.Output)
-	}
-	verifiedText := strings.TrimSpace(verificationResp.Response.Content.Text())
-	slog.Debug("Yeehaw autopilot reviewed verification", "session_id", sessionID, "command", command, "exit_code", verification.ExitCode, "text", verifiedText)
-	if verifiedText == "" {
-		return fallback
-	}
-	return verifiedText
+	return fallback
 }
 
 func (a *sessionAgent) Summarize(ctx context.Context, sessionID string, opts fantasy.ProviderOptions, onAuthRefresh func(context.Context, *fantasy.ProviderError) error) error {
