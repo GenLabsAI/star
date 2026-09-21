@@ -45,6 +45,7 @@ import (
 	"github.com/charmbracelet/crush/internal/permission"
 	"github.com/charmbracelet/crush/internal/pubsub"
 	"github.com/charmbracelet/crush/internal/session"
+	"github.com/charmbracelet/crush/internal/shell"
 	"github.com/charmbracelet/crush/internal/stringext"
 	"github.com/charmbracelet/crush/internal/version"
 	"github.com/charmbracelet/x/ansi"
@@ -182,6 +183,7 @@ type sessionAgent struct {
 	disableAutoSummarize bool
 	isYolo               bool
 	permissions          permission.Service
+	workingDir           string
 	notify               pubsub.Publisher[notify.Notification]
 	runComplete          pubsub.Publisher[notify.RunComplete]
 
@@ -238,6 +240,7 @@ type SessionAgentOptions struct {
 	Messages             message.Service
 	Tools                []fantasy.AgentTool
 	Permissions          permission.Service
+	WorkingDir           string
 	Notify               pubsub.Publisher[notify.Notification]
 	RunComplete          pubsub.Publisher[notify.RunComplete]
 }
@@ -257,6 +260,7 @@ func NewSessionAgent(
 		tools:                csync.NewSliceFrom(opts.Tools),
 		isYolo:               opts.IsYolo,
 		permissions:          opts.Permissions,
+		workingDir:           opts.WorkingDir,
 		notify:               opts.Notify,
 		runComplete:          opts.RunComplete,
 		messageQueue:         csync.NewMap[string, []SessionAgentCall](),
@@ -1423,8 +1427,8 @@ The original user prompt (the very first message in the transcript) is the north
 6. Raise the Bar
    If the agent produces a quick patch without considering edge cases, error handling, or cleanup, push for better. But do not invent scope. "Better" means higher quality within the original ask, not additional features.
 
-7. Force Real Proof
-   Never accept "I believe this fixes it" or "It should work now." Demand concrete evidence: test runs, build output, execution logs, screenshots, benchmarks, or before/after comparisons. The proof should be something the user can glance at when they return and immediately trust.
+7. Independent Verification
+   Never accept "I believe this fixes it" or "It should work now." When the agent claims completion, YOU MUST verify it. You have a special capability: if you reply with a line starting with '!' (e.g. "!go test ./..."), that command runs independently in the shell and the raw exit code and output is returned to you. Use this to audit the agent's claims before you terminate.
 
 8. Maximize Leverage via Subagents
    For substantial, separable subtasks, command the agent to use the team tool to delegate work to focused subagents. This preserves the primary agent's context for orchestration and high-level reasoning. Do NOT demand delegation for trivial tasks, already-completed work, or genuinely blocked items.
@@ -1437,45 +1441,36 @@ The original user prompt (the very first message in the transcript) is the north
 
 # How to Respond
 
-Analyze the full transcript. Understand what the agent has accomplished, where it is, and what state the task is in. Then issue ONE clear directive.
+Analyze the full transcript. Understand what the agent has accomplished, where it is, and what state the task is in. Then issue ONE clear directive OR a verification command.
 
-- If INVESTIGATING and making progress (new files, new insights each turn): Let it continue. Optionally suggest the next area to look at.
-- If INVESTIGATING but circling (same ground, no new info): Command a concrete pivot. Name a specific action: "Add timing logs to X and run it" or "Write a minimal test that reproduces the issue."
+- If INVESTIGATING and making progress: Let it continue. Optionally suggest the next area to look at.
+- If INVESTIGATING but circling: Command a concrete pivot. Name a specific action: "Add timing logs to X and run it."
 - If MAKING CHANGES and progressing: Acknowledge briefly, command the next step or verification.
-- If INQUIRY (asking for a decision or permission): Make the best technical choice yourself and command execution. Do not discuss tradeoffs.
-- If DRIFTING (working on something outside the original task): Redirect firmly to the original goal.
-- If CLAIMING DONE without proof: Command specific verification. Name exactly what to run or check.
-- If CLAIMING DONE with solid proof: Say exactly: TERMINATE_YEEHAW_LOOP
-- If GENUINELY BLOCKED with evidence of what was tried: Say exactly: TERMINATE_YEEHAW_LOOP
-- If task is trivial and already complete (e.g. a simple reply or single-file change that needs no tests): Say exactly: TERMINATE_YEEHAW_LOOP
+- If INQUIRY: Make the best technical choice yourself and command execution.
+- If DRIFTING: Redirect firmly to the original goal.
+- If CLAIMING DONE without your verification: Emit a '!' command to verify the claim yourself (e.g. "!pytest tests/").
+- If CLAIMING DONE with solid proof you have already verified: Say exactly: TERMINATE_YEEHAW_LOOP
+- If GENUINELY BLOCKED with evidence: Say exactly: TERMINATE_YEEHAW_LOOP
+- If task is trivial (needs no tests): Say exactly: TERMINATE_YEEHAW_LOOP
 
 # Examples
+
+Agent: "I fixed the sorting bug. All tests pass."
+Autopilot: !python -m unittest discover
+
+(After reviewing the actual output from that command and seeing success:)
+Autopilot: TERMINATE_YEEHAW_LOOP
 
 Agent: "Done. The requested exact reply was sent."
 Autopilot: TERMINATE_YEEHAW_LOOP
 
-Agent: "I fixed the sorting bug and all 12 tests pass. Here is the output: [test results]"
-Autopilot: TERMINATE_YEEHAW_LOOP
-
-Agent: "I have been unable to connect to the production database after trying local credentials, env vars, and config files. The connection string requires a VPN that is not available in this environment."
-Autopilot: TERMINATE_YEEHAW_LOOP
-
-Agent: "Should I use Redis or Memcached for the cache layer?"
+Agent: "Should I use Redis or Memcached?"
 Autopilot: Use Redis. Implement it now.
 
-Agent: "I have read 15 files across the rendering pipeline and I think the lag might be in the event handler."
-Autopilot: Good investigation. Now add timing instrumentation to the event handler path and run the app to confirm where the bottleneck is. Measure before you change anything.
+Agent: "I've read 15 files and think the lag is in the event handler."
+Autopilot: Good investigation. Now add timing logs and measure before you change anything.
 
-Agent: "I have been looking at the event handler for 3 turns and I am not sure what is causing the lag."
-Autopilot: Stop reading the same code. Add console.time markers around the three main phases (input capture, state update, re-render), run the app, and let the numbers tell you where the time goes.
-
-Agent: "I fixed the bug by adding a nil check."
-Autopilot: Run the test suite to verify the fix. Also check whether there are other callers of that function that could pass nil; the fix should be robust, not just patching the crash site.
-
-Agent: "I have refactored the auth module and also started improving the logging framework."
-Autopilot: Stop. The original task is about auth. Revert the logging changes and focus on completing and verifying the auth refactor.
-
-Respond ONLY with your directive. No preamble, no pleasantries.`),
+Respond ONLY with your directive or a '!' command. No preamble, no pleasantries.`),
 		fantasy.WithMaxOutputTokens(500),
 		fantasy.WithUserAgent(userAgent),
 	)
@@ -1495,7 +1490,36 @@ Respond ONLY with your directive. No preamble, no pleasantries.`),
 	if text == "" {
 		return fallback
 	}
-	return text
+	if !strings.HasPrefix(text, "!") {
+		return text
+	}
+
+	command := strings.TrimSpace(strings.TrimPrefix(text, "!"))
+	if command == "" || a.workingDir == "" {
+		return fallback
+	}
+	verification, err := shell.RunAndCapture(ctx, shell.RunOptions{
+		Command: command,
+		Cwd:     a.workingDir,
+	})
+	if err != nil {
+		return fmt.Sprintf("The independent verification command could not run: %v. Diagnose this verification failure before claiming completion.", err)
+	}
+
+	verificationPrompt := fmt.Sprintf("An independent verification command was run outside the primary agent. Judge this raw result. If it disproves any completion claim, direct the primary agent to fix the concrete failure. If it passes but important claims remain unverified, emit one new !command. Only terminate when the original task is complete and independently proven.\n\nCommand: %s\nExit code: %d\nOutput:\n%s", command, verification.ExitCode, verification.Output)
+	verificationResp, err := newAgent.Stream(ctx, fantasy.AgentStreamCall{
+		Prompt:  verificationPrompt,
+		Headers: sessionHeaders(sessionID),
+	})
+	if err != nil {
+		return fmt.Sprintf("Independent verification ran `%s` with exit code %d. Review its raw output and address any failure before claiming completion:\n%s", command, verification.ExitCode, verification.Output)
+	}
+	verifiedText := strings.TrimSpace(verificationResp.Response.Content.Text())
+	slog.Debug("Yeehaw autopilot reviewed verification", "session_id", sessionID, "command", command, "exit_code", verification.ExitCode, "text", verifiedText)
+	if verifiedText == "" {
+		return fallback
+	}
+	return verifiedText
 }
 
 func (a *sessionAgent) Summarize(ctx context.Context, sessionID string, opts fantasy.ProviderOptions, onAuthRefresh func(context.Context, *fantasy.ProviderError) error) error {
