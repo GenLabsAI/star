@@ -367,6 +367,10 @@ fn main() {
             }
         }
 
+        // As a safeguard against bootloops, always ensure signals are cleared before relaunch.
+        let _ = std::fs::remove_file(&update_request_path);
+        let _ = std::fs::remove_file(&update_lock_path);
+
         if let Ok(session_id) = std::fs::read_to_string(&update_session_path) {
             let session_id = session_id.trim();
             if !session_id.is_empty() {
