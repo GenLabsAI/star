@@ -1318,8 +1318,6 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					cmds = append(cmds, tea.Tick(10*time.Millisecond, func(time.Time) tea.Msg {
 						return chat.TypewriterTickMsg{ID: msg.ID}
 					}))
-				} else if !m.isAgentBusy() {
-					assistantItem.CatchUpBufferedContent()
 				}
 				// only scroll if we're actively buffering so we don't jump needlessly
 				if m.chat.Follow() {
@@ -1843,7 +1841,6 @@ func (m *UI) updateSessionMessage(msg message.Message) tea.Cmd {
 	if existingItem != nil {
 		if assistantItem, ok := existingItem.(*chat.AssistantMessageItem); ok {
 			wasTyping := assistantItem.HasBufferedContent()
-			currentContent := msg.Content().Text
 
 			// SetMessage returns a StartAnimation Cmd when the message
 			// transitions back to spinning (e.g. its streamed content was
@@ -1851,6 +1848,13 @@ func (m *UI) updateSessionMessage(msg message.Message) tea.Cmd {
 			// instead of freezing.
 			if cmd := assistantItem.SetMessage(&msg); cmd != nil {
 				cmds = append(cmds, cmd)
+			}
+
+			assistantItem.BufferContent(msg.Content().Text)
+			if !wasTyping && assistantItem.HasBufferedContent() {
+				cmds = append(cmds, func() tea.Msg {
+					return chat.TypewriterTickMsg{ID: msg.ID}
+				})
 			}
 		}
 	}
