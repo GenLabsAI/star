@@ -1737,6 +1737,11 @@ func (m *UI) appendSessionMessage(msg message.Message) tea.Cmd {
 	case message.Assistant:
 		items := chat.ExtractMessageItems(m.com.Styles, &msg, nil, m.com.Workspace.WorkingDir())
 		for _, item := range items {
+			if assistantItem, ok := item.(*chat.AssistantMessageItem); ok && assistantItem.HasBufferedContent() {
+				cmds = append(cmds, func() tea.Msg {
+					return chat.TypewriterTickMsg{ID: msg.ID}
+				})
+			}
 			if animatable, ok := item.(chat.Animatable); ok {
 				if cmd := animatable.StartAnimation(); cmd != nil {
 					cmds = append(cmds, cmd)
@@ -2916,7 +2921,19 @@ func (m *UI) handleKeyPressMsg(msg tea.KeyPressMsg) tea.Cmd {
 				}
 
 				prevHeight := m.textarea.Height()
+				prevVal := m.textarea.Value()
+				prevCur := m.textarea.Cursor()
 				cmds = append(cmds, m.updateTextareaWithPrevHeight(msg, prevHeight))
+
+				if !m.isAgentBusy() && len(msg.Text) == 1 && msg.Mod == 0 {
+					newCur := m.textarea.Cursor()
+					newVal := m.textarea.Value()
+					if prevCur != nil && newCur != nil && newCur.Y == prevCur.Y && newCur.X > prevCur.X && len(newVal) == len(prevVal)+1 {
+						x := prevCur.X + 1
+						y := prevCur.Y + m.layout.editor.Min.Y + 1
+						cmds = append(cmds, tea.Raw(fmt.Sprintf("\x1b[%d;%dH%s", y+1, x+1, msg.Text)))
+					}
+				}
 
 				// Bang mode: enter when "!" is typed at the start of the
 				// prompt, optionally preceded by whitespace (either on an
@@ -3302,16 +3319,7 @@ func (m *UI) View() tea.View {
 	canvas := uv.NewScreenBuffer(m.width, m.height)
 	v.Cursor = m.Draw(canvas, canvas.Bounds())
 
-	content := strings.ReplaceAll(canvas.Render(), "\r\n", "\n") // normalize newlines
-	contentLines := strings.Split(content, "\n")
-	for i, line := range contentLines {
-		// Trim trailing spaces for concise rendering
-		contentLines[i] = strings.TrimRight(line, " ")
-	}
-
-	content = strings.Join(contentLines, "\n")
-
-	v.Content = content
+	v.Content = strings.ReplaceAll(canvas.Render(), "\r\n", "\n") // normalize newlines
 	if m.progressBarEnabled && m.sendProgressBar && m.isAgentBusy() {
 		// HACK: use a random percentage to prevent ghostty from hiding it
 		// after a timeout.

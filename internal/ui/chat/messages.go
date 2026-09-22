@@ -389,7 +389,14 @@ func ExtractMessageItems(sty *styles.Styles, msg *message.Message, toolResults m
 	case message.Assistant:
 		var items []MessageItem
 		if ShouldRenderAssistantMessage(msg) {
-			items = append(items, NewAssistantMessageItem(sty, msg))
+			item := NewAssistantMessageItem(sty, msg).(*AssistantMessageItem)
+			// If we are currently streaming this live message, hide its content initially
+			// so the typewriter effect takes over on the next Update/Tick. History 
+			// restores are finished, so they bypass this.
+			if !msg.IsFinished() {
+				item.displayedContent = ""
+			}
+			items = append(items, item)
 		}
 		for _, tc := range msg.ToolCalls() {
 			var result *message.ToolResult
