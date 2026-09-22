@@ -3,7 +3,6 @@ package dialog
 import (
 	"context"
 	"image"
-	"time"
 
 	"charm.land/bubbles/v2/help"
 	"charm.land/bubbles/v2/key"
@@ -20,17 +19,13 @@ const SearchID = "search"
 
 // SearchDialog is a dialog for searching across sessions.
 type SearchDialog struct {
-	com           *common.Common
-	help          help.Model
-	list          *list.FilterableList
-	input         textinput.Model
-	
-	bodyArea      image.Rectangle
-	mouseScrolled bool
-	lastClickTime time.Time
-	lastClickID   string
+	com  *common.Common
+	help help.Model
+	list *list.FilterableList
 
-	debounceTimer *time.Timer
+	input textinput.Model
+
+	bodyArea image.Rectangle
 
 	keyMap struct {
 		Select   key.Binding
@@ -41,10 +36,12 @@ type SearchDialog struct {
 	}
 }
 
+// ShortHelp implements help.KeyMap.
 func (s *SearchDialog) ShortHelp() []key.Binding {
 	return []key.Binding{s.keyMap.Select, s.keyMap.UpDown, s.keyMap.Close}
 }
 
+// FullHelp implements help.KeyMap.
 func (s *SearchDialog) FullHelp() [][]key.Binding {
 	return [][]key.Binding{s.ShortHelp()}
 }
@@ -71,16 +68,16 @@ func NewSearch(com *common.Common) (*SearchDialog, error) {
 	s.input.Focus()
 
 	s.keyMap.Select = key.NewBinding(
-		key.WithKeys("enter", "tab", "ctrl+y"),
-		key.WithHelp("enter", "jump to message"),
+		key.WithKeys("enter", "ctrl+y"),
+		key.WithHelp("enter", "open"),
 	)
 	s.keyMap.Next = key.NewBinding(
 		key.WithKeys("down", "ctrl+n"),
-		key.WithHelp("↓", "next item"),
+		key.WithHelp("↓", "next"),
 	)
 	s.keyMap.Previous = key.NewBinding(
 		key.WithKeys("up", "ctrl+p"),
-		key.WithHelp("↑", "previous item"),
+		key.WithHelp("↑", "prev"),
 	)
 	s.keyMap.UpDown = key.NewBinding(
 		key.WithKeys("up", "down"),
@@ -91,6 +88,7 @@ func NewSearch(com *common.Common) (*SearchDialog, error) {
 	return s, nil
 }
 
+// ID implements Dialog.
 func (s *SearchDialog) ID() string {
 	return SearchID
 }
@@ -101,9 +99,10 @@ func (s *SearchDialog) performSearch() {
 		s.list.SetItems()
 		return
 	}
-	results, err := s.com.Workspace.SearchMessages(context.Background(), query, search.SearchOpts{Limit: 50})
+	results, err := s.com.Workspace.SearchMessages(
+		context.Background(), query, search.SearchOpts{Limit: 50},
+	)
 	if err != nil {
-		// Log error or ignore; we just render empty on failure for now.
 		return
 	}
 
@@ -117,11 +116,19 @@ func (s *SearchDialog) performSearch() {
 		}
 	}
 	s.list.SetItems(items...)
+	s.list.SetSelected(0)
+	s.list.ScrollToTop()
 }
 
+// Cursor returns the cursor position relative to the dialog.
+func (s *SearchDialog) Cursor() *tea.Cursor {
+	return InputCursor(s.com.Styles, s.input.Cursor())
+}
+
+// HandleMsg implements Dialog.
 func (s *SearchDialog) HandleMsg(msg tea.Msg) Action {
 	switch msg := msg.(type) {
-	case tea.KeyMsg:
+	case tea.KeyPressMsg:
 		switch {
 		case key.Matches(msg, s.keyMap.Close):
 			return ActionClose{}
@@ -133,32 +140,45 @@ func (s *SearchDialog) HandleMsg(msg tea.Msg) Action {
 					MessageID: si.Result.MessageID,
 				}
 			}
-		case key.Matches(msg, s.keyMap.Next):
-			s.list.SelectNext()
 		case key.Matches(msg, s.keyMap.Previous):
-			s.list.SelectPrev()
-		default:
-			var cmd tea.Cmd
-			before := s.input.Value()
-			s.input, cmd = s.input.Update(msg)
-			if before != s.input.Value() {
-				if s.debounceTimer != nil {
-					s.debounceTimer.Stop()
-				}
-				s.debounceTimer = time.AfterFunc(150*time.Millisecond, s.performSearch)
+			s.list.Focus()
+			if s.list.IsSelectedFirst() {
+				s.list.SelectLast()
+			} else {
+				s.list.SelectPrev()
 			}
-			return ActionCmd{Cmd: cmd}
+			s.list.ScrollToSelected()
+		case key.Matches(msg, s.keyMap.Next):
+			s.list.Focus()
+			if s.list.IsSelectedLast() {
+				s.list.SelectFirst()
+			} else {
+				s.list.SelectNext()
+			}
+			s.list.ScrollToSelected()
+		default:
+			prevValue := s.input.Value()
+			var cmd tea.Cmd
+			s.input, cmd = s.input.Update(msg)
+			value := s.input.Value()
+			if value != prevValue {
+				s.performSearch()
+			}
+			return ActionCmd{cmd}
 		}
 
-	case tea.MouseMsg:
-		// basic mouse support similar to sessions dialog
-		return nil
+	case common.CoalescedWheelMsg:
+		if image.Pt(msg.Mouse.X, msg.Mouse.Y).In(s.bodyArea) {
+			s.list.ScrollBy(int(msg.DeltaY))
+		}
 	}
 	return nil
 }
 
+// Draw implements Dialog.
 func (s *SearchDialog) Draw(scr uv.Screen, area uv.Rectangle) *tea.Cursor {
 	t := s.com.Styles
+	s.bodyArea = image.Rectangle{}
 	width := max(0, min(defaultDialogMaxWidth+20, area.Dx()-t.Dialog.View.GetHorizontalBorderSize()))
 	height := max(0, min(defaultDialogHeight+10, area.Dy()-t.Dialog.View.GetVerticalBorderSize()))
 	innerWidth := width - t.Dialog.View.GetHorizontalFrameSize()
@@ -166,9 +186,12 @@ func (s *SearchDialog) Draw(scr uv.Screen, area uv.Rectangle) *tea.Cursor {
 	s.input.SetWidth(dialogInputTextWidth(t, s.input, innerWidth))
 	listHeight, listTotalHeight, _ := sizeDialogList(t, s.list, innerWidth, height)
 
+	cur := s.Cursor()
 	rc := NewRenderContext(t, width)
 	rc.Title = "Search"
-	rc.AddPart(t.Dialog.InputPrompt.Render(s.input.View()))
+
+	inputView := t.Dialog.InputPrompt.Render(s.input.View())
+	rc.AddPart(inputView)
 
 	bodyView := t.Dialog.List.Height(s.list.Height()).Render(s.list.Render())
 	bodyView = joinScrollbar(t, bodyView, listHeight, listTotalHeight, listHeight, s.list.Offset())
@@ -177,6 +200,6 @@ func (s *SearchDialog) Draw(scr uv.Screen, area uv.Rectangle) *tea.Cursor {
 	rc.Help = renderDialogHelp(t, &s.help, s, innerWidth)
 	view := rc.Render()
 
-	DrawCenterCursor(scr, area, view, InputCursor(t, s.input.Cursor()))
-	return InputCursor(t, s.input.Cursor())
+	DrawCenterCursor(scr, area, view, cur)
+	return cur
 }
