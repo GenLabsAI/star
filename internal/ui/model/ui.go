@@ -316,6 +316,7 @@ type UI struct {
 
 	updateAvailable   *app.UpdateAvailableMsg
 	updateDownloading bool
+	updateInitiating  bool
 
 	// Sidebar scroll state for virtual scrolling.
 	sidebarOffset           int  // current scroll offset in lines
@@ -1782,6 +1783,7 @@ func (m *UI) handleClickFocus(msg tea.MouseClickMsg) (cmd tea.Cmd) {
 		if clickedUpdate {
 			slog.Info("Update Now clicked, triggering update flow")
 			m.updateDownloading = true
+			m.updateInitiating = true
 			return m.startUpdate()
 		}
 	}
@@ -1988,6 +1990,10 @@ func (m *UI) startUpdate() tea.Cmd {
 
 func (m *UI) UpdateRequested() bool {
 	return m.updateDownloading
+}
+
+func (m *UI) UpdateInitiating() bool {
+	return m.updateInitiating
 }
 
 func (m *UI) handleDialogMsg(msg tea.Msg) tea.Cmd {
