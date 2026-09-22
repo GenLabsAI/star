@@ -1482,8 +1482,8 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.updateDownloading = true
 		return m, tea.Quit
 	case updateSignalTickMsg:
-		if os.Getenv("STAR_LAUNCHER_PID") != "" {
-			if _, err := os.Stat(filepath.Join(os.TempDir(), "star-update-request")); err == nil {
+		if launchTime, err := strconv.ParseInt(os.Getenv("STAR_LAUNCHER_TIME"), 10, 64); err == nil {
+			if info, statErr := os.Stat(filepath.Join(os.TempDir(), "star-update-request")); statErr == nil && info.ModTime().Unix() >= launchTime {
 				m.updateDownloading = true
 				return m, tea.Quit
 			}

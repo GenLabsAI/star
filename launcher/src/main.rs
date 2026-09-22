@@ -332,6 +332,14 @@ fn main() {
     let update_lock_path = env::temp_dir().join("star-update-lock");
 
     loop {
+        let launch_time = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+        unsafe {
+            env::set_var("STAR_LAUNCHER_TIME", launch_time.to_string());
+        }
+
         let exit_code = run_core();
 
         if exit_code != 42 {
