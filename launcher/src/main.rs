@@ -113,6 +113,9 @@ fn run_core() -> i32 {
                 let pulse_envelope = (std::f64::consts::PI * t).sin().powf(0.65);
                 let sweep_col = spinner_col as f64 - 6.0 + eased_t * (full_width as f64 + 12.0);
 
+                // Begin synchronized update to prevent mid-frame tearing/flickering
+                buf.push_str("\x1b[?2026h");
+
                 // Composite each row of the logo band in a single pass: glow
                 // background and text glyph are computed per cell and written
                 // together, so a cell is drawn exactly once per frame. No
@@ -237,6 +240,9 @@ fn run_core() -> i32 {
                 // A full \x1b[0m reset between frames causes the default
                 // background to flash through for one refresh cycle.
                 buf.push_str(&format!("\x1b[{};1H", rows + 1));
+
+                // End synchronized update and flush the full frame atomically
+                buf.push_str("\x1b[?2026l");
                 if let Ok(mut out) = stdout_clone.lock() {
                     let _ = out.write_all(buf.as_bytes());
                     let _ = out.flush();
