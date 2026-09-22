@@ -1840,18 +1840,11 @@ func (m *UI) updateSessionMessage(msg message.Message) tea.Cmd {
 
 	if existingItem != nil {
 		if assistantItem, ok := existingItem.(*chat.AssistantMessageItem); ok {
-			wasTyping := assistantItem.HasBufferedContent()
-
-			// SetMessage returns a StartAnimation Cmd when the message
-			// transitions back to spinning (e.g. its streamed content was
-			// reset for a retry). Propagate it so the spinner re-arms
-			// instead of freezing.
-			if cmd := assistantItem.SetMessage(&msg); cmd != nil {
+			startTyping, cmd := assistantItem.BufferStreamingMessage(&msg)
+			if cmd != nil {
 				cmds = append(cmds, cmd)
 			}
-
-			assistantItem.BufferContent(msg.Content().Text)
-			if !wasTyping && assistantItem.HasBufferedContent() {
+			if startTyping {
 				cmds = append(cmds, func() tea.Msg {
 					return chat.TypewriterTickMsg{ID: msg.ID}
 				})

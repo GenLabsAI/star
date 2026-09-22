@@ -704,20 +704,27 @@ func (a *AssistantMessageItem) SetMessage(msg *message.Message) tea.Cmd {
 	return nil
 }
 
-type TypewriterTickMsg struct {
-	ID string
-}
+func (a *AssistantMessageItem) BufferStreamingMessage(msg *message.Message) (bool, tea.Cmd) {
+	wasSpinning := a.isSpinning()
+	wasTyping := a.HasBufferedContent()
+	a.message = msg
 
-func (a *AssistantMessageItem) BufferContent(content string) {
+	content := msg.Content().Text
 	if !strings.HasPrefix(content, a.displayedContent) {
 		a.displayedContent = content
 	}
 	a.targetContent = content
+	a.Bump()
+
+	var cmd tea.Cmd
+	if !wasSpinning && a.isSpinning() {
+		cmd = a.StartAnimation()
+	}
+	return !wasTyping && a.HasBufferedContent(), cmd
 }
 
-func (a *AssistantMessageItem) CatchUpBufferedContent() {
-	a.displayedContent = a.targetContent
-	a.Bump()
+type TypewriterTickMsg struct {
+	ID string
 }
 
 func (a *AssistantMessageItem) HasBufferedContent() bool {
@@ -740,7 +747,7 @@ func (a *AssistantMessageItem) AdvanceBufferedContent() {
 // fully terminal. The list cache invalidates the entry on the next
 // version bump if anything (focus, highlight, expansion) changes.
 func (a *AssistantMessageItem) Finished() bool {
-	return a.message.IsFinished() && !a.isSpinning()
+	return a.message.IsFinished() && !a.isSpinning() && !a.HasBufferedContent()
 }
 
 // clearCache drops every cached render for this item, including the
@@ -759,7 +766,6 @@ func (a *AssistantMessageItem) clearCache() {
 	a.thinkingHash = 0
 	a.thinkingHashLen = 0
 	a.thinkingHashSample = ""
-	a.displayedContent = ""
 }
 
 // ToggleExpanded advances the F5 thinking view-mode cycle and returns
