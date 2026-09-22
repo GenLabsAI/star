@@ -305,12 +305,11 @@ fn run_core() -> i32 {
         let _ = animation.join();
     }
 
-    // The terminal is currently in the alt-screen with a hidden cursor and black background.
-    // We MUST exit alt-screen and reset all graphics modes before handing off to Bubble Tea,
-    // otherwise Bubble Tea's renderer gets confused about terminal state (scroll regions, wrapping).
-    // This ensures Go gets the exact same pristine terminal state it would get if launched directly.
+    // Keep the shared alternate screen active during handoff. Bubble Tea
+    // takes ownership of the existing buffer, avoiding a visible switch back
+    // through the primary screen and a second alternate-screen entry.
     if let Ok(mut out) = stdout.lock() {
-        let _ = out.write_all(b"\x1b[?1049l\x1b[?25h\x1b[0m");
+        let _ = out.write_all(b"\x1b[0m\x1b[H\x1b[2J\x1b[?25l");
         let _ = out.flush();
     }
 

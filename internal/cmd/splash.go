@@ -67,9 +67,6 @@ func (m *splashModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.pendingReady = &msg
 	case launcherReleasedMsg:
 		m.launcherReleased = true
-		if m.handshake != nil {
-			m.handshake.notifyRendered()
-		}
 		if m.pendingReady != nil {
 			return m, m.transitionToUI(m.pendingReady)
 		}
@@ -108,6 +105,9 @@ func (m *splashModel) transitionToUI(ready *splashReadyMsg) tea.Cmd {
 	newModel, updateCmd := m.model.Update(tea.WindowSizeMsg{Width: m.width, Height: m.height})
 	m.model = newModel.(*ui.UI)
 	initCmd := m.model.Init()
+	if m.handshake != nil {
+		m.handshake.notifyRendered()
+	}
 	return tea.Batch(updateCmd, initCmd)
 }
 
