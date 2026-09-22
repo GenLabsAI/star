@@ -337,6 +337,11 @@ fn main() {
     let update_request_path = env::temp_dir().join("star-update-request");
     let update_lock_path = env::temp_dir().join("star-update-lock");
 
+    // Bootloop guard: if the core exits for an update too many times in
+    // quick succession, something is wrong. Clear all update state and bail.
+    let mut rapid_update_exits = 0u32;
+    let mut last_exit = std::time::Instant::now();
+
     loop {
         let launch_time = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -353,6 +358,20 @@ fn main() {
             let _ = std::fs::remove_file(&update_session_path);
             std::process::exit(exit_code);
         }
+
+        if last_exit.elapsed().as_secs() < 10 {
+            rapid_update_exits += 1;
+            if rapid_update_exits >= 3 {
+                let _ = std::fs::remove_file(&update_session_path);
+                let _ = std::fs::remove_file(&update_request_path);
+                let _ = std::fs::remove_file(&update_lock_path);
+                eprintln!("\n\rError: Update loop detected. Aborting update.\n\r");
+                std::process::exit(1);
+            }
+        } else {
+            rapid_update_exits = 1;
+        }
+        last_exit = std::time::Instant::now();
 
         let mut stdout = io::stdout();
         let _ = stdout.write_all(b"\x1b[?1049l\x1b[?25h\x1b[0m\x1b[r\x1b[H\x1b[2J");
