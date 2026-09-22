@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"hash/fnv"
 	"strings"
+	"unicode/utf8"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -183,6 +184,8 @@ type AssistantMessageItem struct {
 	anim              *anim.Anim
 	thinkingViewMode  thinkingViewMode
 	thinkingBoxHeight int // Tracks the rendered thinking box height for click detection.
+	displayedContent  string
+	targetContent     string
 
 	// Incremental FNV-64a hash of the thinking text. Avoids
 	// re-hashing the entire accumulated text on every streaming
@@ -229,6 +232,10 @@ func NewAssistantMessageItem(sty *styles.Styles, message *message.Message) Messa
 		message:                  message,
 		sty:                      sty,
 	}
+
+	target := message.Content().Text
+	a.displayedContent = target
+	a.targetContent = target
 
 	a.anim = anim.New(anim.Settings{
 		ID:          a.ID(),
@@ -397,7 +404,7 @@ func (a *AssistantMessageItem) compositionKey() uint64 {
 func (a *AssistantMessageItem) renderMessageContent(width int) (string, int) {
 	var messageParts []string
 	thinking := strings.TrimSpace(a.message.ReasoningContent().Thinking)
-	content := strings.TrimSpace(a.message.Content().Text)
+	content := strings.TrimSpace(a.displayedContent)
 
 	if thinking != "" {
 		messageParts = append(messageParts, a.cachedThinking(width))
@@ -489,7 +496,7 @@ func (a *AssistantMessageItem) thinkingHashIncremental(thinking string) uint64 {
 // contentKey returns the (srcHash, extra) cache key components for the
 // main content section.
 func (a *AssistantMessageItem) contentKey() (uint64, uint64) {
-	return fnv64(a.message.Content().Text), 0
+	return fnv64(a.displayedContent), 0
 }
 
 // errorKey returns the (srcHash, extra) cache key components for the
@@ -665,7 +672,7 @@ func (a *AssistantMessageItem) renderError(width int) string {
 func (a *AssistantMessageItem) isSpinning() bool {
 	isThinking := a.message.IsThinking()
 	isFinished := a.message.IsFinished()
-	hasContent := strings.TrimSpace(a.message.Content().Text) != ""
+	hasContent := strings.TrimSpace(a.displayedContent) != ""
 	hasToolCalls := len(a.message.ToolCalls()) > 0
 	return (isThinking || !isFinished) && !hasContent && !hasToolCalls
 }
@@ -677,6 +684,9 @@ func (a *AssistantMessageItem) isSpinning() bool {
 func (a *AssistantMessageItem) SetMessage(msg *message.Message) tea.Cmd {
 	wasSpinning := a.isSpinning()
 	a.message = msg
+	a.displayedContent = msg.Content().Text
+	a.targetContent = a.displayedContent
+
 	// Bump the F6 version even if the underlying *message.Message
 	// pointer is identical: callers may have mutated the message in
 	// place (delta append) and we cannot tell from here. The
@@ -692,6 +702,35 @@ func (a *AssistantMessageItem) SetMessage(msg *message.Message) tea.Cmd {
 		return a.StartAnimation()
 	}
 	return nil
+}
+
+type TypewriterTickMsg struct {
+	ID string
+}
+
+func (a *AssistantMessageItem) BufferContent(content string) {
+	if !strings.HasPrefix(content, a.displayedContent) {
+		a.displayedContent = content
+	}
+	a.targetContent = content
+}
+
+func (a *AssistantMessageItem) CatchUpBufferedContent() {
+	a.displayedContent = a.targetContent
+	a.Bump()
+}
+
+func (a *AssistantMessageItem) HasBufferedContent() bool {
+	return len(a.displayedContent) < len(a.targetContent)
+}
+
+func (a *AssistantMessageItem) AdvanceBufferedContent() {
+	if !a.HasBufferedContent() {
+		return
+	}
+	_, size := utf8.DecodeRuneInString(a.targetContent[len(a.displayedContent):])
+	a.displayedContent = a.targetContent[:len(a.displayedContent)+size]
+	a.Bump()
 }
 
 // Finished implements list.Item. The assistant message is freezable
@@ -720,6 +759,7 @@ func (a *AssistantMessageItem) clearCache() {
 	a.thinkingHash = 0
 	a.thinkingHashLen = 0
 	a.thinkingHashSample = ""
+	a.displayedContent = ""
 }
 
 // ToggleExpanded advances the F5 thinking view-mode cycle and returns

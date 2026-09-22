@@ -321,13 +321,14 @@ type UI struct {
 	sidebarOffset           int  // current scroll offset in lines
 	sidebarScrollable       bool // true when sidebar content exceeds available height
 	sidebarScrollbarVisible bool
-	sidebarScrollbarSeq     int    // sequence number for auto-hide timer
-	sidebarMaxOffsetVal     int    // max scroll offset, computed in updateSidebarScrollState
-	sidebarContent          string // cached rendered sidebar content
-	sidebarTotalLines       int    // total lines in sidebarContent
-	sidebarContentHeight    int    // available height for sidebar content
-	sidebarContentWidth     int    // available width for sidebar content
-	sidebarDrawLogo         string // logo to render (may differ from sidebarLogo for short heights)
+	sidebarScrollbarSeq     int      // sequence number for auto-hide timer
+	sidebarMaxOffsetVal     int      // max scroll offset, computed in updateSidebarScrollState
+	sidebarContent          string   // cached rendered sidebar content
+	sidebarLines            []string // cached split lines of sidebarContent
+	sidebarTotalLines       int      // total lines in sidebarContent
+	sidebarContentHeight    int      // available height for sidebar content
+	sidebarContentWidth     int      // available width for sidebar content
+	sidebarDrawLogo         string   // logo to render (may differ from sidebarLogo for short heights)
 
 	// Notification state
 	notifyBackend       notification.Backend
@@ -1308,6 +1309,26 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 		}
+	case chat.TypewriterTickMsg:
+		if m.state == uiChat {
+			item := m.chat.MessageItem(msg.ID)
+			if assistantItem, ok := item.(*chat.AssistantMessageItem); ok {
+				assistantItem.AdvanceBufferedContent()
+				if assistantItem.HasBufferedContent() {
+					cmds = append(cmds, tea.Tick(10*time.Millisecond, func(time.Time) tea.Msg {
+						return chat.TypewriterTickMsg{ID: msg.ID}
+					}))
+				} else if !m.isAgentBusy() {
+					assistantItem.CatchUpBufferedContent()
+				}
+				// only scroll if we're actively buffering so we don't jump needlessly
+				if m.chat.Follow() {
+					if cmd := m.chat.ScrollToBottomAndAnimate(); cmd != nil {
+						cmds = append(cmds, cmd)
+					}
+				}
+			}
+		}
 	case anim.StepMsg:
 		if m.state == uiChat {
 			if cmd := m.chat.Animate(msg); cmd != nil {
@@ -1821,6 +1842,9 @@ func (m *UI) updateSessionMessage(msg message.Message) tea.Cmd {
 
 	if existingItem != nil {
 		if assistantItem, ok := existingItem.(*chat.AssistantMessageItem); ok {
+			wasTyping := assistantItem.HasBufferedContent()
+			currentContent := msg.Content().Text
+
 			// SetMessage returns a StartAnimation Cmd when the message
 			// transitions back to spinning (e.g. its streamed content was
 			// reset for a retry). Propagate it so the spinner re-arms
