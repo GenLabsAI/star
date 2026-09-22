@@ -50,8 +50,9 @@ import (
 )
 
 var (
-	clientHost      string
-	updateSessionID string
+	clientHost       string
+	updateSessionID  string
+	updateInitiating bool
 )
 
 func init() {
@@ -157,6 +158,7 @@ star --continue
 			}
 		}
 		if model.UpdateRequested() {
+			updateInitiating = model.UpdateInitiating()
 			if current := model.CurrentSession(); current != nil {
 				updateSessionID = current.ID
 			}
@@ -232,16 +234,18 @@ func Execute() {
 	); err != nil {
 		if errors.Is(err, ErrUpdateRequested) {
 			if os.Getenv("STAR_LAUNCHER_PID") != "" {
-				// Only create the request file if it doesn't already exist, so followers don't touch it.
-				reqFile := filepath.Join(os.TempDir(), "star-update-request")
-				if _, statErr := os.Stat(reqFile); os.IsNotExist(statErr) {
-					_ = os.WriteFile(reqFile, []byte("1"), 0600)
+				if updateInitiating {
+					_ = os.WriteFile(filepath.Join(os.TempDir(), "star-update-request"), []byte("1"), 0600)
 				}
 				if updateSessionID != "" {
 					_ = os.WriteFile(filepath.Join(os.TempDir(), "star-update-session-"+os.Getenv("STAR_LAUNCHER_PID")), []byte(updateSessionID), 0600)
 				}
 			}
-			os.Exit(42)
+			if updateInitiating {
+				os.Exit(42)
+			} else {
+				os.Exit(43)
+			}
 		}
 		os.Exit(1)
 	}

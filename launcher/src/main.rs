@@ -342,7 +342,9 @@ fn main() {
 
         let exit_code = run_core();
 
-        if exit_code != 42 {
+        if exit_code != 42 && exit_code != 43 {
+            // On normal exit, clear any lingering update session files to avoid cross-talk
+            let _ = std::fs::remove_file(&update_session_path);
             std::process::exit(exit_code);
         }
 
@@ -350,13 +352,16 @@ fn main() {
         let _ = stdout.write_all(b"\x1b[?1049l\x1b[?25h\x1b[0m\x1b[r\x1b[H\x1b[2J");
         let _ = stdout.flush();
 
-        let updater = std::fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&update_lock_path)
-            .is_ok();
+        // The instance that initiates the update exits with 42.
+        // Other instances following the broadcast signal exit with 43.
+        let updater = exit_code == 42;
 
         if updater {
+            // The updater creates the lock and does the work.
+            let _lock = std::fs::OpenOptions::new()
+                .write(true)
+                .create(true)
+                .open(&update_lock_path);
             thread::sleep(Duration::from_millis(500));
             let core = find_core();
             if let Err(error) = update::perform_update(&core) {
@@ -369,6 +374,7 @@ fn main() {
             let _ = std::fs::remove_file(&update_request_path);
             let _ = std::fs::remove_file(&update_lock_path);
         } else {
+            // Followers just wait until both signal files are gone.
             while update_request_path.exists() || update_lock_path.exists() {
                 thread::sleep(Duration::from_millis(100));
             }
