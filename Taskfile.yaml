@@ -79,6 +79,22 @@ tasks:
       - rm -rf tmp/onboarding
       - ./crush{{exeExt}} {{.CLI_ARGS}}
 
+  preview:
+    desc: Build to a temporary location and run isolated instance (useful when agents are already running)
+    env:
+      CRUSH_GLOBAL_DATA: tmp/preview/data
+    cmds:
+      - go build -v -o tmp/preview/star-core{{exeExt}} .
+      - ./tmp/preview/star-core{{exeExt}} {{.CLI_ARGS}}
+
+  preview:wt:
+    desc: Open a new terminal running the preview build
+    cmds:
+      - go build -v -o tmp/preview/star-core{{exeExt}} .
+      - cd launcher && cargo build --release
+      - cp launcher/target/release/star{{exeExt}} tmp/preview/
+      - powershell.exe -NoProfile -Command "Start-Process wt.exe -ArgumentList '-w','new','nt','-d','{{.USER_WORKING_DIR}}','powershell.exe','-NoExit','-File','{{.ROOT_DIR}}/scripts/preview.ps1','{{.ROOT_DIR}}/tmp/preview','{{.CLI_ARGS}}'"
+
   test:
     desc: Run tests
     cmds:

@@ -12,6 +12,19 @@ use std::thread;
 use std::time::Duration;
 
 fn find_core() -> PathBuf {
+    if let Ok(exe_path) = env::current_exe() {
+        if let Some(dir) = exe_path.parent() {
+            let local_core = if cfg!(target_os = "windows") {
+                dir.join("star-core.exe")
+            } else {
+                dir.join("star-core")
+            };
+            if local_core.exists() {
+                return local_core;
+            }
+        }
+    }
+
     let home = env::var_os("USERPROFILE")
         .or_else(|| env::var_os("HOME"))
         .map(PathBuf::from)
@@ -200,10 +213,9 @@ fn run_core() -> i32 {
         let _ = animation.join();
     }
 
-    // Keep the shared alternate screen active during handoff. Bubble Tea
-    // takes ownership of the existing buffer, avoiding a visible switch back
-    // through the primary screen and a second alternate-screen entry.
-    let _ = stdout.write_all(b"\x1b[0m\x1b[H\x1b[2J\x1b[?25l");
+    // Restore a pristine terminal before Bubble Tea initializes its own
+    // alternate screen, wrapping, cursor, and scroll-region state.
+    let _ = stdout.write_all(b"\x1b[0m\x1b[39;49m\x1b[r\x1b[?7h\x1b[?25h\x1b[?1049l");
     let _ = stdout.flush();
 
     handshake.signal_release();
