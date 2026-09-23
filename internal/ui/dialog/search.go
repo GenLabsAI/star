@@ -63,7 +63,7 @@ func NewSearch(com *common.Common) (*SearchDialog, error) {
 
 	s.input = textinput.New()
 	s.input.SetVirtualCursor(false)
-	s.input.Placeholder = "Search across sessions..."
+	s.input.Placeholder = "Search across sessions (min 3 chars)..."
 	s.input.SetStyles(com.Styles.TextInput)
 	s.input.Focus()
 
