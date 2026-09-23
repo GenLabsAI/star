@@ -122,10 +122,17 @@ star --continue
 		// lets the Rust launcher hand off the terminal immediately instead
 		// of blocking on DB migrations, MCP init, etc.
 		splash := newSplashModel(cmd, sessionID, continueLast)
-		splash.handshake = newLauncherHandshake()
+		handshake := newLauncherHandshake()
+		splash.handshake = handshake
 
 		inputFilter := ui.NewFilter()
 		var env uv.Environ = os.Environ()
+
+		if handshake != nil {
+			_ = handshake.awaitRelease()
+			splash.launcherReleased = true
+		}
+
 		program := tea.NewProgram(
 			splash,
 			tea.WithEnvironment(env),

@@ -44,7 +44,7 @@ func newSplashModel(cmd *cobra.Command, sessionID string, continueLast bool) *sp
 }
 
 func (m *splashModel) Init() tea.Cmd {
-	return tea.Batch(m.initialize(), m.awaitReleaseCmd())
+	return tea.Batch(m.initialize(), func() tea.Msg { return launcherReleasedMsg{} })
 }
 
 func (m *splashModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -109,15 +109,6 @@ func (m *splashModel) transitionToUI(ready *splashReadyMsg) tea.Cmd {
 		m.handshake.notifyRendered()
 	}
 	return tea.Batch(updateCmd, initCmd)
-}
-
-func (m *splashModel) awaitReleaseCmd() tea.Cmd {
-	return func() tea.Msg {
-		if m.handshake != nil {
-			_ = m.handshake.awaitRelease()
-		}
-		return launcherReleasedMsg{}
-	}
 }
 
 func (m *splashModel) initialize() tea.Cmd {
