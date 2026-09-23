@@ -213,9 +213,9 @@ fn run_core() -> i32 {
         let _ = animation.join();
     }
 
-    // Restore a pristine terminal before Bubble Tea initializes its own
-    // alternate screen, wrapping, cursor, and scroll-region state.
-    let _ = stdout.write_all(b"\x1b[0m\x1b[39;49m\x1b[r\x1b[?7h\x1b[?25h\x1b[?1049l");
+    // Clear our alt-screen buffer completely so nothing bleeds into Bubble Tea's
+    // session, then restore a pristine terminal before handing off.
+    let _ = stdout.write_all(b"\x1b[H\x1b[2J\x1b[0m\x1b[39;49m\x1b[r\x1b[?7h\x1b[?25h\x1b[?1049l");
     let _ = stdout.flush();
 
     handshake.signal_release();
