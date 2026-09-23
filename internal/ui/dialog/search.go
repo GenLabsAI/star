@@ -95,7 +95,7 @@ func (s *SearchDialog) ID() string {
 
 func (s *SearchDialog) performSearch() {
 	query := s.input.Value()
-	if query == "" {
+	if len(query) < 3 {
 		s.list.SetItems()
 		return
 	}

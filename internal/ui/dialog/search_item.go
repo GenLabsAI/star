@@ -32,9 +32,12 @@ func (s *SearchItem) ID() string {
 
 // Render returns the string representation of the search item.
 func (s *SearchItem) Render(width int) string {
-	// Strip FTS5 highlight markers.
+	// Strip FTS5 highlight markers and remove newlines so the list item doesn't wrap.
 	snippet := strings.ReplaceAll(s.Result.Snippet, "{{", "")
 	snippet = strings.ReplaceAll(snippet, "}}", "")
+	snippet = strings.ReplaceAll(snippet, "\n", " ")
+	snippet = strings.ReplaceAll(snippet, "\r", " ")
+	snippet = strings.TrimSpace(snippet)
 
 	info := s.Result.SessionTitle
 	return renderItem(ListItemStyles{
