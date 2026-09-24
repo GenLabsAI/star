@@ -62,7 +62,7 @@ func (w *WakeupToast) HandleMsg(msg tea.Msg) Action {
 	switch msg := msg.(type) {
 	case tea.KeyPressMsg:
 		switch {
-		case key.Matches(msg, w.keyMap.Cancel, w.keyMap.Close):
+		case key.Matches(msg, w.keyMap.Cancel, w.keyMap.Close, key.NewBinding(key.WithKeys("enter", "space"))):
 			return ActionCancelWakeup{SessionID: w.SessionID}
 		}
 	case tea.MouseClickMsg:
