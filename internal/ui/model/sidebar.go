@@ -122,7 +122,10 @@ func (m *UI) updateSidebarScrollState() {
 	)
 
 	totalLines := strings.Count(content, "\n") + 1
-	m.sidebarContent = content
+	if m.sidebarContent != content {
+		m.sidebarContent = content
+		m.sidebarLines = strings.Split(content, "\n")
+	}
 	m.sidebarTotalLines = totalLines
 	m.sidebarContentWidth = contentWidth
 	m.sidebarContentHeight = contentHeight
@@ -164,8 +167,7 @@ func (m *UI) drawSidebar(scr uv.Screen, area uv.Rectangle) {
 
 	// Slice visible lines.
 	end := min(m.sidebarOffset+contentHeight, totalLines)
-	lines := strings.Split(m.sidebarContent, "\n")
-	visibleLines := lines[m.sidebarOffset:end]
+	visibleLines := m.sidebarLines[m.sidebarOffset:end]
 	visibleStr := strings.Join(visibleLines, "\n")
 
 	// Determine scrollbar visibility: always visible when focused, otherwise

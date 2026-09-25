@@ -321,13 +321,14 @@ type UI struct {
 	sidebarOffset           int  // current scroll offset in lines
 	sidebarScrollable       bool // true when sidebar content exceeds available height
 	sidebarScrollbarVisible bool
-	sidebarScrollbarSeq     int    // sequence number for auto-hide timer
-	sidebarMaxOffsetVal     int    // max scroll offset, computed in updateSidebarScrollState
-	sidebarContent          string // cached rendered sidebar content
-	sidebarTotalLines       int    // total lines in sidebarContent
-	sidebarContentHeight    int    // available height for sidebar content
-	sidebarContentWidth     int    // available width for sidebar content
-	sidebarDrawLogo         string // logo to render (may differ from sidebarLogo for short heights)
+	sidebarScrollbarSeq     int      // sequence number for auto-hide timer
+	sidebarMaxOffsetVal     int      // max scroll offset, computed in updateSidebarScrollState
+	sidebarContent          string   // cached rendered sidebar content
+	sidebarLines            []string // cached split lines of sidebarContent
+	sidebarTotalLines       int      // total lines in sidebarContent
+	sidebarContentHeight    int      // available height for sidebar content
+	sidebarContentWidth     int      // available width for sidebar content
+	sidebarDrawLogo         string   // logo to render (may differ from sidebarLogo for short heights)
 
 	// Notification state
 	notifyBackend       notification.Backend
@@ -3090,12 +3091,7 @@ func (m *UI) Draw(scr uv.Screen, area uv.Rectangle) *tea.Cursor {
 	if m.layout != layout {
 		m.layout = layout
 		m.updateSize()
-	} else if m.state == uiChat && m.hasSession() {
-		// Re-render pills on every draw so the box appears even when
-		// the layout footprint hasn't changed (e.g. todos arrived
-		// while the panel was collapsed). updateSize already calls
-		// renderPills, but only when the layout actually differs;
-		// this catches the steady-state case.
+	} else if m.state == uiChat && m.hasSession() && m.pillsView == "" && m.pillsAreaHeight() > 0 {
 		m.renderPills()
 	}
 
@@ -3251,6 +3247,27 @@ func (m *UI) Draw(scr uv.Screen, area uv.Rectangle) *tea.Cursor {
 	return nil
 }
 
+func compactRenderedView(content string) string {
+	var compact strings.Builder
+	compact.Grow(len(content))
+	for len(content) > 0 {
+		lineEnd := strings.IndexByte(content, '\n')
+		if lineEnd < 0 {
+			lineEnd = len(content)
+		}
+		line := content[:lineEnd]
+		line = strings.TrimSuffix(line, "\r")
+		line = strings.TrimRight(line, " ")
+		compact.WriteString(line)
+		if lineEnd == len(content) {
+			break
+		}
+		compact.WriteByte('\n')
+		content = content[lineEnd+1:]
+	}
+	return compact.String()
+}
+
 // View renders the UI model's view.
 func (m *UI) View() tea.View {
 	var v tea.View
@@ -3269,16 +3286,7 @@ func (m *UI) View() tea.View {
 	canvas := uv.NewScreenBuffer(m.width, m.height)
 	v.Cursor = m.Draw(canvas, canvas.Bounds())
 
-	content := strings.ReplaceAll(canvas.Render(), "\r\n", "\n") // normalize newlines
-	contentLines := strings.Split(content, "\n")
-	for i, line := range contentLines {
-		// Trim trailing spaces for concise rendering
-		contentLines[i] = strings.TrimRight(line, " ")
-	}
-
-	content = strings.Join(contentLines, "\n")
-
-	v.Content = content
+	v.Content = compactRenderedView(canvas.Render())
 	if m.progressBarEnabled && m.sendProgressBar && m.isAgentBusy() {
 		// HACK: use a random percentage to prevent ghostty from hiding it
 		// after a timeout.
