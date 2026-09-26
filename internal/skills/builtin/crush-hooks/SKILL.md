@@ -16,7 +16,7 @@ need to author correct hooks.
 
 ## Supported Events
 
-Only `PreToolUse` is currently supported. Event names are case-insensitive and
+Supported events include `PreToolUse`, `PostToolUse`, `PermissionRequest`, and lifecycle events. Event names are case-insensitive and
 accept snake_case (`PreToolUse`, `pretooluse`, `pre_tool_use` all work).
 
 ## Configuration

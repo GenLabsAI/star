@@ -2,6 +2,8 @@ package permission
 
 import (
 	"context"
+	"encoding/json"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"slices"
@@ -9,6 +11,7 @@ import (
 	"sync/atomic"
 
 	"github.com/charmbracelet/crush/internal/csync"
+	"github.com/charmbracelet/crush/internal/hooks"
 	"github.com/charmbracelet/crush/internal/pubsub"
 	"github.com/google/uuid"
 )
@@ -116,6 +119,7 @@ type permissionService struct {
 	*pubsub.Broker[PermissionRequest]
 
 	notificationBroker    *pubsub.Broker[PermissionNotification]
+	permissionHookRunner  *hooks.Runner
 	workingDir            string
 	sessionPermissions    *csync.Map[PermissionKey, bool]
 	pendingRequests       *csync.Map[string, chan bool]
@@ -215,6 +219,31 @@ func (s *permissionService) Request(ctx context.Context, opts CreatePermissionRe
 	commandKey := opts.ToolName + ":" + opts.Action
 	if slices.Contains(s.allowedTools, commandKey) || slices.Contains(s.allowedTools, opts.ToolName) {
 		return true, nil
+	}
+
+	if s.permissionHookRunner != nil {
+		inputBytes, err := json.Marshal(opts)
+		if err == nil {
+			result, err := s.permissionHookRunner.Run(ctx, hooks.EventPermissionRequest, opts.SessionID, opts.ToolName, string(inputBytes))
+			if err != nil {
+				slog.Warn("Permission hook execution error, proceeding with permission flow", "tool", opts.ToolName, "error", err)
+			} else {
+				if result.Decision == hooks.DecisionAllow {
+					s.notificationBroker.Publish(pubsub.CreatedEvent, PermissionNotification{
+						ToolCallID: opts.ToolCallID,
+						Granted:    true,
+					})
+					return true, nil
+				}
+				if result.Decision == hooks.DecisionDeny || result.Halt {
+					s.notificationBroker.Publish(pubsub.CreatedEvent, PermissionNotification{
+						ToolCallID: opts.ToolCallID,
+						Denied:     true,
+					})
+					return false, nil
+				}
+			}
+		}
 	}
 
 	// A PreToolUse hook that returned decision=allow stamps the context
@@ -373,23 +402,36 @@ func (s *permissionService) SessionMode(sessionID string) Mode {
 	return s.GetMode()
 }
 
-func NewPermissionService(workingDir string, skip bool, allowedTools []string, initialMode ...Mode) Service {
-	svc := &permissionService{
-		Broker:              pubsub.NewBroker[PermissionRequest](),
-		notificationBroker:  pubsub.NewBroker[PermissionNotification](),
-		workingDir:          workingDir,
-		sessionPermissions:  csync.NewMap[PermissionKey, bool](),
-		autoApproveSessions: make(map[string]bool),
-		sessionModes:        csync.NewMap[string, Mode](),
-		allowedTools:        allowedTools,
-		pendingRequests:     csync.NewMap[string, chan bool](),
+func NewPermissionService(workingDir string, skip bool, allowedTools []string, options ...any) Service {
+	var hookRunner *hooks.Runner
+	var initialMode Mode
+	for _, option := range options {
+		switch value := option.(type) {
+		case *hooks.Runner:
+			hookRunner = value
+		case Mode:
+			initialMode = value
+		}
 	}
 
-	mode := ModeNormal
-	if len(initialMode) > 0 {
-		mode = initialMode[0]
-	} else if skip {
-		mode = ModeYolo
+	svc := &permissionService{
+		Broker:               pubsub.NewBroker[PermissionRequest](),
+		notificationBroker:   pubsub.NewBroker[PermissionNotification](),
+		permissionHookRunner: hookRunner,
+		workingDir:           workingDir,
+		sessionPermissions:   csync.NewMap[PermissionKey, bool](),
+		autoApproveSessions:  make(map[string]bool),
+		sessionModes:         csync.NewMap[string, Mode](),
+		allowedTools:         allowedTools,
+		pendingRequests:      csync.NewMap[string, chan bool](),
+	}
+
+	mode := initialMode
+	if mode == "" {
+		mode = ModeNormal
+		if skip {
+			mode = ModeYolo
+		}
 	}
 
 	svc.skip.Store(mode == ModeYolo)
