@@ -1444,6 +1444,54 @@ func (c *Config) mergePlugins(directory string) {
 				})
 			}
 		}
+		if len(plugin.MCP) > 0 {
+			data, err := json.Marshal(plugin.MCP)
+			if err == nil {
+				var servers MCPs
+				if json.Unmarshal(data, &servers) == nil {
+					if c.MCP == nil {
+						c.MCP = make(MCPs)
+					}
+					for name, server := range servers {
+						if server.Command != "" && !filepath.IsAbs(server.Command) {
+							server.Command = filepath.Join(plugin.Path, server.Command)
+						}
+						c.MCP[name] = server
+					}
+				}
+			}
+		}
+		if len(plugin.LSP) > 0 {
+			data, err := json.Marshal(plugin.LSP)
+			if err == nil {
+				var servers LSPs
+				if json.Unmarshal(data, &servers) == nil {
+					if c.LSP == nil {
+						c.LSP = make(LSPs)
+					}
+					for name, server := range servers {
+						if server.Command != "" && !filepath.IsAbs(server.Command) {
+							server.Command = filepath.Join(plugin.Path, server.Command)
+						}
+						c.LSP[name] = server
+					}
+				}
+			}
+		}
+		if len(plugin.Agents) > 0 {
+			data, err := json.Marshal(plugin.Agents)
+			if err == nil {
+				var agents map[string]Agent
+				if json.Unmarshal(data, &agents) == nil {
+					if c.Agents == nil {
+						c.Agents = make(map[string]Agent)
+					}
+					for name, agent := range agents {
+						c.Agents[name] = agent
+					}
+				}
+			}
+		}
 	}
 }
 
