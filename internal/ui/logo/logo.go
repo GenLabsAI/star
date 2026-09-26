@@ -1,4 +1,4 @@
-// Package logo renders a Crush wordmark in a stylized way.
+// Package logo renders the Star wordmark in a stylized way.
 package logo
 
 import (
@@ -45,40 +45,32 @@ func Render(base lipgloss.Style, version string, compact bool, o Opts) string {
 	}
 
 	// Title.
-	const spacing = 1
-	var hyperLetterforms []letterform
+	var star string
 	if o.Hyper {
-		hyperLetterforms = []letterform{
+		const spacing = 1
+		hyperLetterforms := []letterform{
 			LetterH,
 			LetterYAlt,
 			LetterP,
 			LetterE,
 			LetterR,
 		}
+		stretchIndex := -1
+		if !compact && !o.Unstable {
+			stretchIndex = cachedRandN(len(hyperLetterforms))
+		} else if !compact && o.Unstable {
+			stretchIndex = rand.IntN(len(hyperLetterforms))
+		}
+		hyperWord := renderWord(spacing, stretchIndex, hyperLetterforms...)
+		if compact {
+			star = hyperWord + "\n" + renderStarWordmark()
+		} else {
+			star = lipgloss.JoinHorizontal(lipgloss.Top, hyperWord, "  ", renderStarWordmark())
+		}
+	} else {
+		star = renderStarWordmark()
 	}
-	crushLetterforms := []letterform{
-		LetterC,
-		LetterR,
-		LetterU,
-		LetterSAlt,
-		LetterH,
-	}
-	if o.Hyper && !compact {
-		crushLetterforms = append(hyperLetterforms, crushLetterforms...)
-	}
-
-	stretchIndex := -1 // -1 means no stretching.
-	if !compact && !o.Unstable {
-		// Always stretch the same letterform, which is picked once at random.
-		stretchIndex = cachedRandN(len(crushLetterforms))
-	} else if !compact && o.Unstable {
-		// Stretch a random letterform on every render.
-		stretchIndex = rand.IntN(len(crushLetterforms))
-	}
-	crush := renderWord(spacing, stretchIndex, crushLetterforms...)
-	if o.Hyper && compact {
-		crush = renderWord(spacing, stretchIndex, hyperLetterforms...) + "\n" + crush
-	}
+	crush := star
 	crushWidth := lipgloss.Width(crush)
 	b := new(strings.Builder)
 	for r := range strings.SplitSeq(crush, "\n") {

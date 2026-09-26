@@ -31,6 +31,14 @@ func renderWord(spacing int, stretchIndex int, letterforms ...letterform) string
 	)
 }
 
+func renderStarWordmark() string {
+	return strings.Join([]string{
+		"╭──╮╶─┬─╴╭──╮ ╭──╮",
+		"╰──╮  │  ├──┤ ├─┬╯",
+		"╰──╯  ╵  ╵  ╵ ╵ ╰╴",
+	}, "\n")
+}
+
 // LetterC renders the letter C in a stylized way. It takes an integer that
 // determines how many cells to stretch the letter. If the stretch is less than
 // 1, it defaults to no stretching.
