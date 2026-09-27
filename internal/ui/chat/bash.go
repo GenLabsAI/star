@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/crush/internal/agent/tools"
@@ -133,13 +134,25 @@ type JobOutputToolRenderContext struct{}
 // RenderTool implements the [ToolRenderer] interface.
 func (j *JobOutputToolRenderContext) RenderTool(sty *styles.Styles, width int, opts *ToolRenderOpts) string {
 	cappedWidth := cappedMessageWidth(width)
-	if opts.IsPending() {
-		return pendingTool(sty, "Job", opts.Anim, opts.Compact)
-	}
-
 	var params tools.JobOutputParams
 	if err := json.Unmarshal([]byte(opts.ToolCall.Input), &params); err != nil {
+		if opts.IsPending() {
+			return pendingTool(sty, "Job", opts.Anim, opts.Compact)
+		}
 		return toolErrorContent(sty, &message.ToolResult{Content: "Invalid parameters"}, cappedWidth)
+	}
+
+	if opts.IsPending() {
+		if params.Wait && params.Timeout > 0 && !opts.StartedAt.IsZero() {
+			deadline := opts.StartedAt.Add(time.Duration(params.Timeout) * time.Second)
+			remaining := time.Until(deadline)
+			if remaining > 0 {
+				secs := int(remaining.Seconds())
+				countdownText := fmt.Sprintf("%02d:%02d", secs/60, secs%60)
+				return pendingToolWithCountdown(sty, "Job", opts.Anim, opts.Compact, countdownText)
+			}
+		}
+		return pendingTool(sty, "Job", opts.Anim, opts.Compact)
 	}
 
 	var description string

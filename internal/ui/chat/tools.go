@@ -98,6 +98,7 @@ type ToolRenderOpts struct {
 	Compact         bool
 	IsSpinning      bool
 	Status          ToolStatus
+	StartedAt       time.Time
 }
 
 // IsPending returns true if the tool call is still pending (not finished and
@@ -146,6 +147,7 @@ type baseToolMessageItem struct {
 	result       *message.ToolResult
 	messageID    string
 	status       ToolStatus
+	startedAt    time.Time
 	// we use this so we can efficiently cache
 	// tools that have a capped width (e.x bash.. and others)
 	hasCappedWidth bool
@@ -189,6 +191,7 @@ func newBaseToolMessageItem(
 		toolCall:                 toolCall,
 		result:                   result,
 		status:                   status,
+		startedAt:                time.Now(),
 		hasCappedWidth:           hasCappedWidth,
 	}
 	t.anim = anim.New(anim.Settings{
@@ -346,6 +349,7 @@ func (t *baseToolMessageItem) RawRender(width int) string {
 			Compact:         t.isCompact,
 			IsSpinning:      t.isSpinning(),
 			Status:          t.computeStatus(),
+			StartedAt:       t.startedAt,
 		})
 
 		// Prepend hook indicator if hooks ran for this tool call.
@@ -515,6 +519,11 @@ func (t *baseToolMessageItem) HandleKeyEvent(key tea.KeyMsg) (bool, tea.Cmd) {
 
 // pendingTool renders a tool that is still in progress with an animation.
 func pendingTool(sty *styles.Styles, name string, anim *anim.Anim, nested bool) string {
+	return pendingToolWithCountdown(sty, name, anim, nested, "")
+}
+
+// pendingToolWithCountdown renders a tool that is still in progress with an animation and optional countdown text.
+func pendingToolWithCountdown(sty *styles.Styles, name string, anim *anim.Anim, nested bool, countdownText string) string {
 	icon := sty.Tool.IconPending.Render()
 	nameStyle := sty.Tool.NameNormal
 	if nested {
@@ -527,7 +536,11 @@ func pendingTool(sty *styles.Styles, name string, anim *anim.Anim, nested bool) 
 		animView = anim.Render()
 	}
 
-	return fmt.Sprintf("%s %s %s", icon, toolName, animView)
+	out := fmt.Sprintf("%s %s %s", icon, toolName, animView)
+	if countdownText != "" {
+		out += sty.Tool.JobDescription.Render(" - " + countdownText + " remaining")
+	}
+	return out
 }
 
 // toolEarlyStateContent handles error/cancelled/pending states before content rendering.
