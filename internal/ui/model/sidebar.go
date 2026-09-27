@@ -175,20 +175,26 @@ func (m *UI) drawSidebar(scr uv.Screen, area uv.Rectangle) {
 	scrollbarVisible := totalLines > contentHeight && (m.sidebarScrollbarVisible || m.focus == uiFocusSidebar)
 
 	// Draw the fixed logo.
-	uv.NewStyledString(
-		lipgloss.NewStyle().
-			MaxWidth(contentWidth).
-			MaxHeight(lipgloss.Height(sidebarLogo)).
-			Render(sidebarLogo),
-	).Draw(scr, logoRect)
+	logoView := lipgloss.NewStyle().
+		MaxWidth(contentWidth).
+		MaxHeight(lipgloss.Height(sidebarLogo)).
+		Render(sidebarLogo)
+	if m.sidebarLogoCacheKey != logoView {
+		m.sidebarLogoStyledCache = uv.NewStyledString(logoView)
+		m.sidebarLogoCacheKey = logoView
+	}
+	m.sidebarLogoStyledCache.Draw(scr, logoRect)
 
 	// Draw the visible content in the scrollable area.
-	uv.NewStyledString(
-		lipgloss.NewStyle().
-			MaxWidth(contentWidth).
-			MaxHeight(contentHeight).
-			Render(visibleStr),
-	).Draw(scr, contentRect)
+	bodyView := lipgloss.NewStyle().
+		MaxWidth(contentWidth).
+		MaxHeight(contentHeight).
+		Render(visibleStr)
+	if m.sidebarBodyCacheKey != bodyView {
+		m.sidebarBodyStyledCache = uv.NewStyledString(bodyView)
+		m.sidebarBodyCacheKey = bodyView
+	}
+	m.sidebarBodyStyledCache.Draw(scr, contentRect)
 
 	// Draw scrollbar in the reserved column.
 	if scrollbarVisible {

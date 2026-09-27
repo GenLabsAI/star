@@ -18,11 +18,15 @@ const DefaultStatusTTL = 5 * time.Second
 
 // Status is the status bar and help model.
 type Status struct {
-	com      *common.Common
-	hideHelp bool
-	help     help.Model
-	helpKm   help.KeyMap
-	msg      util.InfoMsg
+	com             *common.Common
+	hideHelp        bool
+	help            help.Model
+	helpKm          help.KeyMap
+	msg             util.InfoMsg
+	helpCache       *uv.StyledString
+	helpCacheKey    string
+	messageCache    *uv.StyledString
+	messageCacheKey string
 }
 
 // NewStatus creates a new status bar and help model.
@@ -71,7 +75,11 @@ func (s *Status) SetHideHelp(hideHelp bool) {
 func (s *Status) Draw(scr uv.Screen, area uv.Rectangle) {
 	if !s.hideHelp {
 		helpView := s.com.Styles.Status.Help.Render(s.help.View(s.helpKm))
-		uv.NewStyledString(helpView).Draw(scr, area)
+		if s.helpCacheKey != helpView {
+			s.helpCache = uv.NewStyledString(helpView)
+			s.helpCacheKey = helpView
+		}
+		s.helpCache.Draw(scr, area)
 	}
 
 	// Render notifications
@@ -111,7 +119,12 @@ func (s *Status) Draw(scr uv.Screen, area uv.Rectangle) {
 	info := msgStyle.Render(msg)
 
 	// Draw the info message over the help view
-	uv.NewStyledString(ind+info).Draw(scr, area)
+	messageView := ind + info
+	if s.messageCacheKey != messageView {
+		s.messageCache = uv.NewStyledString(messageView)
+		s.messageCacheKey = messageView
+	}
+	s.messageCache.Draw(scr, area)
 }
 
 // clearInfoMsgCmd returns a command that clears the info message after the

@@ -330,6 +330,10 @@ type UI struct {
 	sidebarContentHeight    int      // available height for sidebar content
 	sidebarContentWidth     int      // available width for sidebar content
 	sidebarDrawLogo         string   // logo to render (may differ from sidebarLogo for short heights)
+	sidebarLogoStyledCache  *uv.StyledString
+	sidebarLogoCacheKey     string
+	sidebarBodyStyledCache  *uv.StyledString
+	sidebarBodyCacheKey     string
 
 	// Notification state
 	notifyBackend       notification.Backend
@@ -381,8 +385,12 @@ type UI struct {
 	// busyFetchGen is bumped by every busy/permission state transition;
 	// like promptQueueGen it lets a stale in-flight probe result be
 	// discarded and re-fetched instead of clobbering newer state.
-	busyFetchGen uint64
-	pillsView    string
+	busyFetchGen      uint64
+	pillsView         string
+	pillsStyledCache  *uv.StyledString
+	pillsCacheKey     string
+	editorStyledCache *uv.StyledString
+	editorCacheKey    string
 
 	// Todo spinner
 	todoSpinner    spinner.Model
@@ -3151,7 +3159,11 @@ func (m *UI) Draw(scr uv.Screen, area uv.Rectangle) *tea.Cursor {
 
 		m.chat.Draw(scr, layout.main)
 		if layout.pills.Dy() > 0 && m.pillsView != "" {
-			uv.NewStyledString(m.pillsView).Draw(scr, layout.pills)
+			if m.pillsCacheKey != m.pillsView {
+				m.pillsStyledCache = uv.NewStyledString(m.pillsView)
+				m.pillsCacheKey = m.pillsView
+			}
+			m.pillsStyledCache.Draw(scr, layout.pills)
 		}
 
 		if m.activeInline != nil {
@@ -3169,8 +3181,12 @@ func (m *UI) Draw(scr uv.Screen, area uv.Rectangle) *tea.Cursor {
 			if !m.isCompact {
 				editorWidth -= layout.sidebar.Dx()
 			}
-			editor := uv.NewStyledString(m.renderEditorView(editorWidth))
-			editor.Draw(scr, layout.editor)
+			ev := m.renderEditorView(editorWidth)
+			if m.editorCacheKey != ev {
+				m.editorStyledCache = uv.NewStyledString(ev)
+				m.editorCacheKey = ev
+			}
+			m.editorStyledCache.Draw(scr, layout.editor)
 			m.inlineCursor = nil
 		}
 

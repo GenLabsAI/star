@@ -31,6 +31,8 @@ type header struct {
 	width           int
 	compact         bool
 	updateAvailable bool
+	styledCache     *uv.StyledString
+	cacheKey        string
 }
 
 // newHeader creates a new header model.
@@ -80,7 +82,11 @@ func (h *header) drawHeader(
 	h.compact = compact
 
 	if !compact || session == nil {
-		uv.NewStyledString(h.logo).Draw(scr, area)
+		if h.cacheKey != h.logo {
+			h.styledCache = uv.NewStyledString(h.logo)
+			h.cacheKey = h.logo
+		}
+		h.styledCache.Draw(scr, area)
 		return
 	}
 
@@ -121,10 +127,12 @@ func (h *header) drawHeader(
 
 	b.WriteString(details)
 
-	view := uv.NewStyledString(
-		t.Header.Wrapper.Padding(0, rightPadding, 0, leftPadding).Render(b.String()),
-	)
-	view.Draw(scr, area)
+	view := t.Header.Wrapper.Padding(0, rightPadding, 0, leftPadding).Render(b.String())
+	if h.cacheKey != view {
+		h.styledCache = uv.NewStyledString(view)
+		h.cacheKey = view
+	}
+	h.styledCache.Draw(scr, area)
 }
 
 // renderHeaderDetails renders the details section of the header.
