@@ -154,7 +154,7 @@ func createNewFile(edit editContext, filePath, content string, call fantasy.Tool
 		if edit.permissions.SessionMode(sessionID) == permission.ModePlan {
 			resp = NewPlanModeDeniedResponse()
 		} else {
-			resp = NewPermissionDeniedResponse()
+			resp = NewPermissionDeniedResponse(edit.ctx)
 		}
 		resp = fantasy.WithResponseMetadata(resp, EditResponseMetadata{
 			OldContent: "",
@@ -360,7 +360,7 @@ func deleteContent(edit editContext, filePath, oldString string, replaceAll bool
 		if edit.permissions.SessionMode(sessionID) == permission.ModePlan {
 			resp = NewPlanModeDeniedResponse()
 		} else {
-			resp = NewPermissionDeniedResponse()
+			resp = NewPermissionDeniedResponse(edit.ctx)
 		}
 		resp = fantasy.WithResponseMetadata(resp, EditResponseMetadata{
 			OldContent: oldContent,
@@ -438,7 +438,7 @@ func replaceContent(edit editContext, filePath, oldString, newString string, rep
 		if edit.permissions.SessionMode(sessionID) == permission.ModePlan {
 			resp = NewPlanModeDeniedResponse()
 		} else {
-			resp = NewPermissionDeniedResponse()
+			resp = NewPermissionDeniedResponse(edit.ctx)
 		}
 		resp = fantasy.WithResponseMetadata(resp, EditResponseMetadata{
 			OldContent: oldContent,

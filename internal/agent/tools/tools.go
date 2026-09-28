@@ -3,11 +3,13 @@ package tools
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"html/template"
 	"os/exec"
 	"testing"
 
 	"charm.land/fantasy"
+	"github.com/charmbracelet/crush/internal/permission"
 )
 
 type (
@@ -63,8 +65,13 @@ func GetModelNameFromContext(ctx context.Context) string {
 
 // NewPermissionDeniedResponse returns a tool response indicating the user
 // denied permission, with StopTurn set so the agent loop does not retry.
-func NewPermissionDeniedResponse() fantasy.ToolResponse {
-	resp := fantasy.NewTextErrorResponse("User denied permission")
+// If the context contains a hook denial reason, it includes that in the error.
+func NewPermissionDeniedResponse(ctx context.Context) fantasy.ToolResponse {
+	msg := "User denied permission"
+	if reason, ok := permission.GetHookDenialReason(ctx); ok && reason != "" {
+		msg = fmt.Sprintf("Permission denied by hook: %s", reason)
+	}
+	resp := fantasy.NewTextErrorResponse(msg)
 	resp.StopTurn = true
 	return resp
 }

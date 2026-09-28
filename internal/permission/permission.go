@@ -21,11 +21,36 @@ import (
 // approval can't be reused across calls that happen to share a context.
 type hookApprovalKey struct{}
 
+type hookDenialReasonKey struct{}
+
 // WithHookApproval returns a context that marks the given tool call ID as
 // pre-approved by a hook. When the permission service sees a matching
 // request it short-circuits the normal prompt and grants immediately.
 func WithHookApproval(ctx context.Context, toolCallID string) context.Context {
 	return context.WithValue(ctx, hookApprovalKey{}, toolCallID)
+}
+
+// WithHookDenialReason returns a context that permission hooks can populate
+// with their reason when they deny a request.
+func WithHookDenialReason(ctx context.Context) (context.Context, *string) {
+	var reason string
+	return context.WithValue(ctx, hookDenialReasonKey{}, &reason), &reason
+}
+
+func setHookDenialReason(ctx context.Context, reason string) {
+	value, _ := ctx.Value(hookDenialReasonKey{}).(*string)
+	if value != nil {
+		*value = reason
+	}
+}
+
+// GetHookDenialReason retrieves the reason a hook denied permission, if set.
+func GetHookDenialReason(ctx context.Context) (string, bool) {
+	value, ok := ctx.Value(hookDenialReasonKey{}).(*string)
+	if ok && value != nil && *value != "" {
+		return *value, true
+	}
+	return "", false
 }
 
 // hookApproved reports whether the context carries a hook approval for the
@@ -236,6 +261,7 @@ func (s *permissionService) Request(ctx context.Context, opts CreatePermissionRe
 					return true, nil
 				}
 				if result.Decision == hooks.DecisionDeny || result.Halt {
+					setHookDenialReason(ctx, result.Reason)
 					s.notificationBroker.Publish(pubsub.CreatedEvent, PermissionNotification{
 						ToolCallID: opts.ToolCallID,
 						Denied:     true,

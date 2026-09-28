@@ -244,7 +244,7 @@ func NewBashTool(permissions permission.Service, workingDir string, attribution 
 					if permissions.SessionMode(sessionID) == permission.ModePlan {
 						return NewPlanModeDeniedResponse(), nil
 					}
-					return NewPermissionDeniedResponse(), nil
+					return NewPermissionDeniedResponse(ctx), nil
 				}
 			}
 
