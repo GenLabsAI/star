@@ -101,7 +101,19 @@ func Render(base lipgloss.Style, version string, compact bool, o Opts) string {
 
 	// Narrow version. If this is Hypercrush, this is also a stacked version.
 	if compact {
-		field := fg(o.FieldColor, strings.Repeat(diag, crushWidth))
+		fieldWidth := crushWidth
+		if o.Width > 0 {
+			fieldWidth = o.Width
+			lines := strings.Split(crush, "\n")
+			for i, line := range lines {
+				remainingWidth := max(0, o.Width-lipgloss.Width(line)-1)
+				if remainingWidth > 0 {
+					lines[i] = line + " " + fg(o.FieldColor, strings.Repeat(diag, remainingWidth))
+				}
+			}
+			crush = strings.Join(lines, "\n")
+		}
+		field := fg(o.FieldColor, strings.Repeat(diag, fieldWidth))
 		return strings.Join([]string{field, field, crush, field, ""}, "\n")
 	}
 
