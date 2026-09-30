@@ -88,9 +88,13 @@ func Render(base lipgloss.Style, version string, compact bool, o Opts) string {
 
 	var metaRow string
 	if version == "Update Now" {
-		paddingLeft := max(0, (crushWidth-lipgloss.Width(version))/2)
-		paddingRight := max(0, crushWidth-lipgloss.Width(version)-paddingLeft)
-		metaRow = strings.Repeat(" ", paddingLeft) + fg(o.VersionColor, version) + strings.Repeat(" ", paddingRight)
+		metaRow = fg(o.VersionColor, version)
+		// In wide mode we still want it centered under the logo text
+		if !compact {
+			paddingLeft := max(0, (crushWidth-lipgloss.Width(version))/2)
+			paddingRight := max(0, crushWidth-lipgloss.Width(version)-paddingLeft)
+			metaRow = strings.Repeat(" ", paddingLeft) + metaRow + strings.Repeat(" ", paddingRight)
+		}
 	} else {
 		leftDiagonalsWidth := max(0, crushWidth-lipgloss.Width(version)-metaRowGap)
 		metaRow = fg(o.FieldColor, strings.Repeat(diag, leftDiagonalsWidth)) + fg(o.FieldColor, strings.Repeat(diag, metaRowGap)) + fg(o.VersionColor, version)
@@ -101,19 +105,27 @@ func Render(base lipgloss.Style, version string, compact bool, o Opts) string {
 
 	// Narrow version. If this is Hypercrush, this is also a stacked version.
 	if compact {
-		fieldWidth := crushWidth
 		if o.Width > 0 {
-			fieldWidth = o.Width
 			lines := strings.Split(crush, "\n")
+			var outLines []string
+			fieldLines := 2 // number of leading field lines before the logo text
+			for i := 0; i < fieldLines; i++ {
+				outLines = append(outLines, fg(o.FieldColor, strings.Repeat(diag, o.Width)))
+			}
 			for i, line := range lines {
-				remainingWidth := max(0, o.Width-lipgloss.Width(line)-1)
+				lineWidth := lipgloss.Width(line)
+				remainingWidth := max(0, o.Width-lineWidth-1)
 				if remainingWidth > 0 {
 					lines[i] = line + " " + fg(o.FieldColor, strings.Repeat(diag, remainingWidth))
+				} else {
+					lines[i] = line
 				}
+				outLines = append(outLines, lines[i])
 			}
-			crush = strings.Join(lines, "\n")
+			outLines = append(outLines, fg(o.FieldColor, strings.Repeat(diag, o.Width)), "")
+			return strings.Join(outLines, "\n")
 		}
-		field := fg(o.FieldColor, strings.Repeat(diag, fieldWidth))
+		field := fg(o.FieldColor, strings.Repeat(diag, crushWidth))
 		return strings.Join([]string{field, field, crush, field, ""}, "\n")
 	}
 
