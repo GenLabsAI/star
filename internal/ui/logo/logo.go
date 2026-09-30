@@ -96,8 +96,11 @@ func Render(base lipgloss.Style, version string, compact bool, o Opts) string {
 			metaRow = strings.Repeat(" ", paddingLeft) + metaRow + strings.Repeat(" ", paddingRight)
 		}
 	} else {
-		leftDiagonalsWidth := max(0, crushWidth-lipgloss.Width(version)-metaRowGap)
-		metaRow = fg(o.FieldColor, strings.Repeat(diag, leftDiagonalsWidth)) + fg(o.FieldColor, strings.Repeat(diag, metaRowGap)) + fg(o.VersionColor, version)
+		metaRow = fg(o.VersionColor, version)
+		if !compact {
+			leftDiagonalsWidth := max(0, crushWidth-lipgloss.Width(version)-metaRowGap)
+			metaRow = fg(o.FieldColor, strings.Repeat(diag, leftDiagonalsWidth)) + fg(o.FieldColor, strings.Repeat(diag, metaRowGap)) + metaRow
+		}
 	}
 
 	// Join the meta row and big Crush title.
