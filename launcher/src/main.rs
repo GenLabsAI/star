@@ -164,7 +164,10 @@ fn run_update(coord: &Coord, pid: u32) -> Result<(), String> {
         eprintln!("  another star instance is still shutting down; continuing anyway");
     }
 
-    let result = update::perform_update(&find_core()).map(|_| ());
+    // Update both binaries: the core we closed, and the launcher we are still
+    // running from.
+    let launcher = std::env::current_exe().ok();
+    let result = update::perform_update(&find_core(), launcher.as_deref());
 
     match result {
         Ok(()) => coord.set_phase(coord::Phase::Done),
@@ -189,6 +192,10 @@ fn clear_dir(dir: &Path) {
 }
 
 fn main() {
+    // Backups from a previous update could not be removed at the time because
+    // this binary was still running. Nothing holds them now.
+    update::sweep_stale_backups();
+
     let pid = std::process::id();
     let coord = Coord::new();
     coord.register(pid);
