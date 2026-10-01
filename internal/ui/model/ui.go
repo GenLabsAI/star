@@ -1609,7 +1609,7 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 	case updateSignalTickMsg:
 		if launchTime, err := strconv.ParseInt(os.Getenv("STAR_LAUNCHER_TIME"), 10, 64); err == nil {
-			if info, statErr := os.Stat(filepath.Join(os.TempDir(), "star-update-request")); statErr == nil && info.ModTime().Unix() >= launchTime {
+			if update.RequestPending(launchTime) {
 				m.updateDownloading = true
 				return m, tea.Quit
 			}

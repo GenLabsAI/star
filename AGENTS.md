@@ -5,7 +5,7 @@
 **Star** is a rebranded fork of [Crush](https://github.com/charmbracelet/crush) (by [Charm](https://charm.land)), built as a terminal-based AI coding assistant.
 
 ### Key Differences from Crush
-- **Rust Launcher**: The entry point is a Rust binary (`star.exe`) in the `launcher/` directory that displays a smooth, animated splash screen (with a spinner, glowing logo, and twinkling stars). It coordinates with the Go UI via Windows named events before cleanly handing off the terminal to Bubble Tea.
+- **Rust Launcher**: The entry point is a Rust binary (`star.exe`) in the `launcher/` directory that displays the splash banner (a breathing star mark, the STAR wordmark that a light sweeps across as it ignites, a shimmering hairline, and a twinkling starfield). Frames are composed into a cell buffer and diffed against the previous frame, so only changed cells are written — see `launcher/src/splash.rs`. It hands the terminal to the Go UI via a file-based handshake once the core reports it is ready, and coordinates in-place self-updates across every running instance via `launcher/src/coord.rs`.
 - **Binary Names**: Deploys as `star.exe` (the launcher) and `star-core.exe` (the Go core).
 
 ### Committing and Pushing

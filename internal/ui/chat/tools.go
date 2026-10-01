@@ -571,6 +571,7 @@ func toolErrorContent(sty *styles.Styles, result *message.ToolResult, width int)
 	}
 	errContent := strings.ReplaceAll(result.Content, "\n", " ")
 	if strings.Contains(errContent, "User denied permission") ||
+		strings.Contains(errContent, "Permission denied by hook") ||
 		strings.Contains(errContent, "User cancelled") {
 		deniedTag := sty.Tool.WarnTag.Render("WARN")
 		deniedTagWidth := lipgloss.Width(deniedTag)

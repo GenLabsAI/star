@@ -88,6 +88,7 @@ func (h *hookedTool) Run(ctx context.Context, call fantasy.ToolCall) (fantasy.To
 		ctx = permission.WithHookApproval(ctx, call.ID)
 	}
 
+	ctx, _ = permission.WithHookDenialReason(ctx)
 	resp, err := h.inner.Run(ctx, call)
 	if err != nil {
 		return resp, err
