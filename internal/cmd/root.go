@@ -36,6 +36,7 @@ import (
 	"github.com/charmbracelet/crush/internal/server"
 	"github.com/charmbracelet/crush/internal/session"
 	"github.com/charmbracelet/crush/internal/skills"
+	"github.com/charmbracelet/crush/internal/update"
 
 	"github.com/charmbracelet/crush/internal/ui/exitbanner"
 	ui "github.com/charmbracelet/crush/internal/ui/model"
@@ -232,19 +233,24 @@ func Execute() {
 		fang.WithNotifySignal(os.Interrupt),
 	); err != nil {
 		if errors.Is(err, ErrUpdateRequested) {
-			if os.Getenv("STAR_LAUNCHER_PID") != "" {
-				if updateInitiating {
-					_ = os.WriteFile(filepath.Join(os.TempDir(), "star-update-request"), []byte("1"), 0600)
+			if pid := os.Getenv("STAR_LAUNCHER_PID"); pid != "" {
+				// Record the session for *every* instance, not just the one
+				// the user clicked "Update Now" in: a session paused by
+				// somebody else's update has to come back on the same
+				// conversation, not a new one.
+				if err := update.RecordSession(pid, updateSessionID); err != nil {
+					slog.Warn("Could not record session for update handoff", "error", err)
 				}
-				if updateSessionID != "" {
-					_ = os.WriteFile(filepath.Join(os.TempDir(), "star-update-session-"+os.Getenv("STAR_LAUNCHER_PID")), []byte(updateSessionID), 0600)
+				if updateInitiating {
+					if err := update.PublishRequest(); err != nil {
+						slog.Warn("Could not signal update request", "error", err)
+					}
 				}
 			}
 			if updateInitiating {
-				os.Exit(42)
-			} else {
-				os.Exit(43)
+				os.Exit(update.ExitInitiator)
 			}
+			os.Exit(update.ExitFollower)
 		}
 		os.Exit(1)
 	}
