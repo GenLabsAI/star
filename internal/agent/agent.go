@@ -850,11 +850,16 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
 	if call.MaxOutputTokens > 0 {
 		maxOutputTokens = &call.MaxOutputTokens
 	}
+	maxRetries := 3
+	if a.permissions.SessionMode(call.SessionID) == permission.ModeYeehaw {
+		maxRetries = 10
+	}
 	result, err = agent.Stream(genCtx, fantasy.AgentStreamCall{
 		Prompt:           message.PromptWithTextAttachments(call.Prompt, call.Attachments),
 		Files:            files,
 		Messages:         history,
 		Headers:          sessionHeaders(call.SessionID),
+		MaxRetries:       &maxRetries,
 		ProviderOptions:  call.ProviderOptions,
 		MaxOutputTokens:  maxOutputTokens,
 		TopP:             call.TopP,
@@ -1558,6 +1563,7 @@ Autopilot: Stop reading. Add debug logs to the entry point and run the server to
 Respond ONLY with your command to the agent. No pleasantries.`),
 		fantasy.WithMaxOutputTokens(300),
 		fantasy.WithUserAgent(userAgent),
+		fantasy.WithMaxRetries(10),
 	)
 
 	streamCall := fantasy.AgentStreamCall{
