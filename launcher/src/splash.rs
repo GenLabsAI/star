@@ -209,8 +209,13 @@ impl Splash {
             let cy = l.wm_y as f64 + 1.0;
             let top = l.mark_y as isize - 1;
             let bot = l.rule_y as isize + 1;
-            let x0 = ((sweep - 9.0) as isize).clamp(0, cols as isize - 1) as usize;
-            let x1 = ((sweep + 9.0) as isize).clamp(0, cols as isize - 1) as usize;
+            // `sweep` is wordmark-local, so it has to be offset into screen
+            // columns before it can be used to index the buffer. Skipping this
+            // pins the glow to the left gutter, where it drifts past the text
+            // instead of lighting it.
+            let bx = l.left as f64 + sweep;
+            let x0 = ((bx - 9.0) as isize).clamp(0, cols as isize - 1) as usize;
+            let x1 = ((bx + 9.0) as isize).clamp(0, cols as isize - 1) as usize;
             for row in top..=bot {
                 if row < 0 || row >= rows as isize {
                     continue;
@@ -220,7 +225,7 @@ impl Splash {
                     continue;
                 }
                 for x in x0..=x1 {
-                    let d = x as f64 - sweep;
+                    let d = x as f64 - bx;
                     let b = (-0.5 * (d / 3.6).powi(2)).exp() * vertical * env;
                     if b > 0.01 {
                         let cell = &mut self.cur[row as usize * cols + x];
@@ -601,6 +606,69 @@ mod tests {
         let later = wordmark(&banner);
 
         assert_eq!(first, later, "the settled wordmark should not animate");
+    }
+
+    #[test]
+    fn the_light_sweep_stays_with_the_banner() {
+        // The glow has to travel *over* the wordmark. Getting the local-vs-
+        // screen offset wrong parks it in the left gutter, where it drifts
+        // past the text and reads as a stray yellow smear rather than as light.
+        //
+        // Spill past the glyphs is intentional -- the light enters from off
+        // the left and leaves off the right -- so the invariants are that the
+        // brightest column always sits near the wordmark, and that the glow
+        // never lights up the far gutter on the left.
+        let cols = SIZE.0 as usize;
+        let rows = SIZE.1 as usize;
+        let mut banner = Splash::new(SIZE.0, SIZE.1);
+        // The travelling glow is the only animated background, and at t=0 its
+        // envelope is zero, so this frame is the static halo alone. Anything
+        // whose background still differs from it later was painted by the sweep.
+        banner.frame(Duration::ZERO);
+        let layout = banner.layout.expect("banner laid out");
+        let halo_only: Vec<Rgb> = banner.cells().iter().map(|c| c.bg).collect();
+
+        let lo = layout.left;
+        let hi = layout.left + layout.width;
+        // The bloom centre travels 9 columns either side of the text, plus a
+        // little falloff, so the peak gets that much margin and no more.
+        let margin = 12.6;
+        let peak_lo = (lo as f64 - margin).floor() as usize;
+        let peak_hi = (hi as f64 + margin).ceil() as usize;
+        // Nothing may light up further left of the wordmark than this.
+        let reach = (lo as f64 - margin - 8.0).floor().max(0.0) as usize;
+
+        let luma = |c: Cell| c.bg.0 as f64 * 54.0 + c.bg.1 as f64 * 183.0 + c.bg.2 as f64 * 19.0;
+        let column_peak = |cells: &[Cell], x: usize| {
+            (0..rows).map(|y| luma(cells[y * cols + x])).fold(0.0, f64::max)
+        };
+
+        let mut t = 0;
+        while t <= IGNITE_MS as u64 {
+            banner.frame(Duration::from_millis(t));
+            let cells = banner.cells();
+            let brightest = (0..cols)
+                .max_by(|a, b| {
+                    column_peak(cells, *a)
+                        .partial_cmp(&column_peak(cells, *b))
+                        .unwrap()
+                })
+                .unwrap();
+            assert!(
+                brightest >= peak_lo && brightest < peak_hi,
+                "at t={t}ms the brightest part of the banner is column {brightest}, \
+                 not near the wordmark at {lo}..{hi}"
+            );
+
+            for x in 0..reach {
+                let lit = (0..rows).any(|y| cells[y * cols + x].bg != halo_only[y * cols + x]);
+                assert!(
+                    !lit,
+                    "at t={t}ms the light sweep is painting column {x}, far left of the \\
+                     banner's {lo}..{hi} ; it is detached from the text");
+            }
+            t += FRAME_INTERVAL.as_millis() as u64;
+        }
     }
 
     #[test]
