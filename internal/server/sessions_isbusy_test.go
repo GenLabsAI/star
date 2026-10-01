@@ -58,6 +58,7 @@ func (s *stubCoordinator) SetSessionModels(context.Context, string, map[config.S
 	return nil
 }
 func (s *stubCoordinator) UpdateModels(context.Context) error            { return nil }
+func (s *stubCoordinator) SetMainAgent(string) error                     { return nil }
 func (s *stubCoordinator) GenerateTitle(context.Context, string, string) {}
 
 // stubSessions is a minimal session.Service that returns a fixed list

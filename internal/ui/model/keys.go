@@ -44,6 +44,7 @@ type KeyMap struct {
 		Tab            key.Binding
 		Details        key.Binding
 		TogglePills    key.Binding
+		ToggleSidebar  key.Binding
 		PillLeft       key.Binding
 		PillRight      key.Binding
 		Down           key.Binding
@@ -84,6 +85,7 @@ type KeyMap struct {
 	Sessions   key.Binding
 	Tab        key.Binding
 	ToggleYolo key.Binding
+	ShiftTab   key.Binding
 }
 
 func DefaultKeyMap() KeyMap {
@@ -119,6 +121,10 @@ func DefaultKeyMap() KeyMap {
 		ToggleYolo: key.NewBinding(
 			key.WithKeys("ctrl+y"),
 			key.WithHelp("ctrl+y", "toggle yolo"),
+		),
+		ShiftTab: key.NewBinding(
+			key.WithKeys("shift+tab"),
+			key.WithHelp("shift+tab", "mode"),
 		),
 	}
 
@@ -211,6 +217,10 @@ func DefaultKeyMap() KeyMap {
 	km.Chat.TogglePills = key.NewBinding(
 		key.WithKeys("ctrl+t", "ctrl+space"),
 		key.WithHelp("ctrl+t", "toggle tasks"),
+	)
+	km.Chat.ToggleSidebar = key.NewBinding(
+		key.WithKeys("ctrl+b"),
+		key.WithHelp("ctrl+b", "toggle sidebar"),
 	)
 	km.Chat.PillLeft = key.NewBinding(
 		key.WithKeys("left"),

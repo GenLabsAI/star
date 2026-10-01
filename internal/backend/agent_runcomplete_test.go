@@ -53,6 +53,7 @@ func (c *errorCoordinator) SetSessionModels(context.Context, string, map[config.
 	return nil
 }
 func (c *errorCoordinator) UpdateModels(context.Context) error            { return nil }
+func (c *errorCoordinator) SetMainAgent(string) error                     { return nil }
 func (c *errorCoordinator) GenerateTitle(context.Context, string, string) {}
 
 // insertRunCompleteWorkspace installs a workspace backed by a real

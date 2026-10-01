@@ -40,20 +40,20 @@ func wrapEvent(ev any) *pubsub.Payload {
 	case pubsub.Event[mcp.Event]:
 		pt := mcpEventTypeToProto(e.Payload.Type)
 		if pt == "" {
-			// Unsupported MCP event type (e.g. EventChannelMessage, which
-			// has no proto representation until session delivery is wired
-			// up). Drop it instead of fabricating a state_changed event.
+			// Unsupported MCP event type. Drop it instead of fabricating
+			// a state_changed event.
 			slog.Debug("Dropping unsupported MCP event type for SSE", "type", e.Payload.Type)
 			return nil
 		}
 		return envelope(pubsub.PayloadTypeMCPEvent, pubsub.Event[proto.MCPEvent]{
 			Type: e.Type,
 			Payload: proto.MCPEvent{
-				Type:      pt,
-				Name:      e.Payload.Name,
-				State:     proto.MCPState(e.Payload.State),
-				Error:     e.Payload.Error,
-				ToolCount: e.Payload.Counts.Tools,
+				Type:           pt,
+				Name:           e.Payload.Name,
+				State:          proto.MCPState(e.Payload.State),
+				Error:          e.Payload.Error,
+				ToolCount:      e.Payload.Counts.Tools,
+				ChannelMessage: e.Payload.ChannelMessage,
 			},
 		})
 	case pubsub.Event[permission.PermissionRequest]:
@@ -192,9 +192,11 @@ func mcpEventTypeToProto(t mcp.EventType) proto.MCPEventType {
 		return proto.MCPEventPromptsListChanged
 	case mcp.EventResourcesListChanged:
 		return proto.MCPEventResourcesListChanged
+	case mcp.EventChannelMessage:
+		return proto.MCPEventChannelMessage
 	default:
-		// Unsupported type (e.g. EventChannelMessage). Return empty so
-		// callers can drop it rather than coercing to state_changed.
+		// Unsupported type. Return empty so callers can drop it rather
+		// than coercing to state_changed.
 		return ""
 	}
 }
@@ -210,6 +212,7 @@ func sessionToProto(s session.Session) proto.Session {
 		CompletionTokens: s.CompletionTokens,
 		Cost:             s.Cost,
 		Todos:            todosToProto(s.Todos),
+		Channel:          s.Channel,
 		CreatedAt:        s.CreatedAt,
 		UpdatedAt:        s.UpdatedAt,
 	}
@@ -267,20 +270,24 @@ func fileToProto(f history.File) proto.File {
 
 func messageToProto(m message.Message) proto.Message {
 	msg := proto.Message{
-		ID:               m.ID,
-		SessionID:        m.SessionID,
-		Role:             proto.MessageRole(m.Role),
-		Model:            m.Model,
-		Provider:         m.Provider,
-		CreatedAt:        m.CreatedAt,
-		UpdatedAt:        m.UpdatedAt,
-		IsSummaryMessage: m.IsSummaryMessage,
+		ID:                      m.ID,
+		SessionID:               m.SessionID,
+		Role:                    proto.MessageRole(m.Role),
+		Model:                   m.Model,
+		Provider:                m.Provider,
+		PrismModelID:            m.PrismModelID,
+		PrismModelName:          m.PrismModelName,
+		PrismHypercreditSavings: m.PrismHypercreditSavings,
+		PrismDollarSavings:      m.PrismDollarSavings,
+		CreatedAt:               m.CreatedAt,
+		UpdatedAt:               m.UpdatedAt,
+		IsSummaryMessage:        m.IsSummaryMessage,
 	}
 
 	for _, p := range m.Parts {
 		switch v := p.(type) {
 		case message.TextContent:
-			msg.Parts = append(msg.Parts, proto.TextContent{Text: v.Text})
+			msg.Parts = append(msg.Parts, proto.TextContent{Text: v.Text, Hidden: v.Hidden})
 		case message.ReasoningContent:
 			msg.Parts = append(msg.Parts, proto.ReasoningContent{
 				Thinking:   v.Thinking,

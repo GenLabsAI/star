@@ -2,8 +2,10 @@
 package styles
 
 import (
+	"encoding/json"
 	"fmt"
 	"image/color"
+	"log/slog"
 	"strings"
 
 	"charm.land/bubbles/v2/filepicker"
@@ -67,6 +69,8 @@ const (
 	SkillIcon  string = "▲"
 	RemoveIcon string = "✕"
 
+	ColorSwatchIcon string = "■"
+
 	ScrollbarThumb string = "┃"
 	ScrollbarTrack string = "│"
 
@@ -101,6 +105,7 @@ type Styles struct {
 		Keystroke         lipgloss.Style // Style for keystroke hints (e.g., "ctrl+d")
 		KeystrokeTip      lipgloss.Style // Style for keystroke action text (e.g., "open", "close")
 		WorkingDir        lipgloss.Style // Style for current working directory
+		GitBranch         lipgloss.Style // Style for the current git branch name
 		Separator         lipgloss.Style // Style for separator dots (•)
 		Wrapper           lipgloss.Style // Outer container for the entire header row
 		LogoGradCanvas    lipgloss.Style // Canvas for the compact "CRUSH" gradient
@@ -123,6 +128,7 @@ type Styles struct {
 	// Markdown & Chroma
 	Markdown      ansi.StyleConfig
 	QuietMarkdown ansi.StyleConfig
+	PlanMarkdown  ansi.StyleConfig
 
 	// Inputs
 	TextInput textinput.Styles
@@ -138,8 +144,12 @@ type Styles struct {
 
 	// Buttons
 	Button struct {
-		Focused  lipgloss.Style
-		Blurred  lipgloss.Style
+		Focused lipgloss.Style
+		Blurred lipgloss.Style
+		// Inactive styles buttons of a prompt that is not in the
+		// active pane: slightly lighter than Blurred so the choices
+		// stay legible while the chat has focus.
+		Inactive lipgloss.Style
 		Hovered  lipgloss.Style
 		Negative lipgloss.Style // Selected negative/destructive action.
 	}
@@ -148,19 +158,23 @@ type Styles struct {
 	Editor struct {
 		Textarea textarea.Styles
 
-		// Normal mode prompt (default "::: ").
-		PromptNormalFocused lipgloss.Style
-		PromptNormalBlurred lipgloss.Style
+		// Normal mode prompt ("> " icon on the first line, "::: " after).
+		PromptNormalIconFocused lipgloss.Style
+		PromptNormalIconBlurred lipgloss.Style
+		PromptNormalFocused     lipgloss.Style
+		PromptNormalBlurred     lipgloss.Style
 
-		// YOLO mode prompt (" ! " icon + ":::" dots).
+		// Plan mode prompt.
+		PromptPlanIconFocused lipgloss.Style
+		PromptPlanIconBlurred lipgloss.Style
+		PromptPlanDotsFocused lipgloss.Style
+		PromptPlanDotsBlurred lipgloss.Style
+
+		// YOLO mode prompt.
 		PromptYoloIconFocused lipgloss.Style
 		PromptYoloIconBlurred lipgloss.Style
 		PromptYoloDotsFocused lipgloss.Style
 		PromptYoloDotsBlurred lipgloss.Style
-
-		// Plan mode prompt (" P " icon + ":::" dots).
-		PromptPlanIconFocused lipgloss.Style
-		PromptPlanIconBlurred lipgloss.Style
 
 		// Bang mode prompt (" ! " icon + ":::" dots, Turtle color).
 		PromptBangIconFocused lipgloss.Style
@@ -280,6 +294,7 @@ type Styles struct {
 		BusyIcon        lipgloss.Style // Busy/starting status icon
 		ErrorIcon       lipgloss.Style // Error status icon
 		OnlineIcon      lipgloss.Style // Online/ready status icon
+		OnlineText      lipgloss.Style // Online/ready status text (e.g. "connected"), no icon
 		NeedsAuthIcon   lipgloss.Style // Needs authentication status icon
 		AdditionalText  lipgloss.Style // "None" and "…and N more" text
 		CapabilityCount lipgloss.Style // "N tools" / "N prompts" / "N resources"
@@ -326,6 +341,9 @@ type Styles struct {
 		ShellTruncation    lipgloss.Style // "N more lines" hint.
 		SectionHeader      lipgloss.Style
 
+		// Plan section styles
+		PlanBox lipgloss.Style // Border+padding for the final plan message
+
 		// Thinking section styles
 		ThinkingBox            lipgloss.Style // Background for thinking content
 		ThinkingTruncationHint lipgloss.Style // "… (N lines hidden)" hint
@@ -335,6 +353,7 @@ type Styles struct {
 		AssistantInfoModel     lipgloss.Style
 		AssistantInfoProvider  lipgloss.Style
 		AssistantInfoDuration  lipgloss.Style
+		SubduedHypercreditIcon lipgloss.Style // Subdued ◆ for hypercredit figures within subdued text
 		AssistantCanceled      lipgloss.Style // Italic "Canceled" footer
 	}
 
@@ -524,6 +543,13 @@ type Styles struct {
 			Spinner lipgloss.Style // Loading spinner while validating the key
 		}
 
+		// AuthMethod styles the OAuth-vs-API-key choice dialog.
+		AuthMethod struct {
+			Prompt      lipgloss.Style // "How would you like to authenticate?" question line
+			CardBlurred lipgloss.Style // Unselected choice card frame and label
+			CardFocused lipgloss.Style // Selected choice card frame and label
+		}
+
 		OAuth struct {
 			Spinner      lipgloss.Style // Loading spinner
 			Instructions lipgloss.Style // Emphasized instruction text
@@ -567,6 +593,16 @@ type Styles struct {
 	Status struct {
 		Help lipgloss.Style
 
+		// Mode badges shown before the help hints.
+		ModeBadgePlan lipgloss.Style
+		ModeBadgeYolo lipgloss.Style
+
+		// Full-width banners shown when switching modes.
+		ModeBannerPlan      lipgloss.Style
+		ModeBannerPlanBadge lipgloss.Style
+		ModeBannerYolo      lipgloss.Style
+		ModeBannerYoloBadge lipgloss.Style
+
 		ErrorIndicator   lipgloss.Style
 		WarnIndicator    lipgloss.Style
 		InfoIndicator    lipgloss.Style
@@ -588,14 +624,7 @@ type Styles struct {
 	}
 
 	// Attachments styles
-	Attachments struct {
-		Normal   lipgloss.Style
-		Image    lipgloss.Style
-		Text     lipgloss.Style
-		Skill    lipgloss.Style
-		Remove   lipgloss.Style
-		Deleting lipgloss.Style
-	}
+	Attachments AttachmentStyles
 
 	// Pills styles for todo/queue pills
 	Pills struct {
@@ -657,9 +686,51 @@ func (s *Styles) ChromaTheme() chroma.StyleEntries {
 	}
 }
 
+// AttachmentStyles are the styles for one attachment chip row. They are
+// passed to the attachments renderer as a unit so adding a style does not
+// mean touching every construction site.
+type AttachmentStyles struct {
+	Normal   lipgloss.Style
+	Image    lipgloss.Style
+	Text     lipgloss.Style
+	Skill    lipgloss.Style
+	Remove   lipgloss.Style
+	Deleting lipgloss.Style
+	More     lipgloss.Style // "N more…" hint for chips that didn't fit
+}
+
 // DialogHelpStyles returns the styles for dialog help.
 func (s *Styles) DialogHelpStyles() help.Styles {
 	return help.Styles(s.Dialog.Help)
+}
+
+// Clone returns a deep copy of the Styles struct, ensuring pointer fields
+// (particularly within ansi.StyleConfig) are not aliased. This is used to
+// safely snapshot styles before a theme preview.
+func (s *Styles) Clone() Styles {
+	clone := *s
+	clone.Markdown = cloneStyleConfig(s.Markdown)
+	clone.QuietMarkdown = cloneStyleConfig(s.QuietMarkdown)
+	return clone
+}
+
+// cloneStyleConfig deep-copies an ansi.StyleConfig by JSON round-tripping.
+//
+// NOTE: This assumes ansi.StyleConfig remains fully JSON-round-trippable.
+// If the glamour library adds non-serializable fields, this approach will
+// need to be replaced with a reflect-based deep copy.
+func cloneStyleConfig(src ansi.StyleConfig) ansi.StyleConfig {
+	data, err := json.Marshal(src)
+	if err != nil {
+		slog.Error("Failed to marshal markdown styles for theme preview", "error", err)
+		return src
+	}
+	var dst ansi.StyleConfig
+	if err := json.Unmarshal(data, &dst); err != nil {
+		slog.Error("Failed to unmarshal markdown styles for theme preview", "error", err)
+		return src
+	}
+	return dst
 }
 
 // hex returns a pointer to the "#rrggbb" representation of c. It's used to
