@@ -90,7 +90,12 @@ func (m *splashModel) View() tea.View {
 	}
 
 	var v tea.View
-	v.AltScreen = true
+	// Defer entering the alt screen until the launcher has released the
+	// terminal. The launcher clears the alt screen as it exits, so there is
+	// no need to clear again here; entering too early would race with the
+	// launcher's exit sequence and can leave the Rust splash visible behind
+	// the Go header on terminals that preserve the alt-screen buffer.
+	v.AltScreen = m.launcherReleased
 	v.MouseMode = tea.MouseModeCellMotion
 	v.WindowTitle = "Star"
 	v.Content = ""
