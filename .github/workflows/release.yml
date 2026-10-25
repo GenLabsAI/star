@@ -25,7 +25,7 @@ jobs:
       - name: Compute next version
         id: bump
         run: |
-          latest=$(git tag --list 'v*.*.*' --sort=-v:refname | head -n1)
+          latest=$(git tag --list 'v0.1.*' --sort=-v:refname | head -n1)
           if [ -z "$latest" ]; then
             next="v0.1.0"
           else
