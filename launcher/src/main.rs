@@ -37,7 +37,11 @@ fn find_core() -> PathBuf {
 /// the alt screen, cursor visible, all SGR reset, scroll region cleared.
 fn restore_terminal(stdout: &Arc<Mutex<io::Stdout>>) {
     if let Ok(mut out) = stdout.lock() {
-        let _ = out.write_all(b"\x1b[?1049l\x1b[?25h\x1b[0m\x1b[r");
+        // Clear the alt screen before exiting so the next occupant (Go/Bubble
+        // Tea) starts with a blank canvas. Some terminals preserve the alt-
+        // screen buffer when re-entering ?1049h, which would otherwise leave
+        // the Rust splash's STAR visible behind the Go header.
+        let _ = out.write_all(b"\x1b[2J\x1b[H\x1b[?1049l\x1b[?25h\x1b[0m\x1b[r");
         let _ = out.flush();
     }
 }
@@ -164,7 +168,10 @@ fn run_update(coord: &Coord, pid: u32) -> Result<(), String> {
         eprintln!("  another star instance is still shutting down; continuing anyway");
     }
 
-    let result = update::perform_update(&find_core()).map(|_| ());
+    // Update both binaries: the core we closed, and the launcher we are still
+    // running from.
+    let launcher = std::env::current_exe().ok();
+    let result = update::perform_update(&find_core(), launcher.as_deref());
 
     match result {
         Ok(()) => coord.set_phase(coord::Phase::Done),
@@ -189,6 +196,10 @@ fn clear_dir(dir: &Path) {
 }
 
 fn main() {
+    // Backups from a previous update could not be removed at the time because
+    // this binary was still running. Nothing holds them now.
+    update::sweep_stale_backups();
+
     let pid = std::process::id();
     let coord = Coord::new();
     coord.register(pid);
