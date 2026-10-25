@@ -32,7 +32,7 @@ func newGateTestCoordinator(t *testing.T, interactive bool) *coordinator {
 }`
 	require.NoError(t, os.WriteFile(filepath.Join(env.workingDir, "crush.json"), []byte(crushJSON), 0o644))
 
-	cfg, err := config.Init(env.workingDir, "", false)
+	cfg, err := config.Init(t.Context(), env.workingDir, "", false)
 	require.NoError(t, err)
 	cfg.SetupAgents()
 
@@ -53,7 +53,8 @@ func newGateTestCoordinator(t *testing.T, interactive bool) *coordinator {
 
 	agent, err := coord.buildAgent(context.Background(), p, agentCfg, false)
 	require.NoError(t, err)
-	coord.currentAgent = agent
+	coord.mainAgent = agent
+	coord.mainAgentName = config.AgentCoder
 	coord.agents[config.AgentCoder] = agent
 
 	return coord

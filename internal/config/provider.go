@@ -9,7 +9,6 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
-	"runtime"
 	"slices"
 	"strings"
 	"sync"
@@ -19,7 +18,6 @@ import (
 	"charm.land/catwalk/pkg/embedded"
 	"github.com/charmbracelet/crush/internal/agent/hyper"
 	"github.com/charmbracelet/crush/internal/csync"
-	"github.com/charmbracelet/crush/internal/home"
 	"github.com/charmbracelet/x/etag"
 )
 
@@ -33,25 +31,10 @@ var (
 	providerErr  error
 )
 
-// file to cache provider data
+// file to cache provider data. It resolves through GlobalConfigData so the
+// catalog follows CRUSH_GLOBAL_DATA like the rest of the data directory.
 func cachePathFor(name string) string {
-	xdgDataHome := os.Getenv("XDG_DATA_HOME")
-	if xdgDataHome != "" {
-		return filepath.Join(xdgDataHome, appName, name+".json")
-	}
-
-	// return the path to the main data directory
-	// for windows, it should be in `%LOCALAPPDATA%/crush/`
-	// for linux and macOS, it should be in `$HOME/.local/share/crush/`
-	if runtime.GOOS == "windows" {
-		localAppData := os.Getenv("LOCALAPPDATA")
-		if localAppData == "" {
-			localAppData = filepath.Join(os.Getenv("USERPROFILE"), "AppData", "Local")
-		}
-		return filepath.Join(localAppData, appName, name+".json")
-	}
-
-	return filepath.Join(home.Dir(), ".local", "share", appName, name+".json")
+	return filepath.Join(filepath.Dir(GlobalConfigData()), name+".json")
 }
 
 // UpdateProviders updates the Catwalk providers list from a specified source.
@@ -89,9 +72,9 @@ func UpdateProviders(pathOrURL string) error {
 	return nil
 }
 
-// resolveHyperAPIKey returns the Hyper API key from the environment or
+// ResolveHyperAPIKey returns the Hyper API key from the environment or
 // the raw config value. The env var takes precedence.
-func resolveHyperAPIKey(cfg *Config) string {
+func ResolveHyperAPIKey(cfg *Config) string {
 	if key := os.Getenv("HYPER_API_KEY"); key != "" {
 		return key
 	}
@@ -121,7 +104,7 @@ func UpdateHyper(pathOrURL string) error {
 	case strings.HasPrefix(pathOrURL, "http://") || strings.HasPrefix(pathOrURL, "https://"):
 		client := realHyperClient{
 			baseURL:    pathOrURL,
-			resolveKey: func() string { return resolveHyperAPIKey(nil) },
+			resolveKey: func() string { return ResolveHyperAPIKey(nil) },
 		}
 		var err error
 		provider, err = client.Get(context.Background(), "")
@@ -151,6 +134,15 @@ var (
 	hyperSyncer   = &hyperSync{}
 )
 
+// CatwalkUpdated reports whether the Catwalk provider catalog was
+// refreshed with new data during this run's catalog fetch. The fetch
+// runs once per process, before the first call to Providers returns, so
+// the result is stable afterwards. Callers use it to renew catalogs that
+// shadow Catwalk's, such as the ChatGPT model catalog.
+func CatwalkUpdated() bool {
+	return catwalkSyncer.Updated()
+}
+
 // Providers returns the list of providers, taking into account cached results
 // and whether or not auto update is enabled.
 //
@@ -167,14 +159,21 @@ var (
 // using the returned list. A refresh that simply could not reach the network
 // is not an error at all: the cached or embedded catalog is a sound answer, so
 // those are logged and the fallback is returned.
-func Providers(cfg *Config, opts ...HyperTokenRefresher) ([]catwalk.Provider, error) {
+func Providers(cfg *Config) ([]catwalk.Provider, error) {
+	return LoadProviders(context.Background(), cfg, nil)
+}
+
+// LoadProviders is Providers with a context bounding the catalog fetch and a
+// Hyper token refresher for retrying on 401. Only the first call in a process
+// fetches; later calls return the memoized result and ignore both arguments.
+func LoadProviders(ctx context.Context, cfg *Config, refreshHyper HyperTokenRefresher) ([]catwalk.Provider, error) {
 	providerOnce.Do(func() {
 		var wg sync.WaitGroup
 		providers := csync.NewSlice[catwalk.Provider]()
 		autoupdate := !cfg.Options.DisableProviderAutoUpdate
 		customProvidersOnly := cfg.Options.DisableDefaultProviders
 
-		ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+		ctx, cancel := context.WithTimeout(ctx, 45*time.Second)
 		defer cancel()
 
 		// Each goroutine owns its own error so the two can report
@@ -209,14 +208,10 @@ func Providers(cfg *Config, opts ...HyperTokenRefresher) ([]catwalk.Provider, er
 			}
 			path := cachePathFor("hyper")
 			cfgSnapshot := cfg
-			var refresher func(context.Context) error
-			if len(opts) > 0 {
-				refresher = opts[0]
-			}
 			hyperSyncer.Init(realHyperClient{
 				baseURL:      hyper.BaseURL(),
-				resolveKey:   func() string { return resolveHyperAPIKey(cfgSnapshot) },
-				refreshToken: refresher,
+				resolveKey:   func() string { return ResolveHyperAPIKey(cfgSnapshot) },
+				refreshToken: refreshHyper,
 			}, path, autoupdate)
 
 			// As above: keep whatever provider we were handed. The syncer
@@ -269,7 +264,7 @@ func newCache[T any](path string) cache[T] {
 
 func (c cache[T]) Get() (T, string, error) {
 	var v T
-	data, err := os.ReadFile(c.path)
+	data, err := readFile(c.path)
 	if err != nil {
 		return v, "", fmt.Errorf("failed to read provider cache file: %w", err)
 	}

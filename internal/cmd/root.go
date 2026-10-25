@@ -14,6 +14,7 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"regexp"
 	"strconv"
@@ -226,32 +227,45 @@ func Execute() {
 		_, _ = w.WriteString(heartbit.String())
 		rootCmd.SetVersionTemplate(b.String() + "\n" + defaultVersionTemplate)
 	}
-	if err := fang.Execute(
-		context.Background(),
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	err := fang.Execute(
+		ctx,
 		rootCmd,
 		fang.WithVersion(version.Version),
 		fang.WithNotifySignal(os.Interrupt),
-	); err != nil {
-		if errors.Is(err, ErrUpdateRequested) {
-			if pid := os.Getenv("STAR_LAUNCHER_PID"); pid != "" {
-				// Record the session for *every* instance, not just the one
-				// the user clicked "Update Now" in: a session paused by
-				// somebody else's update has to come back on the same
-				// conversation, not a new one.
-				if err := update.RecordSession(pid, updateSessionID); err != nil {
-					slog.Warn("Could not record session for update handoff", "error", err)
-				}
-				if updateInitiating {
-					if err := update.PublishRequest(); err != nil {
-						slog.Warn("Could not signal update request", "error", err)
-					}
-				}
+		fang.WithErrorHandler(func(w io.Writer, styles fang.Styles, err error) {
+			if ctx.Err() == nil {
+				fang.DefaultErrorHandler(w, styles, err)
+			}
+		}),
+	)
+	if errors.Is(err, ErrUpdateRequested) {
+		if pid := os.Getenv("STAR_LAUNCHER_PID"); pid != "" {
+			// Record the session for *every* instance, not just the one
+			// the user clicked "Update Now" in: a session paused by
+			// somebody else's update has to come back on the same
+			// conversation, not a new one.
+			if err := update.RecordSession(pid, updateSessionID); err != nil {
+				slog.Warn("Could not record session for update handoff", "error", err)
 			}
 			if updateInitiating {
-				os.Exit(update.ExitInitiator)
+				if err := update.PublishRequest(); err != nil {
+					slog.Warn("Could not signal update request", "error", err)
+				}
 			}
-			os.Exit(update.ExitFollower)
 		}
+		if updateInitiating {
+			os.Exit(update.ExitInitiator)
+		}
+		os.Exit(update.ExitFollower)
+	}
+	interrupted := ctx.Err() != nil
+	stop()
+	switch {
+	case interrupted:
+		// An interrupt is not a failure worth printing; exit like a shell would.
+		os.Exit(130)
+	case err != nil:
 		os.Exit(1)
 	}
 }
@@ -318,7 +332,7 @@ func setupLocalWorkspace(cmd *cobra.Command) (workspace.Workspace, func(), error
 		return nil, nil, err
 	}
 
-	store, err := config.Init(cwd, dataDir, debug)
+	store, err := config.Init(ctx, cwd, dataDir, debug)
 	if err != nil {
 		return nil, nil, err
 	}

@@ -37,6 +37,10 @@ type runCoordinator struct {
 	ranCount   atomic.Int32
 	entered    chan struct{} // closed exactly once when Run is first entered.
 	enteredOne sync.Once
+
+	setMainAgentErr  error
+	lastMainAgentSet atomic.Value
+	busy             bool
 }
 
 func newRunCoordinator(returnFn func(ctx context.Context) error) *runCoordinator {
@@ -68,10 +72,9 @@ func (s *runCoordinator) RunAccepted(ctx context.Context, accept *agent.Accepted
 func (s *runCoordinator) BeginAccepted(sessionID string) *agent.AcceptedRun {
 	return nil
 }
-func (s *runCoordinator) Cancel(string)       {}
-func (s *runCoordinator) CancelWakeup(string) {}
-func (s *runCoordinator) CancelAll()          {}
-func (s *runCoordinator) IsBusy() bool        { return false }
+func (s *runCoordinator) Cancel(string) {}
+func (s *runCoordinator) CancelAll()    {}
+func (s *runCoordinator) IsBusy() bool  { return s.busy }
 func (s *runCoordinator) IsSessionBusy(string) bool {
 	return false
 }
@@ -88,6 +91,10 @@ func (s *runCoordinator) SetSessionModels(context.Context, string, map[config.Se
 }
 func (s *runCoordinator) UpdateModels(context.Context) error            { return nil }
 func (s *runCoordinator) GenerateTitle(context.Context, string, string) {}
+func (s *runCoordinator) SetMainAgent(agentName string) error {
+	s.lastMainAgentSet.Store(agentName)
+	return s.setMainAgentErr
+}
 
 func (s *runCoordinator) capturedCtx() context.Context {
 	s.mu.Lock()
@@ -230,4 +237,8 @@ func TestPostAgent_DetachesRequestContext(t *testing.T) {
 	require.Eventually(t, func() bool {
 		return coord.ranCount.Load() == 1
 	}, 2*time.Second, 10*time.Millisecond)
+}
+
+func (*runCoordinator) ListSettledMessages(context.Context, string) ([]message.Message, error) {
+	return nil, nil
 }

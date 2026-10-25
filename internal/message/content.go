@@ -2,6 +2,7 @@ package message
 
 import (
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"slices"
@@ -69,6 +70,8 @@ func (ReasoningContent) isPart() {}
 
 type TextContent struct {
 	Text string `json:"text"`
+	// Hidden marks generated user continuations that remain in model history.
+	Hidden bool `json:"hidden,omitempty"`
 }
 
 func (tc TextContent) String() string {
@@ -176,6 +179,17 @@ type Message struct {
 	CreatedAt        int64
 	UpdatedAt        int64
 	IsSummaryMessage bool
+	// PrismModelID and PrismModelName identify the model that actually
+	// served the turn, as reported by the Hyper Prism model router
+	// headers. Empty when the turn was not routed through Prism.
+	PrismModelID   string
+	PrismModelName string
+	// PrismHypercreditSavings and PrismDollarSavings are the savings
+	// from routing through Prism, as reported by its savings trailers.
+	// Nil when not reported. When both are present the hypercredit
+	// figure is the one shown.
+	PrismHypercreditSavings *float64
+	PrismDollarSavings      *float64
 }
 
 func (m *Message) Content() TextContent {
@@ -285,7 +299,7 @@ func (m *Message) AppendContent(delta string) {
 	found := false
 	for i, part := range m.Parts {
 		if c, ok := part.(TextContent); ok {
-			m.Parts[i] = TextContent{Text: c.Text + delta}
+			m.Parts[i] = TextContent{Text: c.Text + delta, Hidden: c.Hidden}
 			found = true
 		}
 	}
@@ -407,20 +421,13 @@ func (m *Message) FinishToolCall(toolCallID string) {
 	}
 }
 
-func (m *Message) AppendToolCallInput(toolCallID string, inputDelta string) {
-	for i, part := range m.Parts {
-		if c, ok := part.(ToolCall); ok {
-			if c.ID == toolCallID {
-				m.Parts[i] = ToolCall{
-					ID:       c.ID,
-					Name:     c.Name,
-					Input:    c.Input + inputDelta,
-					Finished: c.Finished,
-				}
-				return
-			}
-		}
+// toolCallInput returns arguments safe to hand a provider. Empty or partial
+// input becomes {}, since providers disagree about what a blank means.
+func toolCallInput(input string) string {
+	if !json.Valid([]byte(input)) {
+		return "{}"
 	}
+	return input
 }
 
 func (m *Message) AddToolCall(tc ToolCall) {
@@ -487,6 +494,12 @@ func (m *Message) ResetStreamedContent() {
 }
 
 func (m *Message) AddFinish(reason FinishReason, message, details string) {
+	m.AddFinishAt(reason, message, details, time.Now().Unix())
+}
+
+// AddFinishAt is AddFinish with an explicit timestamp, for backdating a
+// repaired turn so response-time statistics stay honest.
+func (m *Message) AddFinishAt(reason FinishReason, message, details string, at int64) {
 	// remove any existing finish part
 	for i, part := range m.Parts {
 		if _, ok := part.(Finish); ok {
@@ -494,7 +507,7 @@ func (m *Message) AddFinish(reason FinishReason, message, details string) {
 			break
 		}
 	}
-	m.Parts = append(m.Parts, Finish{Reason: reason, Time: time.Now().Unix(), Message: message, Details: details})
+	m.Parts = append(m.Parts, Finish{Reason: reason, Time: at, Message: message, Details: details})
 }
 
 func (m *Message) AddImageURL(url, detail string) {
@@ -603,7 +616,7 @@ func (m *Message) ToAIMessage() []fantasy.Message {
 			parts = append(parts, fantasy.ToolCallPart{
 				ToolCallID:       call.ID,
 				ToolName:         call.Name,
-				Input:            call.Input,
+				Input:            toolCallInput(call.Input),
 				ProviderExecuted: call.ProviderExecuted,
 			})
 		}

@@ -52,6 +52,33 @@ func TestMessageToProtoToolResult(t *testing.T) {
 	require.False(t, tr.IsError)
 }
 
+// TestMCPChannelEventToProto_RoundTrip verifies that a channel push survives
+// the SSE envelope conversion with its type and rendered <channel> body intact,
+// so client/server sessions receive channel events rather than dropping the
+// payload at the wire.
+func TestMCPChannelEventToProto_RoundTrip(t *testing.T) {
+	t.Parallel()
+
+	src := pubsub.Event[mcp.Event]{
+		Type: pubsub.CreatedEvent,
+		Payload: mcp.Event{
+			Type:           mcp.EventChannelMessage,
+			Name:           "webhook",
+			ChannelMessage: `<channel source="webhook">build failed</channel>`,
+		},
+	}
+
+	env := wrapEvent(src)
+	require.NotNil(t, env)
+	require.Equal(t, pubsub.PayloadTypeMCPEvent, env.Type)
+
+	var decoded pubsub.Event[proto.MCPEvent]
+	require.NoError(t, json.Unmarshal(env.Payload, &decoded))
+	require.Equal(t, proto.MCPEventChannelMessage, decoded.Payload.Type)
+	require.Equal(t, "webhook", decoded.Payload.Name)
+	require.Equal(t, `<channel source="webhook">build failed</channel>`, decoded.Payload.ChannelMessage)
+}
+
 // TestSkillsEventToProto_RoundTrip verifies that a pubsub.Event[skills.Event]
 // can be wrapped, marshaled, and unmarshaled back through the SSE
 // envelope without losing state values or error messages.
@@ -209,27 +236,39 @@ func TestUpdateAvailableMsgToProto_RoundTrip(t *testing.T) {
 	require.False(t, decoded.Payload.IsDevelopment)
 }
 
-// TestMCPChannelMessageNotWrappedAsStateChange verifies that an
-// EventChannelMessage — which has no proto representation until session
-// delivery is wired up in a later PR — is NOT wrapped as a spurious
-// state_changed MCP event by the SSE event pipeline. Before the fix,
-// mcpEventTypeToProto's default branch mapped every unknown event type to
-// MCPEventStateChanged, so a channel notification looked like a state
-// change to every SSE client.
-func TestMCPChannelMessageNotWrappedAsStateChange(t *testing.T) {
+// TestMCPStateChangedEventForwardsCounts verifies that the SSE envelope
+// carries prompt and resource counts, not only tool counts. The client TUI
+// renders all three, so dropping the other two made client/server mode
+// under-report what a connected server offers.
+func TestMCPStateChangedEventForwardsCounts(t *testing.T) {
 	t.Parallel()
 
 	src := pubsub.Event[mcp.Event]{
-		Type: pubsub.CreatedEvent,
+		Type: pubsub.UpdatedEvent,
 		Payload: mcp.Event{
-			Type:           mcp.EventChannelMessage,
-			Name:           "webhook",
-			ChannelMessage: `<channel source="webhook">build failed</channel>`,
+			Type:  mcp.EventStateChanged,
+			Name:  "ctx",
+			State: mcp.StateConnected,
+			Counts: mcp.Counts{
+				Tools:     4,
+				Prompts:   2,
+				Resources: 3,
+			},
 		},
 	}
 
 	env := wrapEvent(src)
-	require.Nil(t, env, "EventChannelMessage must not be wrapped as an SSE event (no proto representation yet)")
+	require.NotNil(t, env)
+	require.Equal(t, pubsub.PayloadTypeMCPEvent, env.Type)
+
+	var decoded pubsub.Event[proto.MCPEvent]
+	require.NoError(t, json.Unmarshal(env.Payload, &decoded))
+	require.Equal(t, proto.MCPEventStateChanged, decoded.Payload.Type)
+	require.Equal(t, "ctx", decoded.Payload.Name)
+	require.Equal(t, proto.MCPStateConnected, decoded.Payload.State)
+	require.Equal(t, 4, decoded.Payload.ToolCount)
+	require.Equal(t, 2, decoded.Payload.PromptCount)
+	require.Equal(t, 3, decoded.Payload.ResourceCount)
 }
 
 // TestMCPUnknownEventTypeNotMappedToStateChange verifies that any
@@ -245,3 +284,32 @@ func TestMCPUnknownEventTypeNotMappedToStateChange(t *testing.T) {
 	require.Equal(t, proto.MCPEventType(""), pt,
 		"unknown MCP event types must map to empty proto type, not state_changed")
 }
+
+// TestMessageToProtoPrismModel ensures the Prism-routed model fields survive
+// the conversion to proto. Without them the client TUI cannot show which
+// model actually served each turn on Hyper's model router.
+func TestMessageToProtoPrismModel(t *testing.T) {
+	t.Parallel()
+
+	src := message.Message{
+		ID:             "m1",
+		Role:           message.Assistant,
+		Model:          "prism-model",
+		Provider:       "hyper",
+		PrismModelID:   "prism-42",
+		PrismModelName: "GLM 5.3",
+
+		PrismHypercreditSavings: ptrFloat(1.5),
+		PrismDollarSavings:      ptrFloat(0.002),
+	}
+
+	got := messageToProto(src)
+	require.Equal(t, "prism-42", got.PrismModelID)
+	require.Equal(t, "GLM 5.3", got.PrismModelName)
+	require.NotNil(t, got.PrismHypercreditSavings)
+	require.Equal(t, 1.5, *got.PrismHypercreditSavings)
+	require.NotNil(t, got.PrismDollarSavings)
+	require.Equal(t, 0.002, *got.PrismDollarSavings)
+}
+
+func ptrFloat(v float64) *float64 { return &v }

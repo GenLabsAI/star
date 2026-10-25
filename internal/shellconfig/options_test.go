@@ -227,3 +227,50 @@ func TestOption_UnknownKey(t *testing.T) {
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "unknown key")
 }
+
+func TestOption_RequestTimeout(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	script := `option request-timeout 300
+option request-timeout 0`
+	path := filepath.Join(dir, "crushrc")
+
+	jsonBytes, err := LoadShellConfig(t.Context(), path, []byte(script))
+	require.NoError(t, err)
+
+	var result map[string]any
+	require.NoError(t, json.Unmarshal(jsonBytes, &result))
+
+	opts := result["options"].(map[string]any)
+	require.Equal(t, float64(0), opts["request_timeout"])
+}
+
+func TestOption_MaxBackgroundJobs(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	script := `option max-background-jobs 200`
+	path := filepath.Join(dir, "crushrc")
+
+	jsonBytes, err := LoadShellConfig(t.Context(), path, []byte(script))
+	require.NoError(t, err)
+
+	var result map[string]any
+	require.NoError(t, json.Unmarshal(jsonBytes, &result))
+
+	opts := result["options"].(map[string]any)
+	require.Equal(t, float64(200), opts["max_background_jobs"])
+}
+
+func TestOption_RequestTimeoutInvalid(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	script := `option request-timeout soon`
+	path := filepath.Join(dir, "crushrc")
+
+	_, err := LoadShellConfig(t.Context(), path, []byte(script))
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "expects a number of seconds")
+}
