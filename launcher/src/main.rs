@@ -163,7 +163,7 @@ fn run_update(coord: &Coord, pid: u32) -> Result<(), String> {
 
     // On Windows the binary is locked for as long as it is running, so this
     // wait is what makes replacing it reliable. It is bounded, because one
-    // wedged instance must not be able to block updates forever.
+    # wedged instance must not be able to block updates forever.
     if !coord.wait_for_quiesce(pid, coord::QUIESCE_TIMEOUT) {
         eprintln!("  another star instance is still shutting down; continuing anyway");
     }
@@ -171,10 +171,10 @@ fn run_update(coord: &Coord, pid: u32) -> Result<(), String> {
     // Update both binaries: the core we closed, and the launcher we are still
     // running from.
     let launcher = std::env::current_exe().ok();
-    let result = update::perform_update(&find_core(), launcher.as_deref());
+    let result = update::perform_update(&find_core());
 
     match result {
-        Ok(()) => coord.set_phase(coord::Phase::Done),
+        Ok(_) => coord.set_phase(coord::Phase::Done),
         Err(ref error) => coord.set_phase(coord::Phase::Failed(error.clone())),
     }
 
@@ -184,7 +184,7 @@ fn run_update(coord: &Coord, pid: u32) -> Result<(), String> {
     coord.clear_request();
     clear_dir(&coord.root().join("acks"));
 
-    result
+    Ok(())
 }
 
 fn clear_dir(dir: &Path) {
@@ -198,8 +198,6 @@ fn clear_dir(dir: &Path) {
 fn main() {
     // Backups from a previous update could not be removed at the time because
     // this binary was still running. Nothing holds them now.
-    update::sweep_stale_backups();
-
     let pid = std::process::id();
     let coord = Coord::new();
     coord.register(pid);
