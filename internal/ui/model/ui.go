@@ -487,7 +487,23 @@ type UI struct {
 		index    int
 		draft    string
 	}
-}
+
+	pendingWakeup                  *pubsub.WakeupEvent
+	wakeupEndTime                  time.Time
+	updateAvailable                *app.UpdateAvailableMsg
+	updateDownloading              bool
+	updateInitiating               bool
+	editorStyledCache              *uv.StyledString
+	editorCacheKey                 string
+	pillsStyledCache               *uv.StyledString
+	pillsCacheKey                  string
+	sidebarLogoStyledCache         *uv.StyledString
+	sidebarLogoCacheKey            string
+	sidebarBodyStyledCache         *uv.StyledString
+	sidebarBodyCacheKey            string
+	sidebarLines                   []string
+	modeCache                      ttlCacheMode
+	}
 
 // New creates a new instance of the [UI] model.
 func New(com *common.Common, initialSessionID string, continueLast bool) *UI {
@@ -587,7 +603,7 @@ func New(com *common.Common, initialSessionID string, continueLast bool) *UI {
 		ui.agentModel = com.Workspace.AgentModel()
 	}
 	ui.mode = uiInputModeCode
-	ui.setEditorPrompt(yolo)
+	ui.setEditorPrompt(yolo, permission.ModeNormal)
 	ui.randomizePlaceholders()
 	ui.textarea.Placeholder = ui.readyPlaceholder
 	ui.status = status
@@ -1558,6 +1574,9 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmds = append(cmds, m.handleConnectionEvent(msg)...)
 	case util.ClearStatusMsg:
 		m.status.ClearInfoMsg(msg.Seq)
+	case startUpdateMsg:
+		m.updateDownloading = true
+		return m, tea.Quit
 	case completions.CompletionItemsLoadedMsg:
 		if m.completionsOpen {
 			m.completions.SetItems(msg.Files, msg.Resources)
@@ -3296,7 +3315,7 @@ func (m *UI) handleKeyPressMsg(msg tea.KeyPressMsg) tea.Cmd {
 
 				if m.bangMode && value != "" {
 					m.bangMode = false
-					m.setEditorPrompt(m.yoloModeCached())
+					m.setEditorPrompt(m.yoloModeCached(), permission.ModeNormal)
 					m.randomizePlaceholders()
 					m.historyReset()
 					return tea.Batch(m.runShellCommand(value))
@@ -3397,7 +3416,7 @@ func (m *UI) handleKeyPressMsg(msg tea.KeyPressMsg) tea.Cmd {
 				if m.bangMode && m.bangWasEmpty && msg.Code == tea.KeyBackspace {
 					m.bangMode = false
 					m.bangWasEmpty = false
-					m.setEditorPrompt(m.yoloModeCached())
+					m.setEditorPrompt(m.yoloModeCached(), permission.ModeNormal)
 					break
 				}
 
@@ -3446,7 +3465,7 @@ func (m *UI) handleKeyPressMsg(msg tea.KeyPressMsg) tea.Cmd {
 					m.textarea.SetValue(stripped)
 					m.textarea.SetCursorColumn(max(0, col-(len(newVal)-len(stripped))))
 					_ = line // cursor line doesn't change; prefix removed
-					m.setEditorPrompt(m.yoloModeCached())
+					m.setEditorPrompt(m.yoloModeCached(), permission.ModeNormal)
 				} else if m.bangMode && newVal == "" && curValue != "" {
 					// Just cleared last character; mark empty, stay in bang mode.
 					m.bangWasEmpty = true
@@ -4632,8 +4651,8 @@ func editorFileMsg(path string) tea.Msg {
 }
 
 // setEditorPrompt configures the textarea prompt function based on whether
-// plan, yolo, or bang mode is enabled.
-func (m *UI) setEditorPrompt(yolo bool) {
+	// yolo mode, plan mode, bang mode, or yeehaw mode is enabled.
+	func (m *UI) setEditorPrompt(yolo bool, mode permission.Mode) {
 	if m.bangMode {
 		m.textarea.SetPromptFunc(4, m.bangPromptFunc)
 		return
@@ -4647,6 +4666,24 @@ func (m *UI) setEditorPrompt(yolo bool) {
 		return
 	}
 	m.textarea.SetPromptFunc(4, m.normalPromptFunc)
+}
+
+// planPromptFunc returns the plan mode editor prompt style with info icon
+// and colored dots.
+func (m *UI) planPromptFunc(info textarea.PromptInfo) string {
+	// Use the normal style but with a different icon for now, ideally this would be styled.
+	t := m.com.Styles
+	if info.LineNumber == 0 {
+		if info.Focused {
+			return " ➳> "
+		} else {
+			return " ➳> "
+		}
+	}
+	if info.Focused {
+		return t.Editor.PromptNormalFocused.Render()
+	}
+	return t.Editor.PromptNormalBlurred.Render()
 }
 
 // normalPromptFunc returns the normal editor prompt style ("> " on the
@@ -4666,19 +4703,6 @@ func (m *UI) normalPromptFunc(info textarea.PromptInfo) string {
 }
 
 // planPromptFunc marks planning with a badge beside the editor.
-func (m *UI) planPromptFunc(info textarea.PromptInfo) string {
-	t := m.com.Styles
-	if info.LineNumber == 0 {
-		if info.Focused {
-			return t.Editor.PromptPlanIconFocused.Render()
-		}
-		return t.Editor.PromptPlanIconBlurred.Render()
-	}
-	if info.Focused {
-		return t.Editor.PromptPlanDotsFocused.Render()
-	}
-	return t.Editor.PromptPlanDotsBlurred.Render()
-}
 
 // yoloPromptFunc returns the yolo mode editor prompt style with warning icon
 // and colored dots.
@@ -4796,7 +4820,7 @@ func (m *UI) applyModeSwitch(msg modeSwitchedMsg) []tea.Cmd {
 		return []tea.Cmd{util.ReportError(msg.err)}
 	}
 	m.mode = msg.mode
-	m.setEditorPrompt(m.yoloModeCached())
+	m.setEditorPrompt(m.yoloModeCached(), permission.ModeNormal)
 	var cmds []tea.Cmd
 	if msg.continueSessionID != "" && m.session != nil && m.session.ID == msg.continueSessionID {
 		cmds = append(cmds, m.sendMessageInternal("Implement the plan.", true))
@@ -5131,7 +5155,7 @@ func (m *UI) renderEditorView(width int) string {
 
 // cacheSidebarLogo renders and caches the sidebar logo at the specified width.
 func (m *UI) cacheSidebarLogo(width int) {
-	m.sidebarLogo = renderLogo(m.com.Styles, true, m.com.IsHyper(), width)
+	m.sidebarLogo = renderLogo(m.com.Styles, true, m.com.IsHyper(), width, m.updateAvailable != nil)
 }
 
 // applyThemeForProvider swaps the active theme to the one associated with
@@ -6087,7 +6111,7 @@ func (m *UI) checkBangModeAfterPaste() {
 	m.textarea.SetValue(stripped)
 	col := m.textarea.Column()
 	m.textarea.SetCursorColumn(max(0, col-(len(val)-len(stripped))))
-	m.setEditorPrompt(m.yoloModeCached())
+	m.setEditorPrompt(m.yoloModeCached(), permission.ModeNormal)
 }
 
 // handlePasteMsg handles a paste message.
@@ -6446,8 +6470,12 @@ func (m *UI) disableDockerMCP() tea.Msg {
 }
 
 // renderLogo renders the Crush logo with the given styles and dimensions.
-func renderLogo(t *styles.Styles, compact, hyper bool, width int) string {
-	return logo.Render(t.Logo.GradCanvas, version.Version, compact, logo.Opts{
+func renderLogo(t *styles.Styles, compact, hyper bool, width int, updateAvailable bool) string {
+	var displayVersion = strings.Replace(version.Version, "v", " ", 1)
+	if updateAvailable {
+		displayVersion = "Update Now"
+	}
+	return logo.Render(t.Logo.GradCanvas, displayVersion, compact, logo.Opts{
 		FieldColor:   t.Logo.FieldColor,
 		TitleColorA:  t.Logo.TitleColorA,
 		TitleColorB:  t.Logo.TitleColorB,
@@ -6457,3 +6485,24 @@ func renderLogo(t *styles.Styles, compact, hyper bool, width int) string {
 		Hyper:        hyper,
 	})
 }
+
+// UpdateRequested reports whether the user requested an update from the UI.
+func (m *UI) UpdateRequested() bool {
+	return m.updateInitiating
+}
+
+// UpdateInitiating reports whether this instance initiated the update request.
+func (m *UI) UpdateInitiating() bool {
+	return m.updateInitiating
+}
+
+// startUpdate signals that the UI should exit with the update code.
+func (m *UI) startUpdate() tea.Cmd {
+	return func() tea.Msg {
+		m.updateDownloading = true
+		return startUpdateMsg{}
+	}
+}
+
+// startUpdateMsg is sent when the UI should begin the update process.
+type startUpdateMsg struct{}

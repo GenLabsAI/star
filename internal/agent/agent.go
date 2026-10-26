@@ -998,10 +998,6 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
 		},
 		OnAuthRefresh: call.OnAuthRefresh,
 		ModelProvider: func() fantasy.LanguageModel {
-			m := largeModel
-			slog.Info("ModelProvider called",
-				"provider", largeModel.ModelCfg.Provider,
-				"model", largeModel.ModelCfg.Model)
 			slog.Info("ModelProvider called",
 				"provider", largeModel.ModelCfg.Provider,
 				"model", largeModel.ModelCfg.Model)
@@ -1472,7 +1468,7 @@ func (a *sessionAgent) generateYeehawPrompt(ctx context.Context, sessionID strin
 		return fallback
 	}
 
-	largeModel := a.largeModel.Get()
+	largeModel := a.models().Large
 	newAgent := fantasy.NewAgent(
 		largeModel.Model,
 		fantasy.WithSystemPrompt(`You are the Yeehaw Autopilot, a meta-agent overseeing a primary coding agent. The user is AFK.

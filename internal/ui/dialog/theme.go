@@ -806,5 +806,5 @@ func (r *ThemeItem) Render(width int) string {
 		}
 	}
 
-	return renderItem(s, r.label, info, r.focused, width, r.cache, &r.m)
+	return renderItem(s, r.label, info, r.focused, false, width, r.cache, &r.m)
 }

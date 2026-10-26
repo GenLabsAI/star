@@ -370,7 +370,7 @@ func (c *coordinator) run(ctx context.Context, accept *AcceptedRun, sessionID st
 	}
 
 	var sessionLarge, sessionSmall *Model
-	model := c.currentAgent.Model()
+	model := c.currentAgent().Model()
 	if _, ok := c.sessionModels.Get(sessionID); ok {
 		large, small, err := c.buildAgentModels(ctx, sessionID, false)
 		if err != nil {
@@ -427,7 +427,7 @@ func (c *coordinator) run(ctx context.Context, accept *AcceptedRun, sessionID st
 	channel := ChannelFromContext(ctx)
 	c.syncSessionChannel(ctx, sessionID, channel)
 	run := func() (*fantasy.AgentResult, error) {
-		return c.currentAgent.Run(ctx, SessionAgentCall{
+		return c.currentAgent().Run(ctx, SessionAgentCall{
 			SessionID:         sessionID,
 			RunID:             runID,
 			Channel:           channel,
@@ -855,7 +855,7 @@ func (c *coordinator) buildAgent(ctx context.Context, prompt *prompt.Prompt, age
 			return nil, err
 		}
 	}
-	large, small, err := c.buildAgentModels(ctx, "", isSubAgent)
+	large, _, err := c.buildAgentModels(ctx, "", isSubAgent)
 	if err != nil {
 		return nil, err
 	}
@@ -863,7 +863,7 @@ func (c *coordinator) buildAgent(ctx context.Context, prompt *prompt.Prompt, age
 	if isSubAgent {
 		models = c.subAgentModels
 	}
-	large := models().Large
+	large = models().Large
 
 	largeProviderCfg, _ := c.cfg.Config().Providers.Get(large.ModelCfg.Provider)
 	result := NewSessionAgent(SessionAgentOptions{
@@ -1104,6 +1104,11 @@ func (c *coordinator) buildModel(ctx context.Context, slot config.SelectedModelT
 	}, nil
 }
 
+// hyperAPIKey resolves the Hyper API key from the live config.
+func (c *coordinator) hyperAPIKey() string {
+	return config.ResolveHyperAPIKey(c.cfg.Config())
+}
+
 func (c *coordinator) buildAnthropicProvider(baseURL, apiKey string, headers map[string]string, providerID string) (fantasy.Provider, error) {
 	var opts []anthropic.Option
 
@@ -1134,6 +1139,20 @@ func (c *coordinator) buildAnthropicProvider(baseURL, apiKey string, headers map
 		opts = append(opts, anthropic.WithHTTPClient(httpClient))
 	}
 	return anthropic.New(opts...)
+}
+
+// buildAgentModels builds both large and small models.
+// It wraps buildModel for backward compatibility with Star's session model override logic.
+func (c *coordinator) buildAgentModels(ctx context.Context, sessionID string, isSubAgent bool) (Model, Model, error) {
+	large, err := c.buildModel(ctx, config.SelectedModelTypeLarge, isSubAgent)
+	if err != nil {
+		return Model{}, Model{}, err
+	}
+	small, err := c.buildModel(ctx, config.SelectedModelTypeSmall, isSubAgent)
+	if err != nil {
+		return Model{}, Model{}, err
+	}
+	return large, small, nil
 }
 
 func (c *coordinator) buildOpenaiProvider(baseURL, apiKey string, headers map[string]string, token *oauth.Token) (fantasy.Provider, error) {
@@ -1491,7 +1510,7 @@ func (c *coordinator) SessionModel(sessionID string) Model {
 			return large
 		}
 	}
-	return c.currentAgent.Model()
+	return c.currentAgent().Model()
 }
 
 // SetSessionModels sets a per-session model override so subsequent runs
@@ -1519,8 +1538,15 @@ func (c *coordinator) UpdateModels(ctx context.Context) error {
 	// guards make this a no-op once a catalog exists.
 	c.cfg.RefetchOpenAIChatGPTModels(ctx)
 	c.cfg.RefetchGrokModels(ctx)
+
 	agent, name := c.activeAgent()
 	return c.updateAgentModels(ctx, agent, name)
+}
+
+// updateAgentModels rebuilds the shared models and the given agent's tools
+// from the current config.
+func (c *coordinator) updateAgentModels(ctx context.Context, agent SessionAgent, name string) error {
+	if err := c.rebuildModels(ctx); err != nil {
 		return err
 	}
 
