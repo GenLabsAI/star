@@ -163,14 +163,14 @@ fn run_update(coord: &Coord, pid: u32) -> Result<(), String> {
 
     // On Windows the binary is locked for as long as it is running, so this
     // wait is what makes replacing it reliable. It is bounded, because one
-    # wedged instance must not be able to block updates forever.
+    // A wedged instance must not be able to block updates forever.
     if !coord.wait_for_quiesce(pid, coord::QUIESCE_TIMEOUT) {
         eprintln!("  another star instance is still shutting down; continuing anyway");
     }
 
-    // Update both binaries: the core we closed, and the launcher we are still
-    // running from.
-    let launcher = std::env::current_exe().ok();
+    // We only update the core here; the running launcher replaces itself on the
+    // next restart via the coordinator handshake.
+    let _launcher = std::env::current_exe().ok();
     let result = update::perform_update(&find_core());
 
     match result {
