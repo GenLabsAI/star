@@ -2,26 +2,32 @@ package model
 
 // Reusable headless TUI screenshot harness.
 //
+// This file is a generic scaffold, not a yeehaw-specific test. Add a new
+// visual state by appending one entry to the shots table in
+// TestTUIScreenshots — no harness changes needed.
+//
 // Run with:
 //
 //	go test ./internal/ui/model -run TestTUIScreenshots -count=1 -v
 //
-// It renders the full UI View at fixed sizes in normal, yolo, and yeehaw
-// states (including yeehaw fade frames), and writes artifacts under
-// artifacts/ at the repo root:
+// It renders the full UI View at fixed sizes and writes artifacts under
+// <repo>/artifacts (overridable with TUI_SHOT_DIR):
 //
 //	artifacts/tui-<name>.txt   plain-text frame (ANSI stripped)
-//	artifacts/tui-<name>.json   per-cell {char, fg, bg} grid for PNG rendering
+//	artifacts/tui-<name>.json   per-cell {ch, fg, bg} grid for PNG rendering
 //
-// A companion Python script (artifacts/render_tui.py) turns the JSON grids
-// into PNGs with a real monospace font. Re-run both whenever the editor
-// fade, placeholder, or status badge changes.
+// A companion script (artifacts/render_tui.py) turns the JSON grids into
+// PNGs with a real monospace font. Re-run both whenever a visual state
+// changes. Filter to a subset while iterating:
+//
+//	TUI_SHOT_FILTER=yeehaw go test ./internal/ui/model -run TestTUIScreenshots -count=1 -v
 
 import (
 	"encoding/json"
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -185,7 +191,32 @@ func shotParseCells(content, defFg, defBg string) [][]shotCell {
 	return rows
 }
 
-func newShotUI(t *testing.T) *UI {
+// TUIShotSetup mutates a fresh harness UI into the state to capture
+// (modes, session content, focus, etc.).
+type TUIShotSetup func(*UI)
+
+// TUIShot describes one frame to capture. Warmup renders and discards N
+// frames before capturing, which is how multi-frame transitions (fades,
+// spinners) are sampled without sharing one UI instance across shots.
+type TUIShot struct {
+	Name   string
+	Width  int
+	Height int
+	Setup  TUIShotSetup
+	Warmup int
+}
+
+// TUIShotDefFg and TUIShotDefBg are the fallback colors used for cells
+// that carry no explicit SGR color.
+const (
+	TUIShotDefFg = "#e5e5e5"
+	TUIShotDefBg = "#101014"
+)
+
+// NewScreenshotUI builds a fresh harness UI with a session, prompt text,
+// and layout applied. Each shot gets its own instance so shots stay
+// independent and order-free.
+func NewScreenshotUI(t *testing.T) *UI {
 	t.Helper()
 	u := newFrameTestUI(t)
 	u.header = newHeader(u.com)
@@ -200,55 +231,124 @@ func newShotUI(t *testing.T) *UI {
 	return u
 }
 
+// newShotUI is kept as an alias for NewScreenshotUI.
+func newShotUI(t *testing.T) *UI {
+	return NewScreenshotUI(t)
+}
+
 func shotSize(u *UI, w, h int) {
 	u.width, u.height = w, h
 	u.updateLayoutAndSize()
 }
 
-func TestTUIScreenshots(t *testing.T) {
+// TUIShotDir resolves where frames are written. TUI_SHOT_DIR wins when
+// set; otherwise it walks up from the caller to the module root (go.mod)
+// and uses <root>/artifacts.
+func TUIShotDir(t *testing.T) string {
+	t.Helper()
+	if dir := strings.TrimSpace(os.Getenv("TUI_SHOT_DIR")); dir != "" {
+		require.NoError(t, os.MkdirAll(dir, 0o755))
+		return dir
+	}
+	_, file, _, ok := runtime.Caller(0)
+	if ok {
+		d := filepath.Dir(file)
+		for i := 0; i < 8; i++ {
+			if _, err := os.Stat(filepath.Join(d, "go.mod")); err == nil {
+				dir := filepath.Join(d, "artifacts")
+				require.NoError(t, os.MkdirAll(dir, 0o755))
+				return dir
+			}
+			d = filepath.Dir(d)
+		}
+	}
+	// Fallback for unusual layouts: historical relative path.
 	dir := filepath.Join("..", "..", "..", "artifacts")
 	require.NoError(t, os.MkdirAll(dir, 0o755))
+	return dir
+}
 
-	const defFg, defBg = "#e5e5e5", "#101014"
+// shotFilter returns the TUI_SHOT_FILTER substrings (comma-separated).
+// When non-empty, only shots whose name contains one of them run.
+func shotFilter() []string {
+	raw := strings.TrimSpace(os.Getenv("TUI_SHOT_FILTER"))
+	if raw == "" {
+		return nil
+	}
+	var out []string
+	for _, s := range strings.Split(raw, ",") {
+		if s = strings.TrimSpace(s); s != "" {
+			out = append(out, s)
+		}
+	}
+	return out
+}
 
-	save := func(name string, u *UI) {
-		t.Helper()
+// CaptureTUIShots renders each shot on a fresh UI and writes its .txt
+// (ANSI-stripped) and .json (cell grid) frames into dir.
+func CaptureTUIShots(t *testing.T, dir string, shots []TUIShot) {
+	t.Helper()
+	filter := shotFilter()
+	for _, s := range shots {
+		if len(filter) > 0 {
+			matched := false
+			for _, f := range filter {
+				if strings.Contains(s.Name, f) {
+					matched = true
+					break
+				}
+			}
+			if !matched {
+				continue
+			}
+		}
+		u := NewScreenshotUI(t)
+		w, h := s.Width, s.Height
+		if w <= 0 {
+			w = 140
+		}
+		if h <= 0 {
+			h = 45
+		}
+		shotSize(u, w, h)
+		if s.Setup != nil {
+			s.Setup(u)
+		}
+		for i := 0; i < s.Warmup; i++ {
+			_ = u.View()
+		}
 		v := u.View()
 		plain := ansi.Strip(v.Content)
-		require.NoError(t, os.WriteFile(filepath.Join(dir, "tui-"+name+".txt"), []byte(plain), 0o644))
-		grid := shotParseCells(v.Content, defFg, defBg)
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "tui-"+s.Name+".txt"), []byte(plain), 0o644))
+		grid := shotParseCells(v.Content, TUIShotDefFg, TUIShotDefBg)
 		raw, err := json.Marshal(grid)
 		require.NoError(t, err)
-		require.NoError(t, os.WriteFile(filepath.Join(dir, "tui-"+name+".json"), raw, 0o644))
-		t.Logf("wrote tui-%s (%d rows)", name, len(grid))
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "tui-"+s.Name+".json"), raw, 0o644))
+		t.Logf("wrote tui-%s (%d rows)", s.Name, len(grid))
+	}
+}
+
+func TestTUIScreenshots(t *testing.T) {
+	dir := TUIShotDir(t)
+
+	yolo := TUIShotSetup(func(u *UI) {
+		u.setPermissionMode(permission.ModeYolo)
+	})
+	yeehaw := TUIShotSetup(func(u *UI) {
+		u.setYeehawMode(true)
+	})
+
+	// To capture a new state, append one entry here. Keep names stable:
+	// render_tui.py turns tui-<name>.json into tui-<name>.png.
+	shots := []TUIShot{
+		{Name: "normal-140", Width: 140, Height: 45},
+		{Name: "normal-100", Width: 100, Height: 30},
+		{Name: "yolo-140", Width: 140, Height: 45, Setup: yolo},
+		{Name: "yeehaw-fade0-140", Width: 140, Height: 45, Setup: yeehaw},
+		{Name: "yeehaw-fade5-140", Width: 140, Height: 45, Setup: yeehaw, Warmup: 5},
+		{Name: "yeehaw-done-140", Width: 140, Height: 45, Setup: yeehaw, Warmup: 15},
+		{Name: "yeehaw-done-100", Width: 100, Height: 30, Setup: yeehaw, Warmup: 15},
 	}
 
-	// Normal coding mode at two widths.
-	u := newShotUI(t)
-	shotSize(u, 140, 45)
-	save("normal-140", u)
-	shotSize(u, 100, 30)
-	save("normal-100", u)
-
-	// YOLO mode for comparison.
-	shotSize(u, 140, 45)
-	u.setPermissionMode(permission.ModeYolo)
-	save("yolo-140", u)
-	u.setPermissionMode(permission.ModeNormal)
-
-	// Yeehaw: activation frame, mid-fade, and settled placeholder.
-	u.setYeehawMode(true)
-	save("yeehaw-fade0-140", u)
-	for i := 0; i < 5; i++ {
-		_ = u.View()
-	}
-	save("yeehaw-fade5-140", u)
-	for i := 0; i < 10; i++ {
-		_ = u.View()
-	}
-	save("yeehaw-done-140", u)
-
-	// Settled yeehaw placeholder at narrow width.
-	shotSize(u, 100, 30)
-	save("yeehaw-done-100", u)
+	CaptureTUIShots(t, dir, shots)
 }

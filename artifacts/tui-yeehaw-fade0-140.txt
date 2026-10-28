@@ -36,9 +36,9 @@
                                                                                                          ┃
  line 199
 
-   > Refactor the auth module                                                                              
- :::                                                                                                       
- :::                                                                                                       
+ ┃ Refactor the auth module                                                                                
+ ┃                                                                                                         
+ ┃                                                                                                         
 
 
   YEEHAW MODE   tab focus editor • shift+tab mode • ctrl+p commands • ctrl+l models • ctrl+b toggle sidebar • ↑↓ scroll …
