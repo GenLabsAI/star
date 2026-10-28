@@ -1,0 +1,29 @@
+
+  ╱╱╱ STAR ╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱ /tmp/crush-test • ctrl+d open 
+
+ line 190                                                                                        │
+                                                                                                 │
+ line 191                                                                                        │
+                                                                                                 │
+ line 192                                                                                        │
+                                                                                                 │
+ line 193                                                                                        │
+                                                                                                 │
+ line 194                                                                                        │
+                                                                                                 │
+ line 195                                                                                        │
+                                                                                                 │
+ line 196                                                                                        │
+                                                                                                 │
+ line 197                                                                                        │
+                                                                                                 │
+ line 198                                                                                        │
+                                                                                                 ┃
+ line 199
+
+
+ ┃ Refactor the auth module                                                                        
+ ┃                                                                                                 
+ ┃                                                                                                 
+
+ tab focus editor • shift+tab mode • ctrl+p commands • ctrl+l models • ↑↓ scroll …
