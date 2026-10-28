@@ -12,6 +12,7 @@ import (
 	"github.com/charmbracelet/crush/internal/config"
 	"github.com/charmbracelet/crush/internal/csync"
 	"github.com/charmbracelet/crush/internal/message"
+	"github.com/charmbracelet/crush/internal/permission"
 	"github.com/charmbracelet/crush/internal/session"
 	"github.com/charmbracelet/crush/internal/ui/attachments"
 	"github.com/charmbracelet/crush/internal/ui/chat"
@@ -155,6 +156,25 @@ func (w *testWorkspace) UpdateAgentModel(context.Context) error {
 func (w *testWorkspace) PermissionSkipRequests() bool { return w.yolo }
 
 func (w *testWorkspace) PermissionSetSkipRequests(skip bool) { w.yolo = skip }
+
+func (w *testWorkspace) PermissionSessionSkipRequests(string) bool { return w.yolo }
+
+func (w *testWorkspace) PermissionSetSessionSkipRequests(_ string, skip bool) { w.yolo = skip }
+
+func (w *testWorkspace) PermissionSessionMode(string) permission.Mode {
+	if w.yolo {
+		return permission.ModeYolo
+	}
+	return permission.ModeNormal
+}
+
+func (w *testWorkspace) PermissionSetSessionMode(string, permission.Mode) {}
+
+func (w *testWorkspace) PermissionSetMode(permission.Mode) {}
+
+func (w *testWorkspace) PermissionMode() permission.Mode {
+	return w.PermissionSessionMode("")
+}
 
 func (w *testWorkspace) AgentIsReady() bool {
 	return w.agentReady
@@ -738,8 +758,8 @@ func TestPlanPromptIgnoresYOLO(t *testing.T) {
 	u, _ := newPlanUI(t, "sess-1")
 	u.textarea.SetWidth(40)
 	u.textarea.Focus()
-	u.setEditorPrompt(true)
-	require.Contains(t, u.textarea.View(), "⏸")
+	u.setEditorPrompt(true, permission.ModePlan)
+	require.Contains(t, u.textarea.View(), " P ")
 	require.NotContains(t, u.textarea.View(), " ! ")
 }
 
