@@ -38,6 +38,11 @@ import (
 // without a re-probe being scheduled. Package var so tests can pin it.
 var busyCacheTTL = 500 * time.Millisecond
 
+// yeehawFadeFrames is the number of update cycles the editor content fades
+// out before the yeehaw placeholder takes over the editor region. The horse
+// animation (not yet implemented) will occupy that region after the fade.
+const yeehawFadeFrames = 10
+
 // promptQueueTTL is the backstop refresh interval for the queued-prompt
 // state; the queue is otherwise refreshed on event edges.
 var promptQueueTTL = 2 * time.Second
@@ -229,6 +234,17 @@ func (m *UI) applyBusyState(msg busyStateMsg) []tea.Cmd {
 		// the Update tail.
 		m.setEditorPrompt(msg.yolo || msg.mode == permission.ModeYolo || msg.mode == permission.ModeYeehaw, msg.mode)
 	}
+	if msg.mode != permission.ModeYeehaw && m.yeehawActive {
+		// The yeehaw session ended (agent auto-revert, or a remote toggle
+		// back to normal). Restore the editor and focus so the user returns
+		// to a ready prompt rather than a retired placeholder.
+		m.yeehawActive = false
+		m.yeehawFadeContent = ""
+		m.yeehawFadeFrames = 0
+		m.setEditorPrompt(false, permission.ModeNormal)
+		m.focus = uiFocusEditor
+		m.updateLayoutAndSize()
+	}
 
 	var cmds []tea.Cmd
 	busy := m.isAgentBusy()
@@ -395,4 +411,47 @@ func (m *UI) toggleYoloMode() bool {
 // otherwise.
 func (m *UI) yoloModeCached() bool {
 	return m.yoloCache.val
+}
+
+// setYeehawMode enables or disables yeehaw mode for the current session.
+// When enabling, it retires the editor in favor of the yeehaw placeholder and
+// moves focus off the editor so the user can step away. When disabling, it
+// restores the editor and focus.
+func (m *UI) setYeehawMode(enable bool) {
+	sessionID := m.currentSessionID()
+	if sessionID == "" {
+		return
+	}
+	if enable {
+		// Yeehaw = skip permission requests + autonomous loop. Set both so
+		// the session behaves like a --yeehaw launch.
+		m.com.Workspace.PermissionSetSessionSkipRequests(sessionID, true)
+		m.com.Workspace.PermissionSetSessionMode(sessionID, permission.ModeYeehaw)
+		m.com.Workspace.PermissionSetMode(permission.ModeYeehaw)
+		m.modeCache.set(permission.ModeYeehaw)
+		m.yoloCache.set(true)
+		m.busyFetchGen++
+		m.yeehawActive = true
+		// Capture the editor content for the fade-out and clear the textarea
+		// so new keystrokes cannot land in a retired editor.
+		m.yeehawFadeContent = m.textarea.View()
+		m.yeehawFadeFrames = yeehawFadeFrames
+		m.textarea.SetValue("")
+		m.textarea.SetPromptFunc(4, m.yeehawPromptFunc)
+		// Move focus off the retired editor so the user cannot type into it.
+		m.focus = uiFocusMain
+		m.updateLayoutAndSize()
+	} else {
+		m.com.Workspace.PermissionSetSessionMode(sessionID, permission.ModeNormal)
+		m.com.Workspace.PermissionSetMode(permission.ModeNormal)
+		m.modeCache.set(permission.ModeNormal)
+		m.yoloCache.set(false)
+		m.busyFetchGen++
+		m.yeehawActive = false
+		m.yeehawFadeContent = ""
+		m.yeehawFadeFrames = 0
+		m.setEditorPrompt(false, permission.ModeNormal)
+		m.focus = uiFocusEditor
+		m.updateLayoutAndSize()
+	}
 }

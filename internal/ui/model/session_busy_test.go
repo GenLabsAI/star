@@ -60,8 +60,6 @@ type countingWorkspace struct {
 
 func (w *countingWorkspace) AgentIsReady() bool             { w.readyCalls++; return w.ready }
 func (w *countingWorkspace) AgentIsBusy() bool              { w.agentBusyCalls++; return w.agentBusy }
-func (w *countingWorkspace) AgentIsSessionBusy(string) bool { w.agentBusyCalls++; return w.agentBusy }
-
 // AgentIsSessionBusy answers for the single session these tests use, and is
 // deliberately uncounted: it is asked once on session load rather than on
 // the per-keystroke paths whose probe counts the other stubs pin.

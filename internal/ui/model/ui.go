@@ -287,6 +287,9 @@ type UI struct {
 	bangMode     bool
 	bangWasEmpty bool // true when bang prompt became empty on last keystroke
 
+	// yeehawActive is true while the current session is in yeehaw mode.
+	yeehawActive bool
+
 	// pendingBangCommand holds a shell command that was issued before
 	// the session finished loading. The loadSessionMsg handler creates
 	// the pending UI item and starts execution once the chat list is
@@ -451,6 +454,10 @@ type UI struct {
 	// runs this client did not start.
 	probedSession     string
 	probedSessionBusy bool
+	// yeehawFadeContent is the editor view captured at yeehaw activation,
+	// faded out frame by frame until the yeehaw placeholder takes over.
+	yeehawFadeContent string
+	yeehawFadeFrames  int
 	pillsView         string
 
 	// Todo spinner
@@ -942,9 +949,24 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.turnOutcome = ""
 		}
 		m.setState(uiChat, m.focus)
+		prevSessionID := ""
+		if m.session != nil {
+			prevSessionID = m.session.ID
+		}
 		m.session = msg.session
 		m.sidebarOffset = 0
 		m.sessionFiles = msg.files
+
+		// Switching sessions drops any active yeehaw session so the editor
+		// is restored for the newly loaded session.
+		if prevSessionID != "" && prevSessionID != msg.session.ID {
+			m.yeehawActive = false
+			m.yeehawFadeContent = ""
+			m.yeehawFadeFrames = 0
+			m.setEditorPrompt(false, permission.ModeNormal)
+			m.focus = uiFocusEditor
+			m.updateLayoutAndSize()
+		}
 		// Session switch: the memoized busy state and queued prompts
 		// belong to the previous session. Drop them and re-fetch
 		// off-thread so the queue pill and esc behavior track the new
@@ -2217,6 +2239,18 @@ func (m *UI) handleDialogMsg(msg tea.Msg) tea.Cmd {
 			}
 		} else {
 			m.toggleYoloMode()
+		}
+		m.dialog.CloseDialog(dialog.CommandsID)
+	case dialog.ActionSetModeYeehaw:
+		if m.yeehawActive {
+			// Toggle off: return to normal coding mode.
+			m.setYeehawMode(false)
+		} else {
+			if m.isAgentBusy() || m.modeSwitching {
+				cmds = append(cmds, util.ReportWarn("Agent is busy, please wait before entering yeehaw mode..."))
+			} else {
+				m.setYeehawMode(true)
+			}
 		}
 		m.dialog.CloseDialog(dialog.CommandsID)
 	case dialog.ActionSelectNotificationStyle:
@@ -3731,6 +3765,7 @@ func (m *UI) Draw(scr uv.Screen, area uv.Rectangle) *tea.Cursor {
 	// Add status and help layer
 	m.status.SetHideHelp(isOnboarding)
 	m.status.SetMode(m.mode, m.yoloModeCached())
+	m.status.SetYeehaw(m.yeehawActive)
 	m.status.Draw(scr, layout.status)
 
 	// Draw completions popup if open
@@ -4661,6 +4696,11 @@ func editorFileMsg(path string) tea.Msg {
 		m.textarea.SetPromptFunc(4, m.planPromptFunc)
 		return
 	}
+	if mode == permission.ModeYeehaw {
+		m.textarea.SetPromptFunc(4, m.yeehawPromptFunc)
+		return
+	}
+
 	if yolo {
 		m.textarea.SetPromptFunc(4, m.yoloPromptFunc)
 		return
@@ -4671,19 +4711,17 @@ func editorFileMsg(path string) tea.Msg {
 // planPromptFunc returns the plan mode editor prompt style with info icon
 // and colored dots.
 func (m *UI) planPromptFunc(info textarea.PromptInfo) string {
-	// Use the normal style but with a different icon for now, ideally this would be styled.
 	t := m.com.Styles
 	if info.LineNumber == 0 {
 		if info.Focused {
-			return " ➳> "
-		} else {
-			return " ➳> "
+			return t.Editor.PromptPlanIconFocused.Render()
 		}
+		return t.Editor.PromptPlanIconBlurred.Render()
 	}
 	if info.Focused {
-		return t.Editor.PromptNormalFocused.Render()
+		return t.Editor.PromptPlanDotsFocused.Render()
 	}
-	return t.Editor.PromptNormalBlurred.Render()
+	return t.Editor.PromptPlanDotsBlurred.Render()
 }
 
 // normalPromptFunc returns the normal editor prompt style ("> " on the
@@ -4720,6 +4758,18 @@ func (m *UI) yoloPromptFunc(info textarea.PromptInfo) string {
 	}
 	return t.Editor.PromptYoloDotsBlurred.Render()
 }
+
+// yeehawPromptFunc returns a faint, non-distracting prompt for the retired
+// editor while the agent runs unattended. The horse animation (not yet
+// implemented) will ultimately occupy this region.
+func (m *UI) yeehawPromptFunc(info textarea.PromptInfo) string {
+	t := m.com.Styles
+	if info.LineNumber == 0 {
+		return t.Editor.PromptYoloIconBlurred.Render()
+	}
+	return ""
+}
+
 
 // bangPromptFunc returns the bang mode editor prompt style with Turtle-colored
 // icon and dots.
@@ -5141,7 +5191,21 @@ func (m *UI) randomizePlaceholders() {
 }
 
 // renderEditorView renders the editor view with attachments if any.
+// While yeehaw mode is active, the captured editor content fades out frame
+// by frame until the yeehaw placeholder (the horse's future home) takes over.
 func (m *UI) renderEditorView(width int) string {
+	if m.yeehawActive {
+		if m.yeehawFadeFrames > 0 {
+			m.yeehawFadeFrames--
+			// Fade the captured editor content out: full for the first half
+			// of the fade, then dimmed until it disappears.
+			if m.yeehawFadeFrames > yeehawFadeFrames/2 {
+				return m.yeehawFadeContent
+			}
+			return m.com.Styles.Editor.PromptYoloIconBlurred.Render(m.yeehawFadeContent)
+		}
+		return m.yeehawPlaceholderView(width)
+	}
 	var attachmentsView string
 	if len(m.attachments.List()) > 0 {
 		attachmentsView = m.attachments.Render(width)
@@ -5152,6 +5216,20 @@ func (m *UI) renderEditorView(width int) string {
 		"", // margin at bottom of editor
 	}, "\n")
 }
+
+// yeehawPlaceholderView renders the stand-in that occupies the editor region
+// while the agent runs unattended. The galloping horse animation (not yet
+// implemented) will replace this placeholder.
+func (m *UI) yeehawPlaceholderView(width int) string {
+	t := m.com.Styles
+	label := t.Editor.PromptYoloIconBlurred.Render("\u25b6 yeehaw")
+	if width > lipgloss.Width(label) {
+		pad := (width - lipgloss.Width(label)) / 2
+		label = strings.Repeat(" ", pad) + label
+	}
+	return label
+}
+
 
 // cacheSidebarLogo renders and caches the sidebar logo at the specified width.
 func (m *UI) cacheSidebarLogo(width int) {

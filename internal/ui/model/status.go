@@ -35,9 +35,12 @@ type Status struct {
 	// msgSeq identifies the message on screen; expiry timers carry it.
 	msgSeq uint64
 
-	// inputMode and yolo drive the mode badge shown before the help hints.
+	// inputMode, yolo and yeehaw drive the mode badge shown before the help
+	// hints. Yeehaw is a distinct badge from YOLO so an unattended yeehaw
+	// run is visually obvious when you return.
 	inputMode uiInputMode
 	yolo      bool
+	yeehaw    bool
 }
 
 // NewStatus creates a new status bar and help model.
@@ -78,14 +81,24 @@ func (s *Status) SetMode(mode uiInputMode, yolo bool) {
 	s.yolo = yolo
 }
 
+// SetYeehaw sets the yeehaw state used for the mode badge. It is orthogonal
+// to the input mode and YOLO state.
+func (s *Status) SetYeehaw(yeehaw bool) {
+	s.yeehaw = yeehaw
+}
+
 // modeBadge renders the badge for the current mode, or an empty string in
 // the default coding mode.
 func (s *Status) modeBadge() string {
 	t := s.com.Styles
 	// Mirror the editor prompt precedence: planning wins over YOLO, which
-	// can be carried into plan mode.
+	// can be carried into plan mode. Yeehaw is its own badge so an
+	// unattended run is visually obvious when you return.
 	if s.inputMode == uiInputModePlan {
 		return t.Status.ModeBadgePlan.String()
+	}
+	if s.yeehaw {
+		return t.Status.ModeBadgeYeehaw.String()
 	}
 	if s.yolo {
 		return t.Status.ModeBadgeYolo.String()

@@ -413,15 +413,34 @@ func (s *permissionService) SkipRequests() bool {
 }
 
 func (s *permissionService) SetSessionSkipRequests(sessionID string, skip bool) {
+	if sessionID == "" {
+		// Workspace default: skip requests means yolo, the only mode that
+		// historically mapped "skip" to a non-normal default.
+		mode := ModeNormal
+		if skip {
+			mode = ModeYolo
+		}
+		s.SetMode(mode)
+		return
+	}
+	// Named session: only toggle the skip flag. Do not overwrite an
+	// existing session mode — yolo toggles write the mode explicitly
+	// afterward, and yeehaw writes its own mode. Falling back to yolo here
+	// would clobber a yeehaw session's mode.
 	mode := ModeNormal
 	if skip {
 		mode = ModeYolo
 	}
-	s.SetSessionMode(sessionID, mode)
+	s.sessionModes.Set(sessionID, mode)
 }
 
 func (s *permissionService) SessionSkipRequests(sessionID string) bool {
-	return s.SessionMode(sessionID) == ModeYolo
+	if sessionID != "" {
+		if mode, ok := s.sessionModes.Get(sessionID); ok {
+			return mode == ModeYolo || mode == ModeYeehaw
+		}
+	}
+	return s.skip.Load()
 }
 
 func (s *permissionService) SetMode(mode Mode) {

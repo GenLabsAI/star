@@ -1307,6 +1307,12 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
 				Prompt:    promptText,
 				Accepted:  a.BeginAccepted(call.SessionID),
 			}}
+		} else {
+			// The yeehaw autopilot asked to stop (TERMINATE_YEEHAW_LOOP) or
+			// the loop detector fired. Revert the session to normal so the
+			// UI badge and editor recover when the user returns to finished
+			// work.
+			a.permissions.SetSessionMode(call.SessionID, permission.ModeNormal)
 		}
 	}
 	if len(queuedMessages) == 0 {

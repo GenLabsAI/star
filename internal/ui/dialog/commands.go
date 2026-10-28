@@ -543,8 +543,11 @@ func (c *Commands) defaultCommands() []*CommandItem {
 	commands = append(commands, NewCommandItem(c.com.Styles, "select_notifications", notificationLabel, "", ActionOpenDialog{DialogID: NotificationsID}))
 
 	currentMode := c.com.Workspace.PermissionMode()
-	if currentMode != permission.ModeYolo {
+	if currentMode != permission.ModeYolo && currentMode != permission.ModeYeehaw {
 		commands = append(commands, NewCommandItem(c.com.Styles, "yolo", "Set Mode: Yolo", "ctrl+y", ActionToggleYoloMode{}))
+	}
+	if currentMode != permission.ModeYeehaw {
+		commands = append(commands, NewCommandItem(c.com.Styles, "yeehaw", "Set Mode: Yeehaw", "", ActionSetModeYeehaw{}))
 	}
 	if currentMode != permission.ModePlan {
 		commands = append(commands, NewCommandItem(c.com.Styles, "plan", "Set Mode: Plan", "", ActionSetModePlan{}))

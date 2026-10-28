@@ -81,6 +81,7 @@ func charmtoneOpts() quickStyleOpts {
 		yolo:              charmtone.Zest,
 		plan:              charmtone.Charple,
 		planMoreSubtle:    charmtone.Hazy,
+		yeehaw:            charmtone.Paprika,
 
 		// Muted diff foreground hues; the backgrounds derive from these
 		// over bgBase.
@@ -205,6 +206,7 @@ func gruvboxDarkOpts() quickStyleOpts {
 		yolo:           lipgloss.Color("#fabd2f"), // yellow bright
 		plan:           lipgloss.Color("#d3869b"), // purple
 		planMoreSubtle: lipgloss.Color("#665c54"), // bg3
+		yeehaw:         lipgloss.Color("#ff5555"), // red
 
 		// Diff colors derive from success/destructive over bgBase.
 
@@ -289,6 +291,7 @@ func keanuOpts() quickStyleOpts {
 		yolo:           lipgloss.Color("#c8ff4d"), // electric lime
 		plan:           lipgloss.Color("#4dffb8"), // bright teal-green
 		planMoreSubtle: lipgloss.Color("#0d332b"), // deep teal
+		yeehaw:         lipgloss.Color("#ff5555"), // red
 
 		// Diff colors derive from success/destructive over bgBase.
 

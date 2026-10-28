@@ -80,6 +80,7 @@ func PaletteFields() []PaletteField {
 		{"diff_delete_gutter_bg", func(p Palette) string { return p.DiffDeleteGutterBg }, func(p *Palette, v string) { p.DiffDeleteGutterBg = v }},
 		{"yolo", func(p Palette) string { return p.Yolo }, func(p *Palette, v string) { p.Yolo = v }},
 		{"plan", func(p Palette) string { return p.Plan }, func(p *Palette, v string) { p.Plan = v }},
+		{"yeehaw", func(p Palette) string { return p.Yeehaw }, func(p *Palette, v string) { p.Yeehaw = v }},
 		{"plan_more_subtle", func(p Palette) string { return p.PlanMoreSubtle }, func(p *Palette, v string) { p.PlanMoreSubtle = v }},
 		{"button", func(p Palette) string { return p.Button }, func(p *Palette, v string) { p.Button = v }},
 		{"button_subtle", func(p Palette) string { return p.ButtonSubtle }, func(p *Palette, v string) { p.ButtonSubtle = v }},
@@ -149,6 +150,7 @@ type Palette struct {
 	Yolo           string `json:"yolo,omitempty"`
 	Plan           string `json:"plan,omitempty"`
 	PlanMoreSubtle string `json:"plan_more_subtle,omitempty"`
+	Yeehaw         string `json:"yeehaw,omitempty"`
 
 	Button         string `json:"button,omitempty"`
 	ButtonSubtle   string `json:"button_subtle,omitempty"`
@@ -218,9 +220,10 @@ func PaletteFromOpts(o quickStyleOpts) Palette {
 		DiffDeleteCodeBg:   colorToHex(o.diffDeleteCodeBg),
 		DiffDeleteGutterBg: colorToHex(o.diffDeleteGutterBg),
 
-		Yolo:           colorToHex(o.yolo),
-		Plan:           colorToHex(o.plan),
-		PlanMoreSubtle: colorToHex(o.planMoreSubtle),
+	Yolo:           colorToHex(o.yolo),
+	Yeehaw:         colorToHex(o.yeehaw),
+	Plan:           colorToHex(o.plan),
+	PlanMoreSubtle: colorToHex(o.planMoreSubtle),
 
 		Button:         colorToHex(o.button),
 		ButtonSubtle:   colorToHex(o.buttonSubtle),
@@ -289,8 +292,9 @@ func (p Palette) ToQuickStyleOpts(base quickStyleOpts) quickStyleOpts {
 		diffDeleteCodeBg:   resolveColor(p.DiffDeleteCodeBg, base.diffDeleteCodeBg),
 		diffDeleteGutterBg: resolveColor(p.DiffDeleteGutterBg, base.diffDeleteGutterBg),
 
-		yolo:           resolveColor(p.Yolo, base.yolo),
-		plan:           resolveColor(p.Plan, base.plan),
+	yolo:           resolveColor(p.Yolo, base.yolo),
+	yeehaw:         resolveColor(p.Yeehaw, base.yeehaw),
+	plan:           resolveColor(p.Plan, base.plan),
 		planMoreSubtle: resolveColor(p.PlanMoreSubtle, base.planMoreSubtle),
 
 		button:         resolveColor(p.Button, base.button),
