@@ -289,6 +289,11 @@ type UI struct {
 
 	// yeehawActive is true while the current session is in yeehaw mode.
 	yeehawActive bool
+	// yeehawHorseTick counts horse animation frames while yeehaw mode
+	// is active. yeehawHorseGen retires stale horse clocks on toggle
+	// or session switch.
+	yeehawHorseTick int
+	yeehawHorseGen  uint64
 
 	// pendingBangCommand holds a shell command that was issued before
 	// the session finished loading. The loadSessionMsg handler creates
@@ -495,22 +500,22 @@ type UI struct {
 		draft    string
 	}
 
-	pendingWakeup                  *pubsub.WakeupEvent
-	wakeupEndTime                  time.Time
-	updateAvailable                *app.UpdateAvailableMsg
-	updateDownloading              bool
-	updateInitiating               bool
-	editorStyledCache              *uv.StyledString
-	editorCacheKey                 string
-	pillsStyledCache               *uv.StyledString
-	pillsCacheKey                  string
-	sidebarLogoStyledCache         *uv.StyledString
-	sidebarLogoCacheKey            string
-	sidebarBodyStyledCache         *uv.StyledString
-	sidebarBodyCacheKey            string
-	sidebarLines                   []string
-	modeCache                      ttlCacheMode
-	}
+	pendingWakeup          *pubsub.WakeupEvent
+	wakeupEndTime          time.Time
+	updateAvailable        *app.UpdateAvailableMsg
+	updateDownloading      bool
+	updateInitiating       bool
+	editorStyledCache      *uv.StyledString
+	editorCacheKey         string
+	pillsStyledCache       *uv.StyledString
+	pillsCacheKey          string
+	sidebarLogoStyledCache *uv.StyledString
+	sidebarLogoCacheKey    string
+	sidebarBodyStyledCache *uv.StyledString
+	sidebarBodyCacheKey    string
+	sidebarLines           []string
+	modeCache              ttlCacheMode
+}
 
 // New creates a new instance of the [UI] model.
 func New(com *common.Common, initialSessionID string, continueLast bool) *UI {
@@ -963,6 +968,8 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.yeehawActive = false
 			m.yeehawFadeContent = ""
 			m.yeehawFadeFrames = 0
+			m.yeehawHorseGen++
+			m.yeehawHorseTick = 0
 			m.setEditorPrompt(false, permission.ModeNormal)
 			m.focus = uiFocusEditor
 			m.updateLayoutAndSize()
@@ -1457,6 +1464,11 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case animTickMsg:
 		if cmd := m.handleAnimTick(msg); cmd != nil {
 			cmds = append(cmds, cmd)
+		}
+	case yeehawHorseTickMsg:
+		if m.yeehawActive && msg.gen == m.yeehawHorseGen {
+			m.yeehawHorseTick++
+			cmds = append(cmds, m.armYeehawHorse())
 		}
 	case scrollbarHideMsg:
 		if m.state == uiChat {
@@ -2244,12 +2256,16 @@ func (m *UI) handleDialogMsg(msg tea.Msg) tea.Cmd {
 	case dialog.ActionSetModeYeehaw:
 		if m.yeehawActive {
 			// Toggle off: return to normal coding mode.
-			m.setYeehawMode(false)
+			if cmd := m.setYeehawMode(false); cmd != nil {
+				cmds = append(cmds, cmd)
+			}
 		} else {
 			if m.isAgentBusy() || m.modeSwitching {
 				cmds = append(cmds, util.ReportWarn("Agent is busy, please wait before entering yeehaw mode..."))
 			} else {
-				m.setYeehawMode(true)
+				if cmd := m.setYeehawMode(true); cmd != nil {
+					cmds = append(cmds, cmd)
+				}
 			}
 		}
 		m.dialog.CloseDialog(dialog.CommandsID)
@@ -4431,6 +4447,12 @@ func (m *UI) generateLayout(w, h int) uiLayout {
 			editorHeight = m.activeInline.Height(editorWidth)
 		}
 	}
+	// While yeehaw mode runs, the editor lane hosts the galloping horse:
+	// reserve room for the horse rows plus its label. Narrow terminals
+	// keep the static placeholder fallback and need no extra room.
+	if m.yeehawActive && w >= yeehawHorseWidth+4 {
+		editorHeight = max(editorHeight, yeehawLaneHeight)
+	}
 	// The sidebar width
 	sidebarWidth := 32
 	// The header height
@@ -4686,8 +4708,8 @@ func editorFileMsg(path string) tea.Msg {
 }
 
 // setEditorPrompt configures the textarea prompt function based on whether
-	// yolo mode, plan mode, bang mode, or yeehaw mode is enabled.
-	func (m *UI) setEditorPrompt(yolo bool, mode permission.Mode) {
+// yolo mode, plan mode, bang mode, or yeehaw mode is enabled.
+func (m *UI) setEditorPrompt(yolo bool, mode permission.Mode) {
 	if m.bangMode {
 		m.textarea.SetPromptFunc(4, m.bangPromptFunc)
 		return
@@ -4760,8 +4782,8 @@ func (m *UI) yoloPromptFunc(info textarea.PromptInfo) string {
 }
 
 // yeehawPromptFunc returns a faint, non-distracting prompt for the retired
-// editor while the agent runs unattended. The horse animation (not yet
-// implemented) will ultimately occupy this region.
+// editor while the agent runs unattended. The horse lane rendered by
+// yeehawHorseView occupies the editor region instead.
 func (m *UI) yeehawPromptFunc(info textarea.PromptInfo) string {
 	t := m.com.Styles
 	if info.LineNumber == 0 {
@@ -4769,7 +4791,6 @@ func (m *UI) yeehawPromptFunc(info textarea.PromptInfo) string {
 	}
 	return ""
 }
-
 
 // bangPromptFunc returns the bang mode editor prompt style with Turtle-colored
 // icon and dots.
@@ -5197,6 +5218,11 @@ func (m *UI) renderEditorView(width int) string {
 	if m.yeehawActive {
 		if m.yeehawFadeFrames > 0 {
 			m.yeehawFadeFrames--
+			if m.yeehawFadeFrames == 0 {
+				// The lane is clear: restart the horse at the left edge so
+				// it rides in as the placeholder takes over.
+				m.yeehawHorseTick = 0
+			}
 			// Fade the captured editor content out: full for the first half
 			// of the fade, then dimmed until it disappears.
 			if m.yeehawFadeFrames > yeehawFadeFrames/2 {
@@ -5204,7 +5230,7 @@ func (m *UI) renderEditorView(width int) string {
 			}
 			return m.com.Styles.Editor.PromptYoloIconBlurred.Render(m.yeehawFadeContent)
 		}
-		return m.yeehawPlaceholderView(width)
+		return m.yeehawHorseView(width)
 	}
 	var attachmentsView string
 	if len(m.attachments.List()) > 0 {
@@ -5217,9 +5243,8 @@ func (m *UI) renderEditorView(width int) string {
 	}, "\n")
 }
 
-// yeehawPlaceholderView renders the stand-in that occupies the editor region
-// while the agent runs unattended. The galloping horse animation (not yet
-// implemented) will replace this placeholder.
+// yeehawPlaceholderView renders the stand-in label beneath the galloping
+// horse, and is the whole lane on terminals too narrow for the horse.
 func (m *UI) yeehawPlaceholderView(width int) string {
 	t := m.com.Styles
 	label := t.Editor.PromptYoloIconBlurred.Render("\u25b6 yeehaw")
@@ -5229,7 +5254,6 @@ func (m *UI) yeehawPlaceholderView(width int) string {
 	}
 	return label
 }
-
 
 // cacheSidebarLogo renders and caches the sidebar logo at the specified width.
 func (m *UI) cacheSidebarLogo(width int) {

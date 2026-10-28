@@ -1,0 +1,44 @@
+
+ line 183                                                                                                │  ╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱
+                                                                                                         │  ╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱
+ line 184                                                                                                │  de el ╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱
+                                                                                                         │  ╭──╮╶─┬─╴╭──╮ ╭──╮ ╱╱╱╱╱╱╱╱╱╱
+ line 185                                                                                                │  ╰──╮  │  ├──┤ ├─┬╯ ╱╱╱╱╱╱╱╱╱╱
+                                                                                                         │  ╰──╯  ╵  ╵  ╵ ╵ ╰╴ ╱╱╱╱╱╱╱╱╱╱
+ line 186                                                                                                │  ╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱
+                                                                                                         │
+ line 187                                                                                                │
+                                                                                                         │
+ line 188                                                                                                │  /tmp/crush-test
+                                                                                                         │
+ line 189                                                                                                │  ◇
+                                                                                                         │
+ line 190                                                                                                │  Modified Files ──────────────
+                                                                                                         │
+ line 191                                                                                                │  None
+                                                                                                         │
+ line 192                                                                                                │  LSPs ────────────────────────
+                                                                                                         │
+ line 193                                                                                                │  None
+                                                                                                         │
+ line 194                                                                                                │  MCPs ────────────────────────
+                                                                                                         │
+ line 195                                                                                                │  None
+                                                                                                         │
+ line 196                                                                                                │  Skills ──────────────────────
+                                                                                                         │
+ line 197                                                                                                │  ● crush-config
+                                                                                                         │  ● crush-hooks
+ line 198                                                                                                ┃  ● jq
+                                                                                                         ┃
+ line 199
+
+     ,~
+  ~~/(\
+ ~/ / `
+  /
+ /|
+ /
+                                                  !  ▶ yeehaw
+
+  YEEHAW MODE   tab focus editor • shift+tab mode • ctrl+p commands • ctrl+l models • ctrl+b toggle sidebar • ↑↓ scroll …

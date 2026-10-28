@@ -241,6 +241,8 @@ func (m *UI) applyBusyState(msg busyStateMsg) []tea.Cmd {
 		m.yeehawActive = false
 		m.yeehawFadeContent = ""
 		m.yeehawFadeFrames = 0
+		m.yeehawHorseGen++
+		m.yeehawHorseTick = 0
 		m.setEditorPrompt(false, permission.ModeNormal)
 		m.focus = uiFocusEditor
 		m.updateLayoutAndSize()
@@ -414,13 +416,14 @@ func (m *UI) yoloModeCached() bool {
 }
 
 // setYeehawMode enables or disables yeehaw mode for the current session.
-// When enabling, it retires the editor in favor of the yeehaw placeholder and
-// moves focus off the editor so the user can step away. When disabling, it
-// restores the editor and focus.
-func (m *UI) setYeehawMode(enable bool) {
+// When enabling, it retires the editor in favor of the galloping horse lane
+// and moves focus off the editor so the user can step away. When disabling,
+// it restores the editor and focus. Enabling returns the horse clock command;
+// disabling returns nil.
+func (m *UI) setYeehawMode(enable bool) tea.Cmd {
 	sessionID := m.currentSessionID()
 	if sessionID == "" {
-		return
+		return nil
 	}
 	if enable {
 		// Yeehaw = skip permission requests + autonomous loop. Set both so
@@ -441,6 +444,8 @@ func (m *UI) setYeehawMode(enable bool) {
 		// Move focus off the retired editor so the user cannot type into it.
 		m.focus = uiFocusMain
 		m.updateLayoutAndSize()
+		m.yeehawHorseTick = 0
+		return m.armYeehawHorse()
 	} else {
 		m.com.Workspace.PermissionSetSessionMode(sessionID, permission.ModeNormal)
 		m.com.Workspace.PermissionSetMode(permission.ModeNormal)
@@ -450,8 +455,12 @@ func (m *UI) setYeehawMode(enable bool) {
 		m.yeehawActive = false
 		m.yeehawFadeContent = ""
 		m.yeehawFadeFrames = 0
+		m.yeehawHorseGen++
+		m.yeehawHorseTick = 0
 		m.setEditorPrompt(false, permission.ModeNormal)
 		m.focus = uiFocusEditor
 		m.updateLayoutAndSize()
+		return nil
 	}
+	return nil
 }

@@ -1,44 +1,44 @@
 
+ line 183                                                                                                │  ╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱
                                                                                                          │  ╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱
- line 182                                                                                                │  ╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱
-                                                                                                         │  de el ╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱
- line 183                                                                                                │  ╭──╮╶─┬─╴╭──╮ ╭──╮ ╱╱╱╱╱╱╱╱╱╱
-                                                                                                         │  ╰──╮  │  ├──┤ ├─┬╯ ╱╱╱╱╱╱╱╱╱╱
- line 184                                                                                                │  ╰──╯  ╵  ╵  ╵ ╵ ╰╴ ╱╱╱╱╱╱╱╱╱╱
-                                                                                                         │  ╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱
- line 185                                                                                                │
+ line 184                                                                                                │  de el ╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱
+                                                                                                         │  ╭──╮╶─┬─╴╭──╮ ╭──╮ ╱╱╱╱╱╱╱╱╱╱
+ line 185                                                                                                │  ╰──╮  │  ├──┤ ├─┬╯ ╱╱╱╱╱╱╱╱╱╱
+                                                                                                         │  ╰──╯  ╵  ╵  ╵ ╵ ╰╴ ╱╱╱╱╱╱╱╱╱╱
+ line 186                                                                                                │  ╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱
                                                                                                          │
- line 186                                                                                                │
-                                                                                                         │  /tmp/crush-test
  line 187                                                                                                │
-                                                                                                         │  ◇
- line 188                                                                                                │
-                                                                                                         │  Modified Files ──────────────
- line 189                                                                                                │
-                                                                                                         │  None
- line 190                                                                                                │
-                                                                                                         │  LSPs ────────────────────────
- line 191                                                                                                │
-                                                                                                         │  None
- line 192                                                                                                │
-                                                                                                         │  MCPs ────────────────────────
- line 193                                                                                                │
-                                                                                                         │  None
- line 194                                                                                                │
-                                                                                                         │  Skills ──────────────────────
- line 195                                                                                                │
-                                                                                                         │  ● crush-config
- line 196                                                                                                │  ● crush-hooks
-                                                                                                         │  ● jq
- line 197                                                                                                │
-                                                                                                         ┃
- line 198                                                                                                ┃
+                                                                                                         │
+ line 188                                                                                                │  /tmp/crush-test
+                                                                                                         │
+ line 189                                                                                                │  ◇
+                                                                                                         │
+ line 190                                                                                                │  Modified Files ──────────────
+                                                                                                         │
+ line 191                                                                                                │  None
+                                                                                                         │
+ line 192                                                                                                │  LSPs ────────────────────────
+                                                                                                         │
+ line 193                                                                                                │  None
+                                                                                                         │
+ line 194                                                                                                │  MCPs ────────────────────────
+                                                                                                         │
+ line 195                                                                                                │  None
+                                                                                                         │
+ line 196                                                                                                │  Skills ──────────────────────
+                                                                                                         │
+ line 197                                                                                                │  ● crush-config
+                                                                                                         │  ● crush-hooks
+ line 198                                                                                                ┃  ● jq
                                                                                                          ┃
  line 199
 
- ┃ Refactor the auth module                                                                                
- ┃                                                                                                         
- ┃                                                                                                         
-
+                                                          ,~
+                                                        ~/(\
+                                               ~ _____~/ / `
+                                            ~~~~( )___(_|_
+                                                 \     _\/
+                                                 `\
+                                                  !  ▶ yeehaw
 
   YEEHAW MODE   tab focus editor • shift+tab mode • ctrl+p commands • ctrl+l models • ctrl+b toggle sidebar • ↑↓ scroll …

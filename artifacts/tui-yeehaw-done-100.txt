@@ -1,9 +1,6 @@
 
   ╱╱╱ STAR ╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱ /tmp/crush-test • ctrl+d open 
 
- line 190                                                                                        │
-                                                                                                 │
- line 191                                                                                        │
                                                                                                  │
  line 192                                                                                        │
                                                                                                  │
@@ -21,9 +18,12 @@
                                                                                                  ┃
  line 199
 
+                                                          ,~
+                                                        ~/(\
+                                               ~ _____~/ / `
+                                            ~~~~( )___(_|_
+                                                 \     _\/
+                                                 `\
                                              !  ▶ yeehaw
-
-
-
 
   YEEHAW MODE   tab focus editor • shift+tab mode • ctrl+p commands • ctrl+l models • ↑↓ scroll …

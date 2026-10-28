@@ -336,6 +336,15 @@ func TestTUIScreenshots(t *testing.T) {
 	})
 	yeehaw := TUIShotSetup(func(u *UI) {
 		u.setYeehawMode(true)
+		// Skip the fade so the snapshot shows the lane, and freeze the
+		// horse mid-lane so it reads as galloping rather than riding in.
+		u.yeehawFadeFrames = 0
+		u.yeehawHorseTick = 20
+	})
+	yeehawEnter := TUIShotSetup(func(u *UI) {
+		u.setYeehawMode(true)
+		u.yeehawFadeFrames = 0
+		u.yeehawHorseTick = 2
 	})
 
 	// To capture a new state, append one entry here. Keep names stable:
@@ -348,6 +357,7 @@ func TestTUIScreenshots(t *testing.T) {
 		{Name: "yeehaw-fade5-140", Width: 140, Height: 45, Setup: yeehaw, Warmup: 5},
 		{Name: "yeehaw-done-140", Width: 140, Height: 45, Setup: yeehaw, Warmup: 15},
 		{Name: "yeehaw-done-100", Width: 100, Height: 30, Setup: yeehaw, Warmup: 15},
+		{Name: "yeehaw-horse-enter-140", Width: 140, Height: 45, Setup: yeehawEnter},
 	}
 
 	CaptureTUIShots(t, dir, shots)
