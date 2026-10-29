@@ -4448,7 +4448,8 @@ func (m *UI) generateLayout(w, h int) uiLayout {
 		}
 	}
 	// While yeehaw mode runs, the editor lane hosts the galloping horse:
-	// reserve room for the horse rows plus its label. Narrow terminals
+	// reserve room for the horse rows plus a margin row; the badge lives
+	// inside the track and costs no extra line. Narrow terminals
 	// keep the static placeholder fallback and need no extra room.
 	if m.yeehawActive && w >= yeehawHorseWidth+4 {
 		editorHeight = max(editorHeight, yeehawLaneHeight)
