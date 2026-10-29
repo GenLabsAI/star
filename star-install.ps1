@@ -2,22 +2,24 @@
 <#
   Install or upgrade Star to the latest GitHub release on Windows.
 
-  The latest release is resolved from the GitHub Releases API at runtime so
-  this script does not hardcode a version. It downloads, verifies the SHA-256
-  against the release checksums.txt, and installs star.exe + star-core.exe
-  into the folder containing this script.
+  By default, installs into the folder containing this script. If a suitable
+  install is already present in ~/bin (both star.exe and star-core.exe),
+  that folder is preferred instead, so existing PATH-based usage keeps working.
 
-  Idempotent: rerun safely. If the release is unreachable or the download
-  is corrupt it aborts without replacing the current install.
+  The latest release is resolved from the GitHub Releases API at runtime so
+  this script does not hardcode a version.
+
+  Idempotent: rerun safely. If the release is unreachable or the download is
+  corrupt it aborts without replacing the current install.
 
   Optional switches:
     -SkipUpgrade
-        Only install if star.exe is absent in the script folder. Useful for
-        first-run installs where you do not want this script to overwrite an
-        existing binary set.
+        Only install if star.exe is absent in the chosen install folder.
 
-  Writes the resolved release tag, asset URLs, and checksums.txt into the
-  install folder so a rerun can inspect what was installed.
+  Environment:
+    STAR_INSTALL_BIN
+        If set and non-empty, overrides folder selection and installs into this
+        path instead of the script folder or ~/bin.
 #>
 $ErrorActionPreference = "Stop"
 
@@ -26,14 +28,6 @@ $Repo   = "star"
 $Arch   = "windows-amd64"
 $Asset  = "star-$Arch.zip"
 
-$InstallDir = $PSScriptRoot
-if ([string]::IsNullOrWhiteSpace($InstallDir)) { $InstallDir = (Get-Location).Path }
-
-# The GitHub releases API endpoint for the latest published release. Use the
-# github.com API host rather than the page so we get structured JSON.
-$LatestApiUrl = "https://api.github.com/repos/$Owner/$Repo/releases/latest"
-
-# Helper: HEAD-request reachability test.
 function Test-Uri([string]$Url) {
     try {
         $req = [System.Net.WebRequest]::Create($Url)
@@ -46,12 +40,48 @@ function Test-Uri([string]$Url) {
     }
 }
 
+$BinHome = $env:USERPROFILE
+if ([string]::IsNullOrEmpty($BinHome)) {
+    $BinHome = [Environment]::GetFolderPath("Profile")
+}
+$StarBinDir = Join-Path $BinHome "bin"
+
+$Explicit = $env:STAR_INSTALL_BIN
+if ([string]::IsNullOrWhiteSpace($Explicit)) {
+    $Explicit = $null
+}
+
+$InstallDir = $null
+$Reason = $null
+
+if (-not [string]::IsNullOrWhiteSpace($Explicit)) {
+    if (-not (Test-Path $Explicit)) {
+        New-Item -ItemType Directory -Path $Explicit -Force | Out-Null
+    }
+    $InstallDir = (Resolve-Path $Explicit).Path
+    $Reason = "STAR_INSTALL_BIN=$InstallDir"
+} elseif ((Test-Path $StarBinDir) -and
+          (Test-Path (Join-Path $StarBinDir "star.exe")) -and
+          (Test-Path (Join-Path $StarBinDir "star-core.exe"))) {
+    $InstallDir = (Resolve-Path $StarBinDir).Path
+    $Reason = "~/bin already has star.exe and star-core.exe"
+} else {
+    $InstallDir = $PSScriptRoot
+    if ([string]::IsNullOrWhiteSpace($InstallDir)) {
+        $InstallDir = (Get-Location).Path
+    }
+    $InstallDir = (Resolve-Path $InstallDir).Path
+    $Reason = "fallback: script folder"
+}
+
+Write-Host "[0/6] install target: $InstallDir  ($Reason)"
+
+$LatestApiUrl = "https://api.github.com/repos/$Owner/$Repo/releases/latest"
+
 $ResolvedTag = $null
 $ResolvedZipUrl = $null
 $ResolvedSumUrl = $null
 
-# Resolve latest release metadata. Prefer the JSON API; fall back to
-# constructing the download URL from the latest tag if the API is blocked.
 $apiOk = $false
 $apiResp = $null
 try {
@@ -70,7 +100,6 @@ try {
 }
 
 if ($apiOk) {
-    # The API response is JSON; parse without requiring an extra module.
     $obj = $null
     try {
         $obj = $apiResp | ConvertFrom-Json -ErrorAction Stop
@@ -89,9 +118,6 @@ if ($apiOk) {
         throw "GitHub API response had no usable version tag (tag_name or name). Response:`n$apiResp"
     }
 
-    # Only consider published releases. If the latest tagged release is a
-    # prerelease, keep walking the API assets into a safe fallback below by
-    # still using the tagged URL.
     $isPrerelease = $false
     if ($obj.prerelease -eq $true -or $obj.prerelease -eq "true" -or $obj.prerelease -eq 1) {
         $isPrerelease = $true
@@ -105,9 +131,6 @@ if ($apiOk) {
         Write-Warning "Latest release $ResolvedTag is marked as a prerelease. Proceeding anyway."
     }
 } else {
-    # API blocked: safest non-API fallback is to assume the latest tag is the
-    # one users most recently asked for. That assumption is not reliable in
-    # general, so fail loudly rather than guess silently.
     throw "Could not reach GitHub Releases API and cannot safely pick a default latest tag. Run this script again when GitHub is reachable, or open https://github.com/$Owner/$Repo/releases/latest and tell me the tag."
 }
 
@@ -115,7 +138,6 @@ Write-Host "[1/6] resolved latest release: $ResolvedTag"
 Write-Host "        zip : $ResolvedZipUrl"
 Write-Host "        sum : $ResolvedSumUrl"
 
-# Basic reachability checks before any download.
 if (-not (Test-Uri $ResolvedSumUrl)) {
     throw "checksums.txt not reachable: $ResolvedSumUrl"
 }
@@ -124,7 +146,7 @@ if (-not (Test-Uri $ResolvedZipUrl)) {
 }
 
 $ZipPath = Join-Path $InstallDir $Asset
-$SumPath = Join-Path $InstallDir "checksums.txt"
+$SumPath  = Join-Path $InstallDir "checksums.txt"
 
 Write-Host "[2/6] downloading checksums.txt"
 Invoke-WebRequest -UseBasicParsing -Uri $ResolvedSumUrl -OutFile $SumPath
@@ -195,10 +217,8 @@ Move-Item -Path (Join-Path $BinDir "star-core.exe") -Destination $InstallDir -Fo
 Remove-Item $ExtractDir -Recurse -Force
 Remove-Item $ZipPath -Force
 
-# Keep checksums.txt beside the install so the user can re-verify without
-# redownloading. Do not remove it.
 Write-Host "`nInstalled/updated $ResolvedTag into:"
-Write-Host "  $InstallDir"
+Write-Host "  $InstallDir  ($Reason)"
 Write-Host ""
 Write-Host "Binaries:"
 Get-ChildItem -Path $InstallDir -Filter "*.exe" | ForEach-Object {
@@ -206,6 +226,5 @@ Get-ChildItem -Path $InstallDir -Filter "*.exe" | ForEach-Object {
     Write-Host "  $($_.Name)  $($_.Length) bytes  SHA256=$h"
 }
 Write-Host ""
-Write-Host "Note: this script installed binaries into the folder that contained it."
-Write-Host "      If you run Star from a different folder or a PATH entry, copy or"
-Write-Host "      symlink the new star.exe and star-core.exe to wherever you run them."
+Write-Host "Note: this script installed binaries into $InstallDir."
+Write-Host "      PATH or shortcuts are not modified automatically."
