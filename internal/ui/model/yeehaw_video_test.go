@@ -2,10 +2,8 @@ package model
 
 // Video-frame dumper for the yeehaw horse. Guarded by TUI_VIDEO=1 so
 // normal test runs stay fast.
-//
 //	TUI_VIDEO=1 go test ./internal/ui/model -run TestYeehawHorseVideo -count=1 -v
 //	python3 artifacts/render_video.py
-//
 // Writes one JSON cell grid per tick into artifacts/video/, which
 // render_video.py assembles into artifacts/yeehaw-horse.gif at the real
 // 120ms frame interval.

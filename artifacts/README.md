@@ -57,3 +57,19 @@ Keep `Name` stable: the renderer turns `tui-<name>.json` into
   the review-friendly `tui-*.png` / `tui-*.txt` snapshots.
 - Ignored (regenerable): `tui-*.json` grids and the downloaded
   `DejaVuSansMono.ttf` font.
+
+## Horse video
+
+The yeehaw horse loop is captured the same way, one JSON grid per tick:
+
+```sh
+TUI_VIDEO=1 go test ./internal/ui/model -run TestYeehawHorseVideo -count=1
+python3 artifacts/render_video.py --out artifacts/yeehaw-horse.mp4
+```
+
+`internal/ui/model/yeehaw_video_test.go` dumps `video/frame-<tick>.json`
+(`TUI_VIDEO=1` keeps normal test runs fast); `render_video.py` renders
+all frames on one fixed canvas — ordered by numeric tick, never by
+filename — and writes `yeehaw-horse.mp4`, `yeehaw-horse.gif`, plus
+uniform per-frame PNGs. The tracked `.mp4`/`.gif` are the reviewable
+outputs; everything under `video/` is ignored and regenerable.
