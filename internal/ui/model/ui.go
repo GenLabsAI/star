@@ -3279,6 +3279,14 @@ func (m *UI) handleKeyPressMsg(msg tea.KeyPressMsg) tea.Cmd {
 			}
 			return tea.Batch(cmds...)
 		}
+		if m.yeehawActive {
+			// Idle unattended run (work finished, horse still lapping):
+			// esc exits yeehaw and restores the editor. Open dialogs
+			// already had first refusal above, so this cannot steal a
+			// dismissal.
+			m.setYeehawMode(false)
+			return tea.Batch(cmds...)
+		}
 	}
 
 	switch m.state {
@@ -5659,6 +5667,13 @@ func (m *UI) cancelAgent() tea.Cmd {
 		}
 
 		m.com.Workspace.AgentCancel(m.session.ID)
+		// Canceling an unattended (yeehaw) run also stands the editor
+		// back up: with the textarea retired there is nowhere to type
+		// /yeehaw, so double-esc both stops the agent and hands the
+		// editor back.
+		if m.yeehawActive {
+			m.setYeehawMode(false)
+		}
 		// Stop the spinning todo indicator and drop the memoized busy
 		// state the cancel just changed; the pill re-renders now from
 		// last-known state and again when the off-thread refresh (and
