@@ -36,6 +36,15 @@ const HOLD_MS: u64 = 320;
 /// Target frame interval (~30fps).
 pub const FRAME_INTERVAL: Duration = Duration::from_millis(33);
 
+/// How long the first frames keep repainting every cell.
+///
+/// Entering the alternate screen is not always synchronous: some terminals
+/// restore the previous alt-screen buffer just after the first frame lands.
+/// A one-shot clear only works when the restore happens first. Keep painting
+/// the whole screen for this guard window so a late restore is overwritten by
+/// the next frame, then switch back to the cheap incremental diff.
+const STALE_GUARD: Duration = Duration::from_millis(1_000);
+
 /// The shortest the banner should ever be shown: its entrance, plus a beat to
 /// land on before the terminal changes hands.
 pub fn min_duration() -> Duration {
@@ -158,7 +167,8 @@ impl Splash {
         self.cur.clear();
         self.cur.resize(cells, Cell::blank());
         self.build(elapsed.as_secs_f64() * 1_000.0);
-        let out = self.diff();
+        let force = self.first_frame || elapsed < STALE_GUARD;
+        let out = self.diff(force);
         std::mem::swap(&mut self.cur, &mut self.prev);
         out
     }
@@ -314,15 +324,15 @@ impl Splash {
     /// Emit only the cells that differ from the previous frame, coalescing
     /// contiguous changes into a single run so we pay one cursor-address per
     /// run rather than per cell.
-    fn diff(&mut self) -> String {
+    fn diff(&mut self, force: bool) -> String {
         let mut out = String::with_capacity(2048);
         let mut st = self.style;
         // The first frame repaints every cell, including blanks. The terminal
         // may still hold a previous Star splash (some terminals preserve the
         // alternate-screen buffer across ?1049 switches), and an incremental
-        // first frame would leave that old banner showing through every cell
-        // this frame considers blank. Establish a known screen once, then diff.
-        let force = self.first_frame;
+        // frame would leave that old banner showing through every cell this
+        // frame considers blank. `force` stays set through the startup guard
+        // window for terminals that restore the buffer late.
         for y in 0..self.rows {
             let base = y * self.cols;
             // Never emit the bottom-right cell. On terminals that scroll when
@@ -592,21 +602,60 @@ mod tests {
         }
     }
 
+    /// How many frames are covered by the full-screen startup guard.
+    fn warmup_frames() -> usize {
+        (STALE_GUARD.as_millis() / FRAME_INTERVAL.as_millis()) as usize + 1
+    }
+
+    #[test]
+    fn late_stale_restore_is_erased_by_the_guard() {
+        // The terminal restores its previous alt-screen buffer *after* the
+        // first frame. A one-shot clear cannot help here; the next full frame
+        // in the startup guard must overwrite the restored banner.
+        let mut banner = Splash::new(SIZE.0, SIZE.1);
+        let mut screen = Screen::new(SIZE.0 as usize, SIZE.1 as usize);
+
+        screen.feed(&banner.frame(Duration::ZERO));
+        screen.cells.fill(Cell {
+            ch: 'X',
+            fg: (255, 0, 0),
+            bg: (0, 0, 255),
+        });
+        screen.feed(&banner.frame(Duration::from_millis(FRAME_INTERVAL.as_millis() as u64)));
+
+        let cells = banner.cells();
+        for (i, expected) in cells.iter().enumerate() {
+            // The bottom-right cell is deliberately never written.
+            if i + 1 == cells.len() {
+                continue;
+            }
+            assert_eq!(
+                screen.cells[i], *expected,
+                "late-restored stale cell {i} survived the guard: terminal \
+                 has {:?}, renderer intended {:?}",
+                screen.cells[i], expected
+            );
+        }
+    }
+
     #[test]
     fn frames_stay_small() {
         // The old splash repainted whole rows every tick. If this ever creeps
-        // back up, the terminal will start dropping frames and the banner will
-        // flicker again.
+        // back up after the startup guard, the terminal will start dropping
+        // frames and the banner will flicker again.
         let (sizes, _) = run_animation(2_500);
-        let total: usize = sizes.iter().sum();
-        let mean = total / sizes.len();
+        let warmup = warmup_frames().min(sizes.len());
+        let steady = &sizes[warmup..];
+        assert!(!steady.is_empty(), "not enough frames to measure");
+        let mean = steady.iter().sum::<usize>() / steady.len();
         assert!(
             mean < 3_000,
-            "mean frame is {mean} bytes, which is too much to stream at 30fps"
+            "mean steady-state frame is {mean} bytes, which is too much to \
+             stream at 30fps"
         );
 
         let worst = sizes.iter().copied().max().unwrap_or(0);
-        // Only the first frame may paint the whole screen.
+        // The startup guard may paint the whole screen, but only briefly.
         assert!(
             worst < 30_000,
             "largest frame is {worst} bytes; a full-screen repaint crept back in"
@@ -614,10 +663,10 @@ mod tests {
     }
 
     #[test]
-    fn no_frame_after_the_first_is_full_screen() {
+    fn no_frame_after_the_guard_is_full_screen() {
         let (sizes, cells) = run_animation(2_500);
         let budget = cells * 2;
-        for (i, size) in sizes.iter().enumerate().skip(1) {
+        for (i, size) in sizes.iter().enumerate().skip(warmup_frames()) {
             assert!(
                 *size < budget,
                 "frame {i} emitted {size} bytes, more than painting the whole \
