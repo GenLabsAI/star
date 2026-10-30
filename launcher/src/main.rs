@@ -1,18 +1,13 @@
-//! The `star` launcher: renders the splash banner, supervises the Go core, and
+//! The `star` launcher: starts the Go core without touching the screen and
 //! coordinates in-place self-updates across every running instance.
 
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
-use std::thread;
 use std::time::{Duration, Instant};
 
 use star_launcher::coord::{self, Coord};
-use star_launcher::handshake;
-use star_launcher::splash;
-use star_launcher::{platform, update};
+use star_launcher::update;
 
 /// Core exits closer together than this are treated as a bootloop rather than
 /// as a user-initiated update.
@@ -33,55 +28,11 @@ fn find_core() -> PathBuf {
     }
 }
 
-/// Leave the terminal in the exact state Bubble Tea expects to inherit: out of
-/// the alt screen, cursor visible, all SGR reset, scroll region cleared.
-fn restore_terminal(stdout: &Arc<Mutex<io::Stdout>>) {
-    if let Ok(mut out) = stdout.lock() {
-        // Clear the alt screen before exiting so the next occupant (Go/Bubble
-        // Tea) starts with a blank canvas. Some terminals preserve the alt-
-        // screen buffer when re-entering ?1049h, which would otherwise leave
-        // the Rust splash's STAR visible behind the Go header.
-        let _ = out.write_all(b"\x1b[2J\x1b[H\x1b[?1049l\x1b[?25h\x1b[0m\x1b[r");
-        let _ = out.flush();
-    }
-}
-
 fn run_core(coord: &Coord) -> i32 {
     let pid = std::process::id();
-    let stdout = Arc::new(Mutex::new(io::stdout()));
-    let tty = platform::is_tty();
-    let stop = Arc::new(AtomicBool::new(false));
-    let mut animation = None;
-    let start = Instant::now();
     // Stamped into the core's environment so it can tell a request that
     // arrived after this launch from a leftover one from an earlier run.
     let launched_nanos = coord::now_nanos();
-
-    if tty {
-        if let Ok(mut out) = stdout.lock() {
-            // Reset any scroll region inherited from whatever ran before us
-            // (vim, a pager, a fancy prompt). With a region active, frames
-            // written below its last row scroll the screen, and the diff then
-            // paints against a moved grid, leaving ghost copies of the banner.
-            let _ = out.write_all(b"\x1b[?1049h\x1b[?25l\x1b[48;2;0;0;0m\x1b[r\x1b[H\x1b[2J");
-            let _ = out.flush();
-        }
-
-        let stop_clone = Arc::clone(&stop);
-        let stdout_clone = Arc::clone(&stdout);
-        animation = Some(thread::spawn(move || {
-            let (cols, rows) = platform::console_size();
-            let mut banner = splash::Splash::new(cols, rows);
-            while !stop_clone.load(Ordering::Relaxed) {
-                let bytes = banner.frame(start.elapsed());
-                if let Ok(mut out) = stdout_clone.lock() {
-                    let _ = out.write_all(bytes.as_bytes());
-                    let _ = out.flush();
-                }
-                thread::sleep(splash::FRAME_INTERVAL);
-            }
-        }));
-    }
 
     let core = find_core();
     let mut args: Vec<String> = std::env::args().skip(1).collect();
@@ -102,13 +53,9 @@ fn run_core(coord: &Coord) -> i32 {
         args.push(session);
     }
 
-    let handshake = handshake::Handshake::new(pid);
-    handshake.cleanup();
-
     let mut child = match Command::new(&core)
         .args(&args)
-        .env("STAR_LAUNCHER_HANDSHAKE", "1")
-        .env("STAR_LAUNCHER_PID", handshake.env_pid())
+        .env("STAR_LAUNCHER_PID", pid.to_string())
         .env("STAR_UPDATE_DIR", coord.root())
         .env("STAR_LAUNCHER_TIME", launched_nanos.to_string())
         .stdin(Stdio::inherit())
@@ -118,31 +65,10 @@ fn run_core(coord: &Coord) -> i32 {
     {
         Ok(c) => c,
         Err(e) => {
-            restore_terminal(&stdout);
             eprintln!("failed to launch star-core: {e}");
             std::process::exit(1);
         }
     };
-
-    handshake.wait_ready();
-
-    // Hold the banner for its full entrance. If the core booted slowly, the
-    // banner simply keeps animating until the handoff.
-    let remaining = splash::min_duration().saturating_sub(start.elapsed());
-    if !remaining.is_zero() {
-        thread::sleep(remaining);
-    }
-
-    stop.store(true, Ordering::Relaxed);
-    if let Some(animation) = animation {
-        let _ = animation.join();
-    }
-
-    restore_terminal(&stdout);
-
-    handshake.signal_release();
-    handshake.wait_rendered();
-    handshake.cleanup();
 
     match child.wait() {
         Ok(status) => status.code().unwrap_or(0),

@@ -44,10 +44,9 @@ func newSplashModel(cmd *cobra.Command, sessionID string, continueLast bool) *sp
 }
 
 func (m *splashModel) Init() tea.Cmd {
-	// The launcher has already released the terminal before the program is
-	// started (see rootCmd), so this only needs to report our first frame
-	// and let the launcher exit.
-	return func() tea.Msg { return launcherReleasedMsg{} }
+	// The workspace is initialized before the program starts, so there is no
+	// startup animation or launcher handoff to wait for.
+	return nil
 }
 
 func (m *splashModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -59,12 +58,16 @@ func (m *splashModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
+		if m.pendingReady != nil {
+			ready := m.pendingReady
+			return m, m.transitionToUI(ready)
+		}
 	case splashReadyMsg:
 		if msg.err != nil {
 			m.initializationErr = msg.err
 			return m, tea.Quit
 		}
-		if m.launcherReleased {
+		if m.width > 0 && m.height > 0 {
 			return m, m.transitionToUI(&msg)
 		}
 		m.pendingReady = &msg

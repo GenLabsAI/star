@@ -119,18 +119,17 @@ star --continue
 		sessionID, _ := cmd.Flags().GetString("session")
 		continueLast, _ := cmd.Flags().GetBool("continue")
 
-		// Create the splash model and initialize the workspace while the Rust
-		// launcher owns the terminal. Bubble Tea must not be started yet: its
-		// renderer emits cursor, mouse, and erase sequences as soon as it
-		// runs, which scrolls or blanks the launcher's splash.
+		// Initialize before starting Bubble Tea. The terminal stays untouched
+		// until the workspace is ready, then the UI owns it from its first
+		// frame. There is no startup splash and no alt-screen handoff.
 		splash := newSplashModel(cmd, sessionID, continueLast)
-		splash.handshake = newLauncherHandshake()
-
-		ready := make(chan splashReadyMsg, 1)
-		go func() { ready <- splash.initialize() }()
-
-		_ = splash.handshake.signalReady()
-		_ = splash.handshake.awaitRelease()
+		ready := splash.initialize()
+		if ready.err != nil {
+			return ready.err
+		}
+		// Hold the initialized workspace until Bubble Tea reports the terminal
+		// size. Rendering the UI at 0x0 dereferences unset header styles.
+		splash.pendingReady = &ready
 
 		inputFilter := ui.NewFilter()
 		var env uv.Environ = os.Environ()
@@ -141,7 +140,6 @@ star --continue
 			tea.WithFilter(inputFilter.Filter),
 		)
 		splash.Subscribe(program)
-		go func() { program.Send(<-ready) }()
 
 		if _, err := program.Run(); err != nil {
 			event.Error(err)
