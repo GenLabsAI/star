@@ -160,7 +160,13 @@ func Connect(ctx context.Context, dataDir string, opts ...ConnectOption) (*sql.D
 		return nil, fmt.Errorf("failed to initialize goose: %w", err)
 	}
 
-	if err := goose.Up(conn, "migrations"); err != nil {
+	// Allow out-of-order migrations. Migration versions are timestamps, so a
+	// database migrated by an older build can legitimately be past a
+	// migration that only exists in the current tree, which makes goose's
+	// default gap check abort startup. Applying the gap in version order is
+	// safe: versions are still recorded, so a database that already applied
+	// one of them will never run it twice.
+	if err := goose.Up(conn, "migrations", goose.WithAllowMissing()); err != nil {
 		conn.Close()
 		releaseLock()
 		slog.Error("Failed to apply migrations", "error", err)
