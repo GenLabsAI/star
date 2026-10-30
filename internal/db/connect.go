@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"embed"
 	"fmt"
-	"log/slog"
 	"os"
 	"path/filepath"
 	"sync"
@@ -47,9 +46,10 @@ func init() {
 // the same data directory concurrently while still blocking a second
 // crush process from racing the storage.
 type connEntry struct {
-	db       *sql.DB
-	refCount int
-	lock     *dataDirLock
+	db           *sql.DB
+	refCount     int
+	lock         *dataDirLock
+	migrationErr error
 }
 
 var (
@@ -153,28 +153,52 @@ func Connect(ctx context.Context, dataDir string, opts ...ConnectOption) (*sql.D
 		return nil, fmt.Errorf("failed to connect to database: %w", err)
 	}
 
+	// A migration failure must never make the app refuse to start. The
+	// existing schema is still usable for the features it supports, and a
+	// stale or partially migrated schema is better than no app at all.
+	// The error is recorded on the connection instead of logged here:
+	// Connect runs while the launcher owns the terminal, and writing to
+	// stderr at that point can corrupt the splash screen.
+	var migrationErr error
 	if err := initGoose(); err != nil {
-		conn.Close()
-		releaseLock()
-		slog.Error("Failed to initialize goose", "error", err)
-		return nil, fmt.Errorf("failed to initialize goose: %w", err)
+		migrationErr = fmt.Errorf("failed to initialize migrations: %w", err)
+	} else if err := goose.Up(conn, "migrations", goose.WithAllowMissing()); err != nil {
+		migrationErr = fmt.Errorf("failed to apply migrations: %w", err)
 	}
 
-	// Allow out-of-order migrations. Migration versions are timestamps, so a
-	// database migrated by an older build can legitimately be past a
-	// migration that only exists in the current tree, which makes goose's
-	// default gap check abort startup. Applying the gap in version order is
-	// safe: versions are still recorded, so a database that already applied
-	// one of them will never run it twice.
-	if err := goose.Up(conn, "migrations", goose.WithAllowMissing()); err != nil {
-		conn.Close()
-		releaseLock()
-		slog.Error("Failed to apply migrations", "error", err)
-		return nil, fmt.Errorf("failed to apply migrations: %w", err)
+	pool[absPath] = &connEntry{
+		db:           conn,
+		refCount:     1,
+		lock:         lock,
+		migrationErr: migrationErr,
 	}
-
-	pool[absPath] = &connEntry{db: conn, refCount: 1, lock: lock}
 	return conn, nil
+}
+
+// MigrationWarning reports the migration error observed when the
+// database at dataDir was opened. It returns nil when migrations were
+// applied successfully or the database is not currently open. Callers
+// should surface it after logging is initialized so the warning cannot
+// disturb the splash screen.
+func MigrationWarning(dataDir string) error {
+	if dataDir == "" {
+		return nil
+	}
+
+	dbPath := filepath.Join(dataDir, "crush.db")
+	absPath, err := filepath.Abs(dbPath)
+	if err != nil {
+		absPath = dbPath
+	}
+
+	poolMu.Lock()
+	defer poolMu.Unlock()
+
+	entry, ok := pool[absPath]
+	if !ok {
+		return nil
+	}
+	return entry.migrationErr
 }
 
 // Release decrements the reference count for the database at the given

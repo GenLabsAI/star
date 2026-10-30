@@ -367,6 +367,9 @@ func setupLocalWorkspace(cmd *cobra.Command) (workspace.Workspace, func(), error
 
 	logFile := filepath.Join(cfg.Options.DataDirectory, "logs", "crush.log")
 	crushlog.Setup(logFile, debug)
+	if err := db.MigrationWarning(cfg.Options.DataDirectory); err != nil {
+		slog.Warn("Started with the existing database schema; some features may be unavailable", "error", err)
+	}
 
 	// Discover skills once before app.New. Local mode hosts a single
 	// workspace per process, so WithGlobalMirror keeps the package
