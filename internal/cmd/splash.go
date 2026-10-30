@@ -70,9 +70,15 @@ func (m *splashModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.handshake != nil {
 			m.handshake.notifyRendered()
 		}
+		// The launcher clears the screen before handing off, but some
+		// terminals preserve the alternate-screen buffer across ?1049
+		// switches. Clear it again now that this process owns the terminal
+		// so no frame of the launcher's splash can linger behind the UI.
+		clear := func() tea.Msg { return tea.ClearScreen() }
 		if m.pendingReady != nil {
-			return m, m.transitionToUI(m.pendingReady)
+			return m, tea.Batch(clear, m.transitionToUI(m.pendingReady))
 		}
+		return m, clear
 	}
 	return m, nil
 }

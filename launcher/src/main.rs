@@ -59,7 +59,11 @@ fn run_core(coord: &Coord) -> i32 {
 
     if tty {
         if let Ok(mut out) = stdout.lock() {
-            let _ = out.write_all(b"\x1b[?1049h\x1b[?25l\x1b[48;2;0;0;0m\x1b[H\x1b[2J");
+            // Reset any scroll region inherited from whatever ran before us
+            // (vim, a pager, a fancy prompt). With a region active, frames
+            // written below its last row scroll the screen, and the diff then
+            // paints against a moved grid, leaving ghost copies of the banner.
+            let _ = out.write_all(b"\x1b[?1049h\x1b[?25l\x1b[48;2;0;0;0m\x1b[r\x1b[H\x1b[2J");
             let _ = out.flush();
         }
 

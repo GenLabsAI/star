@@ -317,14 +317,22 @@ impl Splash {
         let mut st = self.style;
         for y in 0..self.rows {
             let base = y * self.cols;
+            // Never emit the bottom-right cell. On terminals that scroll when
+            // it is written, each frame would shift the grid and smear the
+            // banner over itself.
+            let width = if y + 1 == self.rows {
+                self.cols.saturating_sub(1)
+            } else {
+                self.cols
+            };
             let mut x = 0;
-            while x < self.cols {
+            while x < width {
                 if self.cur[base + x] == self.prev[base + x] {
                     x += 1;
                     continue;
                 }
                 let _ = write!(out, "\x1b[{};{}H", y + 1, x + 1);
-                while x < self.cols && self.cur[base + x] != self.prev[base + x] {
+                while x < width && self.cur[base + x] != self.prev[base + x] {
                     let c = self.cur[base + x];
                     if c.bg != st.bg {
                         let _ = write!(out, "\x1b[48;2;{};{};{}m", c.bg.0, c.bg.1, c.bg.2);
@@ -363,6 +371,14 @@ fn starfield(layout: &Option<Layout>, cols: usize, rows: usize) -> Vec<Star> {
         let phase = lcg(&mut seed) as f64 / u32::MAX as f64 * TAU;
         let rate = 1.0 + 1.5 * (lcg(&mut seed) as f64 / u32::MAX as f64);
         let big = lcg(&mut seed) % 7 == 0;
+
+        // The bottom-right cell is a scroll hazard on some terminals: writing
+        // it moves the whole screen, and the next diff then paints against a
+        // shifted grid, leaving a ghost copy of the banner behind. Nothing
+        // needs to twinkle there.
+        if y + 1 == rows && x + 1 == cols {
+            continue;
+        }
 
         // Keep stars out of the banner's bounding box so nothing sparkles
         // through the wordmark.
@@ -623,6 +639,24 @@ mod tests {
                     left_gap.abs_diff(right_gap) <= 1,
                     "wordmark row {row} is off-centre at {cols} columns: \
                      {left_gap} left, {right_gap} right"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn never_uses_the_bottom_right_cell() {
+        // Writing that cell scrolls some terminals, which makes the diff paint
+        // against a moved grid and duplicates the banner. It must stay blank.
+        for (cols, rows) in [(80u16, 24u16), (100, 30), (120, 35), (140, 40), (160, 50)] {
+            let mut banner = Splash::new(cols, rows);
+            for t in (0..2_500usize).step_by(FRAME_INTERVAL.as_millis() as usize) {
+                banner.frame(Duration::from_millis(t as u64));
+                let last = &banner.cells()[cols as usize * rows as usize - 1];
+                assert_eq!(
+                    *last,
+                    Cell::blank(),
+                    "{cols}x{rows} painted the bottom-right cell at t={t}ms"
                 );
             }
         }
