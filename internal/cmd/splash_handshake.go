@@ -56,16 +56,25 @@ func waitForFile(path string) {
 	}
 }
 
-// awaitRelease notifies the launcher that Go has finished initializing and
-// blocks until the launcher has stopped animating and given up ownership of
-// the terminal. It must be called before tea.NewProgram/Run so bubbletea
-// never writes to the terminal while the launcher still owns it.
-func (h *launcherHandshake) awaitRelease() error {
+// signalReady tells the launcher that the core is alive and initializing.
+// It must be called before awaitRelease, and before Bubble Tea is started, so
+// the launcher can keep owning the terminal until it hands it over.
+func (h *launcherHandshake) signalReady() error {
 	if !h.active {
 		return nil
 	}
 	if err := touchFile(h.readyPath); err != nil {
 		return fmt.Errorf("notify launcher: %w", err)
+	}
+	return nil
+}
+
+// awaitRelease blocks until the launcher has stopped animating and given up
+// ownership of the terminal. It must be called before tea.NewProgram/Run so
+// bubbletea never writes to the terminal while the launcher still owns it.
+func (h *launcherHandshake) awaitRelease() error {
+	if !h.active {
+		return nil
 	}
 	waitForFile(h.releasePath)
 	return nil

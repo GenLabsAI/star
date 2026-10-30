@@ -109,6 +109,7 @@ pub struct Splash {
     stars: Vec<Star>,
     layout: Option<Layout>,
     style: Style,
+    first_frame: bool,
 }
 
 impl Splash {
@@ -123,6 +124,7 @@ impl Splash {
             stars: Vec::new(),
             layout: None,
             style: Style { fg: BLACK, bg: BLACK },
+            first_frame: true,
         };
         splash.prev = vec![Cell::blank(); cols * rows];
 
@@ -315,6 +317,12 @@ impl Splash {
     fn diff(&mut self) -> String {
         let mut out = String::with_capacity(2048);
         let mut st = self.style;
+        // The first frame repaints every cell, including blanks. The terminal
+        // may still hold a previous Star splash (some terminals preserve the
+        // alternate-screen buffer across ?1049 switches), and an incremental
+        // first frame would leave that old banner showing through every cell
+        // this frame considers blank. Establish a known screen once, then diff.
+        let force = self.first_frame;
         for y in 0..self.rows {
             let base = y * self.cols;
             // Never emit the bottom-right cell. On terminals that scroll when
@@ -327,12 +335,12 @@ impl Splash {
             };
             let mut x = 0;
             while x < width {
-                if self.cur[base + x] == self.prev[base + x] {
+                if !force && self.cur[base + x] == self.prev[base + x] {
                     x += 1;
                     continue;
                 }
                 let _ = write!(out, "\x1b[{};{}H", y + 1, x + 1);
-                while x < width && self.cur[base + x] != self.prev[base + x] {
+                while x < width && (force || self.cur[base + x] != self.prev[base + x]) {
                     let c = self.cur[base + x];
                     if c.bg != st.bg {
                         let _ = write!(out, "\x1b[48;2;{};{};{}m", c.bg.0, c.bg.1, c.bg.2);
@@ -348,6 +356,7 @@ impl Splash {
             }
         }
         self.style = st;
+        self.first_frame = false;
         out
     }
 }
@@ -550,6 +559,37 @@ mod tests {
     #[test]
     fn incremental_frames_reconstruct_every_frame() {
         run_animation(2_500);
+    }
+
+    #[test]
+    fn first_frame_clears_a_stale_screen() {
+        // A terminal can keep the previous run's banner in its alternate-screen
+        // buffer. The first frame must overwrite every cell it owns, including
+        // the blanks between the wordmark's strokes, or the old banner shows
+        // through the new one.
+        let mut banner = Splash::new(SIZE.0, SIZE.1);
+        let mut screen = Screen::new(SIZE.0 as usize, SIZE.1 as usize);
+        let stale = Cell {
+            ch: 'X',
+            fg: (255, 0, 0),
+            bg: (0, 0, 255),
+        };
+        screen.cells.fill(stale);
+
+        screen.feed(&banner.frame(Duration::ZERO));
+
+        let cells = banner.cells();
+        for (i, expected) in cells.iter().enumerate() {
+            // The bottom-right cell is deliberately never written.
+            if i + 1 == cells.len() {
+                continue;
+            }
+            assert_eq!(
+                screen.cells[i], *expected,
+                "stale cell {i} survived the first frame: terminal has {:?}, renderer intended {:?}",
+                screen.cells[i], expected
+            );
+        }
     }
 
     #[test]

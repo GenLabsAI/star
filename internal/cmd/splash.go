@@ -44,7 +44,10 @@ func newSplashModel(cmd *cobra.Command, sessionID string, continueLast bool) *sp
 }
 
 func (m *splashModel) Init() tea.Cmd {
-	return tea.Batch(m.initialize(), m.awaitReleaseCmd())
+	// The launcher has already released the terminal before the program is
+	// started (see rootCmd), so this only needs to report our first frame
+	// and let the launcher exit.
+	return func() tea.Msg { return launcherReleasedMsg{} }
 }
 
 func (m *splashModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -96,11 +99,11 @@ func (m *splashModel) View() tea.View {
 	}
 
 	var v tea.View
-	// Defer entering the alt screen until the launcher has released the
-	// terminal. The launcher clears the alt screen as it exits, so there is
-	// no need to clear again here; entering too early would race with the
-	// launcher's exit sequence and can leave the Rust splash visible behind
-	// the Go header on terminals that preserve the alt-screen buffer.
+	// The launcher releases the terminal before this program starts, so we
+	// take the alt screen only after its released message lands. Entering
+	// earlier would race the launcher's exit sequence and can leave its
+	// splash visible behind the Go header on terminals that preserve the
+	// alternate-screen buffer.
 	v.AltScreen = m.launcherReleased
 	v.MouseMode = tea.MouseModeCellMotion
 	v.WindowTitle = "Star"
@@ -122,38 +125,27 @@ func (m *splashModel) transitionToUI(ready *splashReadyMsg) tea.Cmd {
 	return tea.Batch(updateCmd, initCmd)
 }
 
-func (m *splashModel) awaitReleaseCmd() tea.Cmd {
-	return func() tea.Msg {
-		if m.handshake != nil {
-			_ = m.handshake.awaitRelease()
-		}
-		return launcherReleasedMsg{}
+func (m *splashModel) initialize() splashReadyMsg {
+	ws, cleanup, err := setupWorkspace(m.cmd)
+	if err != nil {
+		return splashReadyMsg{err: err}
 	}
-}
 
-func (m *splashModel) initialize() tea.Cmd {
-	return func() tea.Msg {
-		ws, cleanup, err := setupWorkspace(m.cmd)
+	sessionID := m.sessionID
+	if sessionID != "" {
+		sess, err := resolveWorkspaceSessionID(m.cmd.Context(), ws, sessionID)
 		if err != nil {
+			cleanup()
 			return splashReadyMsg{err: err}
 		}
+		sessionID = sess.ID
+	}
 
-		sessionID := m.sessionID
-		if sessionID != "" {
-			sess, err := resolveWorkspaceSessionID(m.cmd.Context(), ws, sessionID)
-			if err != nil {
-				cleanup()
-				return splashReadyMsg{err: err}
-			}
-			sessionID = sess.ID
-		}
-
-		event.AppInitialized()
-		return splashReadyMsg{
-			model:   ui.New(common.DefaultCommon(ws), sessionID, m.continueLast),
-			ws:      ws,
-			cleanup: cleanup,
-		}
+	event.AppInitialized()
+	return splashReadyMsg{
+		model:   ui.New(common.DefaultCommon(ws), sessionID, m.continueLast),
+		ws:      ws,
+		cleanup: cleanup,
 	}
 }
 
