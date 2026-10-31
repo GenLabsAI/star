@@ -1,12 +1,11 @@
 //! Star's splash banner.
 //!
-//! Every frame is composed into an offscreen cell buffer and then diffed
-//! against the previous frame, so a frame only emits the cells that actually
-//! changed. Repainting whole rows (or clearing and redrawing the screen) on
-//! every tick is what makes terminal splash screens look glitchy: it produces
-//! tens of kilobytes of escape sequences per frame, which slower terminals
-//! cannot keep up with, and the parts of the banner that did not change still
-//! blink while the new content is being transmitted.
+//! Every frame is composed into an offscreen cell buffer and painted in full.
+//! That sounds wasteful, but it is what makes the splash deterministic: a
+//! terminal can restore its previous alternate-screen buffer after any frame,
+//! and an incremental diff would then leave the old banner showing through
+//! cells this frame considers blank. Writing every cell means the next frame
+//! erases that stale content no matter when it appears.
 
 use std::fmt::Write as _;
 use std::time::Duration;
@@ -35,15 +34,6 @@ const IGNITE_MS: f64 = 1_400.0;
 const HOLD_MS: u64 = 320;
 /// Target frame interval (~30fps).
 pub const FRAME_INTERVAL: Duration = Duration::from_millis(33);
-
-/// How long the first frames keep repainting every cell.
-///
-/// Entering the alternate screen is not always synchronous: some terminals
-/// restore the previous alt-screen buffer just after the first frame lands.
-/// A one-shot clear only works when the restore happens first. Keep painting
-/// the whole screen for this guard window so a late restore is overwritten by
-/// the next frame, then switch back to the cheap incremental diff.
-const STALE_GUARD: Duration = Duration::from_millis(1_000);
 
 /// The shortest the banner should ever be shown: its entrance, plus a beat to
 /// land on before the terminal changes hands.
@@ -118,7 +108,6 @@ pub struct Splash {
     stars: Vec<Star>,
     layout: Option<Layout>,
     style: Style,
-    first_frame: bool,
 }
 
 impl Splash {
@@ -132,8 +121,10 @@ impl Splash {
             prev: Vec::new(),
             stars: Vec::new(),
             layout: None,
-            style: Style { fg: BLACK, bg: BLACK },
-            first_frame: true,
+            style: Style {
+                fg: BLACK,
+                bg: BLACK,
+            },
         };
         splash.prev = vec![Cell::blank(); cols * rows];
 
@@ -167,8 +158,7 @@ impl Splash {
         self.cur.clear();
         self.cur.resize(cells, Cell::blank());
         self.build(elapsed.as_secs_f64() * 1_000.0);
-        let force = self.first_frame || elapsed < STALE_GUARD;
-        let out = self.diff(force);
+        let out = self.full_frame();
         std::mem::swap(&mut self.cur, &mut self.prev);
         out
     }
@@ -321,18 +311,19 @@ impl Splash {
         }
     }
 
-    /// Emit only the cells that differ from the previous frame, coalescing
-    /// contiguous changes into a single run so we pay one cursor-address per
-    /// run rather than per cell.
-    fn diff(&mut self, force: bool) -> String {
-        let mut out = String::with_capacity(2048);
+    /// Paint every cell, including blanks.
+    ///
+    /// A full frame is the only way to be certain that stale content is gone:
+    /// an incremental frame cannot erase old cells that it believes are still
+    /// blank. Cursor addressing per row keeps this to one cursor move per row,
+    /// and unchanged SGR state is skipped, so the full frame stays affordable
+    /// at the splash's 30fps cadence.
+    fn full_frame(&mut self) -> String {
+        let mut out = String::with_capacity(4096);
         let mut st = self.style;
-        // The first frame repaints every cell, including blanks. The terminal
-        // may still hold a previous Star splash (some terminals preserve the
-        // alternate-screen buffer across ?1049 switches), and an incremental
-        // frame would leave that old banner showing through every cell this
-        // frame considers blank. `force` stays set through the startup guard
-        // window for terminals that restore the buffer late.
+        // Ask the terminal to present the frame atomically where supported.
+        // Terminals that do not implement synchronized output ignore the mode.
+        out.push_str("\x1b[?2026h");
         for y in 0..self.rows {
             let base = y * self.cols;
             // Never emit the bottom-right cell. On terminals that scroll when
@@ -343,36 +334,35 @@ impl Splash {
             } else {
                 self.cols
             };
-            let mut x = 0;
-            while x < width {
-                if !force && self.cur[base + x] == self.prev[base + x] {
-                    x += 1;
-                    continue;
+            if width == 0 {
+                continue;
+            }
+            let _ = write!(out, "\x1b[{};1H", y + 1);
+            for x in 0..width {
+                let c = self.cur[base + x];
+                if c.bg != st.bg {
+                    let _ = write!(out, "\x1b[48;2;{};{};{}m", c.bg.0, c.bg.1, c.bg.2);
+                    st.bg = c.bg;
                 }
-                let _ = write!(out, "\x1b[{};{}H", y + 1, x + 1);
-                while x < width && (force || self.cur[base + x] != self.prev[base + x]) {
-                    let c = self.cur[base + x];
-                    if c.bg != st.bg {
-                        let _ = write!(out, "\x1b[48;2;{};{};{}m", c.bg.0, c.bg.1, c.bg.2);
-                        st.bg = c.bg;
-                    }
-                    if c.fg != st.fg {
-                        let _ = write!(out, "\x1b[38;2;{};{};{}m", c.fg.0, c.fg.1, c.fg.2);
-                        st.fg = c.fg;
-                    }
-                    out.push(c.ch);
-                    x += 1;
+                if c.fg != st.fg {
+                    let _ = write!(out, "\x1b[38;2;{};{};{}m", c.fg.0, c.fg.1, c.fg.2);
+                    st.fg = c.fg;
                 }
+                out.push(c.ch);
             }
         }
+        out.push_str("\x1b[?2026l");
         self.style = st;
-        self.first_frame = false;
         out
     }
 }
 
 fn wordmark_width() -> usize {
-    WORDMARK.iter().map(|l| l.chars().count()).max().unwrap_or(0)
+    WORDMARK
+        .iter()
+        .map(|l| l.chars().count())
+        .max()
+        .unwrap_or(0)
 }
 
 fn lcg(state: &mut u32) -> u32 {
@@ -402,11 +392,21 @@ fn starfield(layout: &Option<Layout>, cols: usize, rows: usize) -> Vec<Star> {
         // Keep stars out of the banner's bounding box so nothing sparkles
         // through the wordmark.
         if let Some(l) = layout {
-            if y + 2 >= l.mark_y && y <= l.rule_y + 2 && x + 3 >= l.left && x <= l.left + l.width + 3 {
+            if y + 2 >= l.mark_y
+                && y <= l.rule_y + 2
+                && x + 3 >= l.left
+                && x <= l.left + l.width + 3
+            {
                 continue;
             }
         }
-        stars.push(Star { x, y, phase, rate, big });
+        stars.push(Star {
+            x,
+            y,
+            phase,
+            rate,
+            big,
+        });
     }
     stars
 }
@@ -567,7 +567,7 @@ mod tests {
     }
 
     #[test]
-    fn incremental_frames_reconstruct_every_frame() {
+    fn full_frames_reconstruct_every_frame() {
         run_animation(2_500);
     }
 
@@ -602,77 +602,68 @@ mod tests {
         }
     }
 
-    /// How many frames are covered by the full-screen startup guard.
-    fn warmup_frames() -> usize {
-        (STALE_GUARD.as_millis() / FRAME_INTERVAL.as_millis()) as usize + 1
+    #[test]
+    fn late_stale_restore_is_erased_at_any_time() {
+        // A terminal may restore its previous alt-screen buffer after any
+        // frame, not only at startup. Every following frame must repaint the
+        // whole screen, otherwise the stale wordmark survives underneath.
+        for stale_at in [0u64, 500, 1_000, 1_500, 2_400] {
+            let mut banner = Splash::new(SIZE.0, SIZE.1);
+            let mut screen = Screen::new(SIZE.0 as usize, SIZE.1 as usize);
+
+            screen.feed(&banner.frame(Duration::from_millis(stale_at)));
+            screen.cells.fill(Cell {
+                ch: 'X',
+                fg: (255, 0, 0),
+                bg: (0, 0, 255),
+            });
+            screen.feed(&banner.frame(Duration::from_millis(
+                stale_at + FRAME_INTERVAL.as_millis() as u64,
+            )));
+
+            let cells = banner.cells();
+            for (i, expected) in cells.iter().enumerate() {
+                // The bottom-right cell is deliberately never written.
+                if i + 1 == cells.len() {
+                    continue;
+                }
+                assert_eq!(
+                    screen.cells[i], *expected,
+                    "late-restored stale cell {i} survived at t={stale_at}ms: \
+                     terminal has {:?}, renderer intended {:?}",
+                    screen.cells[i], expected
+                );
+            }
+        }
     }
 
     #[test]
-    fn late_stale_restore_is_erased_by_the_guard() {
-        // The terminal restores its previous alt-screen buffer *after* the
-        // first frame. A one-shot clear cannot help here; the next full frame
-        // in the startup guard must overwrite the restored banner.
-        let mut banner = Splash::new(SIZE.0, SIZE.1);
-        let mut screen = Screen::new(SIZE.0 as usize, SIZE.1 as usize);
-
-        screen.feed(&banner.frame(Duration::ZERO));
-        screen.cells.fill(Cell {
-            ch: 'X',
-            fg: (255, 0, 0),
-            bg: (0, 0, 255),
-        });
-        screen.feed(&banner.frame(Duration::from_millis(FRAME_INTERVAL.as_millis() as u64)));
-
-        let cells = banner.cells();
-        for (i, expected) in cells.iter().enumerate() {
-            // The bottom-right cell is deliberately never written.
-            if i + 1 == cells.len() {
-                continue;
-            }
-            assert_eq!(
-                screen.cells[i], *expected,
-                "late-restored stale cell {i} survived the guard: terminal \
-                 has {:?}, renderer intended {:?}",
-                screen.cells[i], expected
+    fn every_frame_is_a_full_repaint() {
+        // Full frames are what make the late-restore test above deterministic.
+        let (sizes, cells) = run_animation(500);
+        for (i, size) in sizes.iter().enumerate() {
+            assert!(
+                *size > cells,
+                "frame {i} was only {size} bytes for {cells} cells; an \
+                 incremental frame has crept back in"
             );
         }
     }
 
     #[test]
-    fn frames_stay_small() {
-        // The old splash repainted whole rows every tick. If this ever creeps
-        // back up after the startup guard, the terminal will start dropping
-        // frames and the banner will flicker again.
+    fn full_frames_fit_the_budget() {
         let (sizes, _) = run_animation(2_500);
-        let warmup = warmup_frames().min(sizes.len());
-        let steady = &sizes[warmup..];
-        assert!(!steady.is_empty(), "not enough frames to measure");
-        let mean = steady.iter().sum::<usize>() / steady.len();
+        let mean = sizes.iter().sum::<usize>() / sizes.len();
         assert!(
-            mean < 3_000,
-            "mean steady-state frame is {mean} bytes, which is too much to \
-             stream at 30fps"
+            mean < 40_000,
+            "mean full frame is {mean} bytes, which is too much to stream at 30fps"
         );
 
         let worst = sizes.iter().copied().max().unwrap_or(0);
-        // The startup guard may paint the whole screen, but only briefly.
         assert!(
-            worst < 30_000,
-            "largest frame is {worst} bytes; a full-screen repaint crept back in"
+            worst < 40_000,
+            "largest full frame is {worst} bytes; the repaint is too expensive"
         );
-    }
-
-    #[test]
-    fn no_frame_after_the_guard_is_full_screen() {
-        let (sizes, cells) = run_animation(2_500);
-        let budget = cells * 2;
-        for (i, size) in sizes.iter().enumerate().skip(warmup_frames()) {
-            assert!(
-                *size < budget,
-                "frame {i} emitted {size} bytes, more than painting the whole \
-                 screen twice; the diff is not doing its job"
-            );
-        }
     }
 
     /// Whether a character belongs to the wordmark rather than the starfield.

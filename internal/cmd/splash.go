@@ -44,9 +44,10 @@ func newSplashModel(cmd *cobra.Command, sessionID string, continueLast bool) *sp
 }
 
 func (m *splashModel) Init() tea.Cmd {
-	// The workspace is initialized before the program starts, so there is no
-	// startup animation or launcher handoff to wait for.
-	return nil
+	// The launcher has already released the terminal before the program is
+	// started (see rootCmd), so this only needs to report our first frame
+	// and let the launcher exit.
+	return func() tea.Msg { return launcherReleasedMsg{} }
 }
 
 func (m *splashModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -58,16 +59,15 @@ func (m *splashModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
-		if m.pendingReady != nil {
-			ready := m.pendingReady
-			return m, m.transitionToUI(ready)
+		if m.launcherReleased && m.pendingReady != nil && m.width > 0 && m.height > 0 {
+			return m, m.transitionToUI(m.pendingReady)
 		}
 	case splashReadyMsg:
 		if msg.err != nil {
 			m.initializationErr = msg.err
 			return m, tea.Quit
 		}
-		if m.width > 0 && m.height > 0 {
+		if m.launcherReleased && m.width > 0 && m.height > 0 {
 			return m, m.transitionToUI(&msg)
 		}
 		m.pendingReady = &msg
@@ -76,12 +76,11 @@ func (m *splashModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.handshake != nil {
 			m.handshake.notifyRendered()
 		}
-		// The launcher clears the screen before handing off, but some
-		// terminals preserve the alternate-screen buffer across ?1049
-		// switches. Clear it again now that this process owns the terminal
-		// so no frame of the launcher's splash can linger behind the UI.
+		// The launcher kept the alternate screen active through the handoff,
+		// so this is the same buffer it painted the splash on. Clear it now
+		// that this process is drawing, then let the UI take over.
 		clear := func() tea.Msg { return tea.ClearScreen() }
-		if m.pendingReady != nil {
+		if m.pendingReady != nil && m.width > 0 && m.height > 0 {
 			return m, tea.Batch(clear, m.transitionToUI(m.pendingReady))
 		}
 		return m, clear
@@ -102,12 +101,10 @@ func (m *splashModel) View() tea.View {
 	}
 
 	var v tea.View
-	// The launcher releases the terminal before this program starts, so we
-	// take the alt screen only after its released message lands. Entering
-	// earlier would race the launcher's exit sequence and can leave its
-	// splash visible behind the Go header on terminals that preserve the
-	// alternate-screen buffer.
-	v.AltScreen = m.launcherReleased
+	// The launcher keeps the alternate screen active through the handoff.
+	// Taking it here as well is a no-op on the same buffer, and ensures a
+	// directly launched core still gets a full-screen UI.
+	v.AltScreen = true
 	v.MouseMode = tea.MouseModeCellMotion
 	v.WindowTitle = "Star"
 	v.Content = ""
