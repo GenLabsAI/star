@@ -10,10 +10,10 @@ import (
 )
 
 // TestConnect_AppliesMigrationsBehindCurrentVersion reproduces a database
-// migrated by an older build that had already moved past a later migration
-// (20260920000000_add_messages_fts, since removed from the tree) before the
-// Prism and role-index migrations were added here. Goose reports those two as
-// missing and refuses to start unless out-of-order migrations are allowed.
+// migrated by an older build that recorded the FTS migration at
+// 20260920000000 before that migration was removed and later restored at a
+// newer version. Goose reports the intervening migrations as missing unless
+// out-of-order migrations are allowed.
 func TestConnect_AppliesMigrationsBehindCurrentVersion(t *testing.T) {
 	t.Cleanup(ResetPool)
 
@@ -40,6 +40,12 @@ func TestConnect_AppliesMigrationsBehindCurrentVersion(t *testing.T) {
 	require.NoError(t, MigrationWarning(dataDir))
 
 	ctx := context.Background()
+
+	var ftsTables int
+	require.NoError(t, conn.QueryRowContext(ctx,
+		`SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = 'messages_fts'`,
+	).Scan(&ftsTables))
+	require.Equal(t, 1, ftsTables, "the FTS migration must be applied")
 
 	var prismColumns int
 	require.NoError(t, conn.QueryRowContext(ctx,

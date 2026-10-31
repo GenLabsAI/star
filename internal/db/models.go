@@ -43,6 +43,13 @@ type Message struct {
 	PrismDollarSavings      sql.NullFloat64 `json:"prism_dollar_savings"`
 }
 
+type MessagesFt struct {
+	Content   string `json:"content"`
+	SessionID string `json:"session_id"`
+	MessageID string `json:"message_id"`
+	Role      string `json:"role"`
+}
+
 type ReadFile struct {
 	SessionID string `json:"session_id"`
 	Path      string `json:"path"`

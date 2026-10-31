@@ -36,6 +36,7 @@ import (
 	"github.com/charmbracelet/crush/internal/permission"
 	"github.com/charmbracelet/crush/internal/pubsub"
 	"github.com/charmbracelet/crush/internal/question"
+	"github.com/charmbracelet/crush/internal/search"
 	"github.com/charmbracelet/crush/internal/session"
 	"github.com/charmbracelet/crush/internal/shell"
 	"github.com/charmbracelet/crush/internal/skills"
@@ -58,6 +59,7 @@ type UpdateAvailableMsg struct {
 type App struct {
 	Sessions    session.Service
 	Messages    message.Service
+	Search      search.Service
 	History     history.Service
 	Permissions permission.Service
 	Questions   question.Service
@@ -105,6 +107,7 @@ func New(ctx context.Context, conn *sql.DB, store *config.ConfigStore, skillsMgr
 	q := db.New(conn)
 	sessions := session.NewService(q, conn)
 	messages := message.NewService(q)
+	searchSvc := search.NewService(conn, messages)
 	files := history.NewService(q, conn)
 	cfg := store.Config()
 
@@ -129,6 +132,7 @@ func New(ctx context.Context, conn *sql.DB, store *config.ConfigStore, skillsMgr
 	app := &App{
 		Sessions:    sessions,
 		Messages:    messages,
+		Search:      searchSvc,
 		History:     files,
 		Permissions: permission.NewPermissionService(store.WorkingDir(), skipPermissionsRequests, allowedTools, permissionHookRunner, mode),
 		Questions:   question.NewService(),
@@ -151,6 +155,7 @@ func New(ctx context.Context, conn *sql.DB, store *config.ConfigStore, skillsMgr
 	}
 
 	app.setupEvents()
+	app.setupSearchIndexer(ctx)
 
 	// Initialize clipboard support. This is best-effort; if it fails
 	// (e.g., headless environment), clipboard operations will return nil.
@@ -951,6 +956,7 @@ func (app *App) initCoderAgent(ctx context.Context, interactive bool) error {
 		WakeupsCanceled:  app.wakeupsCanceled,
 		Skills:           app.Skills,
 		WorktreeManager:  app.worktreeManager,
+		Search:           app.Search,
 		Interactive:      interactive,
 	})
 	if err != nil {
@@ -991,6 +997,59 @@ func (app *App) Subscribe(program *tea.Program) {
 			program.Send(ev.Payload)
 		}
 	}
+}
+
+// setupSearchIndexer keeps the full-text index in sync with message events
+// and backfills it after a database migration creates the index.
+func (app *App) setupSearchIndexer(ctx context.Context) {
+	if app.Search == nil {
+		return
+	}
+
+	app.serviceEventsWG.Go(func() {
+		subCh := app.Messages.Subscribe(ctx)
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case ev, ok := <-subCh:
+				if !ok {
+					return
+				}
+				switch ev.Type {
+				case pubsub.CreatedEvent:
+					if err := app.Search.Index(ctx, ev.Payload); err != nil {
+						slog.Warn("Failed to index message for search", "message_id", ev.Payload.ID, "error", err)
+					}
+				case pubsub.UpdatedEvent:
+					if !ev.Payload.IsFinished() {
+						continue
+					}
+					if err := app.Search.Index(ctx, ev.Payload); err != nil {
+						slog.Warn("Failed to update search index", "message_id", ev.Payload.ID, "error", err)
+					}
+				case pubsub.DeletedEvent:
+					if err := app.Search.Remove(ctx, ev.Payload.ID); err != nil {
+						slog.Warn("Failed to remove message from search index", "message_id", ev.Payload.ID, "error", err)
+					}
+				}
+			}
+		}
+	})
+
+	app.serviceEventsWG.Go(func() {
+		needsReindex, err := app.Search.NeedsReindex(ctx)
+		if err != nil {
+			slog.Warn("Failed to inspect search index", "error", err)
+			return
+		}
+		if !needsReindex {
+			return
+		}
+		if err := app.Search.Reindex(ctx, nil); err != nil {
+			slog.Warn("Failed to rebuild search index", "error", err)
+		}
+	})
 }
 
 // Shutdown performs a graceful shutdown of the application.

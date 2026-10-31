@@ -220,6 +220,12 @@ type ActionFilePickerSelected struct {
 	Path string
 }
 
+// ActionSearchJumpToMessage opens the session containing a search result.
+type ActionSearchJumpToMessage struct {
+	SessionID string
+	MessageID string
+}
+
 // Cmd returns a command that reads the file at path and sends a
 // [message.Attachement] to the program.
 func (a ActionFilePickerSelected) Cmd() tea.Cmd {

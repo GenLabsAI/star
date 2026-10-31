@@ -21,6 +21,7 @@ import (
 	"github.com/charmbracelet/crush/internal/permission"
 	"github.com/charmbracelet/crush/internal/proto"
 	"github.com/charmbracelet/crush/internal/question"
+	"github.com/charmbracelet/crush/internal/search"
 	"github.com/charmbracelet/crush/internal/session"
 	"github.com/charmbracelet/crush/internal/shell"
 	"github.com/charmbracelet/crush/internal/skills"
@@ -104,6 +105,11 @@ func (w *AppWorkspace) ListUserMessages(ctx context.Context, sessionID string) (
 
 func (w *AppWorkspace) ListAllUserMessages(ctx context.Context) ([]message.Message, error) {
 	return w.app.Messages.ListAllUserMessages(ctx)
+}
+
+// SearchMessages searches message history in the local workspace.
+func (w *AppWorkspace) SearchMessages(ctx context.Context, query string, opts search.SearchOpts) ([]search.Result, error) {
+	return w.app.Search.Search(ctx, query, opts)
 }
 
 // -- Agent --

@@ -27,6 +27,7 @@ import (
 	"github.com/charmbracelet/crush/internal/proto"
 	"github.com/charmbracelet/crush/internal/pubsub"
 	"github.com/charmbracelet/crush/internal/question"
+	"github.com/charmbracelet/crush/internal/search"
 	"github.com/charmbracelet/crush/internal/session"
 	"github.com/charmbracelet/crush/internal/skills"
 	"github.com/charmbracelet/crush/internal/version"
@@ -231,6 +232,11 @@ func (w *ClientWorkspace) ListAllUserMessages(ctx context.Context) ([]message.Me
 		return nil, err
 	}
 	return protoToMessages(msgs), nil
+}
+
+// SearchMessages is not yet available over the remote workspace API.
+func (w *ClientWorkspace) SearchMessages(context.Context, string, search.SearchOpts) ([]search.Result, error) {
+	return nil, errors.New("search is not available in client/server mode yet")
 }
 
 // -- Agent --

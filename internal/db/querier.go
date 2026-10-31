@@ -37,6 +37,7 @@ type Querier interface {
 	GetUsageByModel(ctx context.Context) ([]GetUsageByModelRow, error)
 	InsertMCPDisabledServer(ctx context.Context, name string) error
 	InsertMCPEnabledServer(ctx context.Context, name string) error
+	ListAllMessages(ctx context.Context) ([]Message, error)
 	// Backs prompt history when no session is open. Needs
 	// idx_messages_role_created_at to seek rather than scan the table.
 	ListAllUserMessages(ctx context.Context) ([]Message, error)

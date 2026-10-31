@@ -42,6 +42,7 @@ import (
 	"github.com/charmbracelet/crush/internal/permission"
 	"github.com/charmbracelet/crush/internal/pubsub"
 	"github.com/charmbracelet/crush/internal/question"
+	"github.com/charmbracelet/crush/internal/search"
 	"github.com/charmbracelet/crush/internal/session"
 	"github.com/charmbracelet/crush/internal/skills"
 	"github.com/charmbracelet/crush/internal/teams"
@@ -191,6 +192,7 @@ type coordinator struct {
 	skillTracker *skills.Tracker
 
 	teamStore *teams.Store
+	searchSvc search.Service
 
 	readyWg errgroup.Group
 }
@@ -214,6 +216,7 @@ type CoordinatorOptions struct {
 	WakeupsCanceled  pubsub.Publisher[pubsub.WakeupCanceledEvent]
 	Skills           *skills.Manager
 	WorktreeManager  worktree.Manager
+	Search           search.Service
 	Interactive      bool
 }
 
@@ -250,6 +253,7 @@ func NewCoordinator(ctx context.Context, opts CoordinatorOptions) (Coordinator, 
 		activeSkills:    activeSkills,
 		skillTracker:    skillTracker,
 		teamStore:       teams.NewStore(opts.Config.WorkingDir()),
+		searchSvc:       opts.Search,
 		worktreeMgr:     opts.WorktreeManager,
 		interactive:     opts.Interactive,
 	}
@@ -973,6 +977,7 @@ func (c *coordinator) buildTools(ctx context.Context, agent config.Agent, isSubA
 		tools.NewTeamTool(c.teamStore),
 		tools.NewEnterWorktreeTool(c.worktreeMgr),
 		tools.NewExitWorktreeTool(c.worktreeMgr),
+		tools.NewSearchHistoryTool(c.searchSvc),
 		tools.NewViewTool(c.lspManager, c.permissions, c.filetracker, c.skillTracker, c.cfg.WorkingDir(), c.cfg.Config().Options.SkillsPaths...),
 		tools.NewWriteTool(c.lspManager, c.permissions, c.history, c.filetracker, c.cfg.WorkingDir()),
 	)

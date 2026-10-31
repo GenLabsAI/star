@@ -1071,6 +1071,7 @@ func allToolNames() []string {
 		"list_mcp_resources",
 		"read_mcp_resource",
 		"schedule_wakeup",
+		"search_history",
 		"enter_worktree",
 		"exit_worktree",
 	}

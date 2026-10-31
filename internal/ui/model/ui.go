@@ -2234,6 +2234,10 @@ func (m *UI) handleDialogMsg(msg tea.Msg) tea.Cmd {
 		m.dialog.CloseDialog(dialog.SessionsID)
 		cmds = append(cmds, m.loadSession(msg.Session.ID))
 
+	case dialog.ActionSearchJumpToMessage:
+		m.dialog.CloseDialog(dialog.SearchID)
+		cmds = append(cmds, m.loadSession(msg.SessionID))
+
 	// Open dialog message.
 	case dialog.ActionOpenDialog:
 		m.dialog.CloseDialog(dialog.CommandsID)
@@ -5719,6 +5723,10 @@ func (m *UI) openDialog(id string) tea.Cmd {
 		if cmd := m.openCommandsDialog(); cmd != nil {
 			cmds = append(cmds, cmd)
 		}
+	case dialog.SearchID:
+		if cmd := m.openSearchDialog(); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
 	case dialog.ReasoningID:
 		if cmd := m.openReasoningDialog(); cmd != nil {
 			cmds = append(cmds, cmd)
@@ -5808,6 +5816,22 @@ func (m *UI) openCommandsDialog() tea.Cmd {
 	m.dialog.OpenDialog(commands)
 
 	return commands.InitialCmd()
+}
+
+// openSearchDialog opens the cross-session search dialog.
+func (m *UI) openSearchDialog() tea.Cmd {
+	if m.dialog.ContainsDialog(dialog.SearchID) {
+		m.dialog.BringToFront(dialog.SearchID)
+		return nil
+	}
+
+	searchDialog, err := dialog.NewSearch(m.com)
+	if err != nil {
+		return util.ReportError(err)
+	}
+
+	m.dialog.OpenDialog(searchDialog)
+	return nil
 }
 
 // openReasoningDialog opens the reasoning effort dialog.

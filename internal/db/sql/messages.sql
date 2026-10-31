@@ -73,6 +73,11 @@ WHERE role = 'user'
 ORDER BY created_at DESC
 LIMIT 200;
 
+-- name: ListAllMessages :many
+SELECT *
+FROM messages
+ORDER BY created_at ASC;
+
 -- name: GetLastAssistantMessageBySession :one
 SELECT *
 FROM messages

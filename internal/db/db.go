@@ -108,6 +108,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.insertMCPEnabledServerStmt, err = db.PrepareContext(ctx, insertMCPEnabledServer); err != nil {
 		return nil, fmt.Errorf("error preparing query InsertMCPEnabledServer: %w", err)
 	}
+	if q.listAllMessagesStmt, err = db.PrepareContext(ctx, listAllMessages); err != nil {
+		return nil, fmt.Errorf("error preparing query ListAllMessages: %w", err)
+	}
 	if q.listAllUserMessagesStmt, err = db.PrepareContext(ctx, listAllUserMessages); err != nil {
 		return nil, fmt.Errorf("error preparing query ListAllUserMessages: %w", err)
 	}
@@ -307,6 +310,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing insertMCPEnabledServerStmt: %w", cerr)
 		}
 	}
+	if q.listAllMessagesStmt != nil {
+		if cerr := q.listAllMessagesStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listAllMessagesStmt: %w", cerr)
+		}
+	}
 	if q.listAllUserMessagesStmt != nil {
 		if cerr := q.listAllUserMessagesStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing listAllUserMessagesStmt: %w", cerr)
@@ -464,6 +472,7 @@ type Queries struct {
 	getUsageByModelStmt                  *sql.Stmt
 	insertMCPDisabledServerStmt          *sql.Stmt
 	insertMCPEnabledServerStmt           *sql.Stmt
+	listAllMessagesStmt                  *sql.Stmt
 	listAllUserMessagesStmt              *sql.Stmt
 	listFilesByPathStmt                  *sql.Stmt
 	listFilesBySessionStmt               *sql.Stmt
@@ -516,6 +525,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getUsageByModelStmt:                  q.getUsageByModelStmt,
 		insertMCPDisabledServerStmt:          q.insertMCPDisabledServerStmt,
 		insertMCPEnabledServerStmt:           q.insertMCPEnabledServerStmt,
+		listAllMessagesStmt:                  q.listAllMessagesStmt,
 		listAllUserMessagesStmt:              q.listAllUserMessagesStmt,
 		listFilesByPathStmt:                  q.listFilesByPathStmt,
 		listFilesBySessionStmt:               q.listFilesBySessionStmt,
