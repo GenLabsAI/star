@@ -211,8 +211,11 @@ impl Splash {
             let cy = l.wm_y as f64 + 1.0;
             let top = l.mark_y as isize - 1;
             let bot = l.rule_y as isize + 1;
-            let x0 = ((sweep - 9.0) as isize).clamp(0, cols as isize - 1) as usize;
-            let x1 = ((sweep + 9.0) as isize).clamp(0, cols as isize - 1) as usize;
+            // `sweep` is wordmark-local, but the bloom is painted into the
+            // screen buffer, so shift it by the wordmark's left edge.
+            let sweep_x = l.left as f64 + sweep;
+            let x0 = ((sweep_x - 9.0) as isize).clamp(0, cols as isize - 1) as usize;
+            let x1 = ((sweep_x + 9.0) as isize).clamp(0, cols as isize - 1) as usize;
             for row in top..=bot {
                 if row < 0 || row >= rows as isize {
                     continue;
@@ -222,7 +225,7 @@ impl Splash {
                     continue;
                 }
                 for x in x0..=x1 {
-                    let d = x as f64 - sweep;
+                    let d = x as f64 - sweep_x;
                     let b = (-0.5 * (d / 3.6).powi(2)).exp() * vertical * env;
                     if b > 0.01 {
                         let cell = &mut self.cur[row as usize * cols + x];
@@ -697,6 +700,36 @@ mod tests {
         let later = wordmark(&banner);
 
         assert_eq!(first, later, "the settled wordmark should not animate");
+    }
+
+    #[test]
+    fn light_sweep_is_centred_on_the_wordmark() {
+        // The bloom is painted in screen coordinates. If it uses the
+        // wordmark-local sweep directly, it travels near the left edge of the
+        // screen while the wordmark stays centred.
+        let cols = SIZE.0 as usize;
+        let mut banner = Splash::new(SIZE.0, SIZE.1);
+        banner.frame(Duration::from_millis((IGNITE_MS / 2.0) as u64));
+        let layout = banner.layout.expect("banner laid out");
+        let cells = banner.cells();
+        let row = layout.wm_y + 1;
+        let brightness = |x: usize| {
+            let c = cells[row * cols + x].bg;
+            c.0 as u32 + c.1 as u32 + c.2 as u32
+        };
+        let centre = layout.left + layout.width / 2;
+
+        assert_eq!(
+            cells[row * cols + centre].bg,
+            BLOOM,
+            "the bloom should be at full strength on the wordmark centre"
+        );
+        assert!(
+            brightness(centre) > brightness(0) + 80,
+            "the bloom is not centred: centre={:?}, left={:?}",
+            cells[row * cols + centre].bg,
+            cells[row * cols].bg
+        );
     }
 
     #[test]
