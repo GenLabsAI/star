@@ -164,6 +164,9 @@ func (m *UI) drawSidebar(scr uv.Screen, area uv.Rectangle) {
 		layout.Len(lipgloss.Height(sidebarLogo)),
 		layout.Fill(1),
 	).Split(area).Assign(&logoRect, &contentRect)
+	// The logo is the "Update Now" button while a release is outstanding, so
+	// keep its on-screen area for the click handler.
+	m.updateBadgeRect = logoRect
 
 	// Slice visible lines.
 	end := min(m.sidebarOffset+contentHeight, totalLines)

@@ -823,6 +823,9 @@ func (app *App) setupEvents() {
 	setupSubscriberMustDeliver(ctx, app.serviceEventsWG, "run-completions", app.runCompletions.Subscribe, app.events)
 	setupSubscriber(ctx, app.serviceEventsWG, "mcp", mcp.SubscribeEvents, app.events)
 	setupSubscriber(ctx, app.serviceEventsWG, "lsp", SubscribeLSPEvents, app.events)
+	// Keep looking for a new release so the TUI can offer the update for as
+	// long as one is outstanding, not just for the first seconds of a run.
+	app.serviceEventsWG.Go(func() { app.pollForUpdates(ctx) })
 	if app.Skills != nil {
 		setupSubscriber(ctx, app.serviceEventsWG, "skills", app.Skills.SubscribeEvents, app.events)
 	}
@@ -1117,7 +1120,11 @@ func (app *App) checkForUpdates(ctx context.Context) {
 	defer cancel()
 
 	info, err := update.Check(checkCtx, version.Version, update.Default)
-	if err != nil || !info.Available() {
+	if err != nil {
+		slog.Debug("Update check failed", "error", err)
+		return
+	}
+	if !info.Available() {
 		return
 	}
 	app.events.Publish(pubsub.UpdatedEvent, UpdateAvailableMsg{
@@ -1125,4 +1132,26 @@ func (app *App) checkForUpdates(ctx context.Context) {
 		LatestVersion:  info.Latest,
 		IsDevelopment:  info.IsDevelopment(),
 	})
+}
+
+// updateCheckInterval is how often Star re-checks for a new release while it
+// is running.
+const updateCheckInterval = 2 * time.Minute
+
+// pollForUpdates checks for a new release immediately and then on every
+// updateCheckInterval tick until ctx is cancelled. The result is published on
+// the app event stream, so both the local TUI and an attached client see it.
+func (app *App) pollForUpdates(ctx context.Context) {
+	ticker := time.NewTicker(updateCheckInterval)
+	defer ticker.Stop()
+
+	app.checkForUpdates(ctx)
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			app.checkForUpdates(ctx)
+		}
+	}
 }

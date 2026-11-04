@@ -500,11 +500,14 @@ type UI struct {
 		draft    string
 	}
 
-	pendingWakeup          *pubsub.WakeupEvent
-	wakeupEndTime          time.Time
-	updateAvailable        *app.UpdateAvailableMsg
-	updateDownloading      bool
-	updateInitiating       bool
+	pendingWakeup     *pubsub.WakeupEvent
+	wakeupEndTime     time.Time
+	updateAvailable   *app.UpdateAvailableMsg
+	updateDownloading bool
+	updateInitiating  bool
+	// updateBadgeRect is the screen area of the sidebar logo while a release
+	// is outstanding. Clicking it starts the update.
+	updateBadgeRect        image.Rectangle
 	editorStyledCache      *uv.StyledString
 	editorCacheKey         string
 	pillsStyledCache       *uv.StyledString
@@ -1304,6 +1307,11 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Adjust for chat area position
 			x -= m.layout.main.Min.X
 			y -= m.layout.main.Min.Y
+			// The sidebar logo doubles as the "Update Now" button while a
+			// release is outstanding.
+			if m.updateAvailable != nil && image.Pt(msg.X, msg.Y).In(m.updateBadgeRect) {
+				return m, tea.Batch(append(cmds, m.startUpdate())...)
+			}
 			if !image.Pt(msg.X, msg.Y).In(m.layout.sidebar) {
 				if handled, cmd := m.chat.HandleMouseDown(x, y); handled {
 					m.lastClickTime = time.Now()
@@ -1595,9 +1603,15 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		cmds = append(cmds, m.status.Show(msg))
 	case app.UpdateAvailableMsg:
-		text := fmt.Sprintf("Crush update available: v%s → v%s.", msg.CurrentVersion, msg.LatestVersion)
+		// Remember the release so the logo, header and sidebar keep offering
+		// the update: a status line scrolls away in seconds and used to be the
+		// only trace of an available update, with no way to act on it.
+		m.updateAvailable = &msg
+		m.header.updateAvailable = true
+		m.cacheSidebarLogo(m.layout.sidebar.Dx())
+		text := fmt.Sprintf("Star update available: v%s → v%s. Click \"Update Now\" to install.", msg.CurrentVersion, msg.LatestVersion)
 		if msg.IsDevelopment {
-			text = fmt.Sprintf("This is a development version of Crush. The latest version is v%s.", msg.LatestVersion)
+			text = fmt.Sprintf("This is a development version of Star. The latest version is v%s. Click \"Update Now\" to install.", msg.LatestVersion)
 		}
 		cmds = append(cmds, m.status.Show(util.InfoMsg{
 			Type: util.InfoTypeUpdate,
@@ -6642,6 +6656,10 @@ func (m *UI) UpdateInitiating() bool {
 func (m *UI) startUpdate() tea.Cmd {
 	return func() tea.Msg {
 		m.updateDownloading = true
+		// This is the instance the user asked to update, so it has to be the
+		// updater: root only signals the launcher (and exits with the initiator
+		// code) when UpdateInitiating reports true.
+		m.updateInitiating = true
 		return startUpdateMsg{}
 	}
 }
