@@ -445,14 +445,30 @@ func ExtractMessageItems(sty *styles.Styles, msg *message.Message, toolResults m
 			return nil
 		}
 		// Reconstruct shell command items from ShellCommand parts.
-		var items []MessageItem
+		// Group sequential shell commands into a single ShellGroupItem.
+		var shellCommands []ShellCommand
+		var otherItems []MessageItem
 		for _, part := range msg.Parts {
 			if sc, ok := part.(message.ShellCommand); ok {
-				items = append(items, NewShellItem(sty, sc.Command, sc.Output, sc.ExitCode))
+				shellCommands = append(shellCommands, ShellCommand{
+					Command:  sc.Command,
+					Output:   sc.Output,
+					ExitCode: sc.ExitCode,
+				})
 			}
 		}
-		if len(items) > 0 {
-			return items
+		if len(shellCommands) > 0 {
+			// Group multiple shell commands into a single collapsible item
+			if len(shellCommands) == 1 {
+				// Single command: use regular ShellItem for backward compatibility
+				otherItems = append(otherItems, NewShellItem(sty, shellCommands[0].Command, shellCommands[0].Output, shellCommands[0].ExitCode))
+			} else {
+				// Multiple commands: group them
+				otherItems = append(otherItems, NewShellGroupItem(sty, shellCommands))
+			}
+		}
+		if len(otherItems) > 0 {
+			return otherItems
 		}
 		return []MessageItem{NewUserMessageItem(sty, msg, newAttachmentRenderer(sty))}
 	case message.Assistant:

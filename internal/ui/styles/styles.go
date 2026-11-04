@@ -343,6 +343,13 @@ type Styles struct {
 		ShellTruncation    lipgloss.Style // "N more lines" hint.
 		SectionHeader      lipgloss.Style
 
+		// Shell group styles (for grouping multiple sequential shell commands).
+		ShellGroupCommand   lipgloss.Style // Command text inside a shell group.
+		ShellGroupCount     lipgloss.Style // "N commands" count text.
+		ShellGroupExpandHint lipgloss.Style // "click to expand" hint text.
+		ShellGroupBarFocused  lipgloss.Style // Left vertical bar when focused.
+		ShellGroupBarBlurred  lipgloss.Style // Left vertical bar when blurred.
+
 		// Plan section styles
 		PlanBox lipgloss.Style // Border+padding for the final plan message
 

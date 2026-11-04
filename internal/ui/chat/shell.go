@@ -351,3 +351,232 @@ func lastLines(s string, count int) string {
 	}
 	return s[start+1:]
 }
+
+// -----------------------------------------------------------------------------
+// Shell Group Item
+// -----------------------------------------------------------------------------
+
+// ShellGroupItem renders a group of sequential shell commands as a single
+// collapsible item. When collapsed, it shows "✓ Bash N commands" or "$ N commands".
+// When expanded (on click), it shows all individual shell commands.
+type ShellGroupItem struct {
+	*list.Versioned
+	*highlightableMessageItem
+	*cachedMessageItem
+	*focusableMessageItem
+
+	id        string
+	commands  []ShellCommand
+	expanded  bool
+	sty       *styles.Styles
+}
+
+var (
+	_ Expandable         = (*ShellGroupItem)(nil)
+	_ list.Highlightable = (*ShellGroupItem)(nil)
+	_ list.MouseClickable = (*ShellGroupItem)(nil)
+	_ KeyEventHandler    = (*ShellGroupItem)(nil)
+)
+
+// ShellCommand stores a shell command and its output for grouping.
+type ShellCommand struct {
+	Command  string
+	Output   string
+	ExitCode int
+}
+
+// NewShellGroupItem creates a new ShellGroupItem for displaying grouped shell commands.
+func NewShellGroupItem(sty *styles.Styles, commands []ShellCommand) MessageItem {
+	v := list.NewVersioned()
+	return &ShellGroupItem{
+		Versioned:                v,
+		highlightableMessageItem: defaultHighlighter(sty, v),
+		cachedMessageItem:        &cachedMessageItem{},
+		focusableMessageItem:     newFocusableMessageItem(v),
+		id:                       fmt.Sprintf("shell-group-%d", shellSeq.Add(1)),
+		commands:                 commands,
+		sty:                      sty,
+	}
+}
+
+// ID implements MessageItem.
+func (g *ShellGroupItem) ID() string { return g.id }
+
+// FilterValue implements list.Item.
+func (g *ShellGroupItem) FilterValue() string {
+	if len(g.commands) == 0 {
+		return ""
+	}
+	return g.commands[0].Command
+}
+
+// Finished implements list.Item. Shell groups are always finished.
+func (g *ShellGroupItem) Finished() bool { return true }
+
+// ToggleExpanded implements Expandable.
+func (g *ShellGroupItem) ToggleExpanded() bool {
+	g.expanded = !g.expanded
+	g.Bump()
+	return g.expanded
+}
+
+// HandleMouseClick implements MouseClickable so clicks toggle expansion.
+func (g *ShellGroupItem) HandleMouseClick(btn ansi.MouseButton, x, y int) bool {
+	return btn == ansi.MouseLeft
+}
+
+// HandleKeyEvent implements KeyEventHandler for copy and expansion.
+func (g *ShellGroupItem) HandleKeyEvent(key tea.KeyMsg) (bool, tea.Cmd) {
+	switch k := key.String(); k {
+	case "c", "y":
+		// Copy all commands and outputs
+		var parts []string
+		for _, cmd := range g.commands {
+			parts = append(parts, "$ "+cmd.Command)
+			if cmd.Output != "" {
+				parts = append(parts, ansi.Strip(cmd.Output))
+			}
+			parts = append(parts, "")
+		}
+		text := strings.Join(parts, "\n")
+		return true, common.CopyToClipboard(text, "Shell group copied to clipboard")
+	case "enter", " ":
+		g.ToggleExpanded()
+		return true, nil
+	}
+	return false, nil
+}
+
+func (g *ShellGroupItem) Render(width int) string {
+	innerWidth := max(0, width-MessageLeftPaddingTotal)
+	content := g.RawRender(innerWidth)
+
+	var prefix string
+	if g.focused {
+		prefix = g.sty.Messages.ShellGroupBarFocused.Render()
+	} else {
+		prefix = g.sty.Messages.ShellGroupBarBlurred.Render()
+	}
+	lines := strings.Split(content, "\n")
+	for i, ln := range lines {
+		lines[i] = prefix + ln
+	}
+	out := strings.Join(lines, "\n")
+
+	return g.renderHighlighted(out, width, len(lines))
+}
+
+func (g *ShellGroupItem) RawRender(width int) string {
+	cappedWidth := cappedMessageWidth(width)
+
+	if g.expanded {
+		return g.renderExpanded(cappedWidth)
+	}
+	return g.renderCollapsed(cappedWidth)
+}
+
+func (g *ShellGroupItem) renderCollapsed(width int) string {
+	count := len(g.commands)
+	if count == 0 {
+		return ""
+	}
+
+	// Check if all commands succeeded
+	allSuccess := true
+	for _, cmd := range g.commands {
+		if cmd.ExitCode != 0 {
+			allSuccess = false
+			break
+		}
+	}
+
+	if allSuccess && count > 1 {
+		// Show "✓ Bash N commands" style header
+		icon := g.sty.Messages.ShellGroupCount.Render(
+			fmt.Sprintf("✓ Bash %d commands", count),
+		)
+		expandHint := g.sty.Messages.ShellGroupExpandHint.Render("(click to expand)")
+		return icon + " " + expandHint
+	}
+
+	// For single command or failed commands, show "$ N commands"
+	prompt := g.sty.Messages.ShellPrompt.Render("$")
+	countText := g.sty.Messages.ShellGroupCount.Render(fmt.Sprintf("%d command%s", count, pluralSuffix(count)))
+	expandHint := g.sty.Messages.ShellGroupExpandHint.Render("(click to expand)")
+	return prompt + " " + countText + " " + expandHint
+}
+
+func (g *ShellGroupItem) renderExpanded(width int) string {
+	var parts []string
+
+	for i, cmd := range g.commands {
+		cmdRendered := g.renderSingleCommand(cmd, width, i == 0)
+		parts = append(parts, cmdRendered)
+		if i < len(g.commands)-1 {
+			parts = append(parts, "") // blank line between commands
+		}
+	}
+
+	return strings.Join(parts, "\n")
+}
+
+func (g *ShellGroupItem) renderSingleCommand(cmd ShellCommand, width int, isFirst bool) string {
+	cappedWidth := cappedMessageWidth(width)
+
+	command := strings.ReplaceAll(cmd.Command, "\n", " ")
+	command = strings.ReplaceAll(command, "\t", "    ")
+
+	var prompt string
+	if g.focused {
+		prompt = g.sty.Messages.ShellPrompt.Render("$")
+	} else {
+		prompt = g.sty.Messages.ShellPromptBlurred.Render("$")
+	}
+
+	highlighted := g.sty.Messages.ShellGroupCommand.Render(command)
+	header := prompt + " " + highlighted
+
+	if cmd.ExitCode != 0 {
+		header += " " + g.sty.Messages.ShellExitCode.Render(
+			fmt.Sprintf("(exit %d)", cmd.ExitCode),
+		)
+	}
+
+	if cmd.Output == "" {
+		return header
+	}
+
+	// Process output similar to ShellItem
+	raw := cmd.Output
+	for {
+		trimmed := strings.TrimRight(raw, " \t\r\n")
+		trimmed = strings.TrimSuffix(trimmed, "\x1b[0m")
+		if trimmed == raw {
+			break
+		}
+		raw = trimmed
+	}
+	if raw == "" {
+		return header
+	}
+
+	raw = common.StripCursorControl(raw)
+	output := common.RemapANSI16(raw, g.sty.ANSI)
+	lines := strings.Split(output, "\n")
+
+	var body strings.Builder
+	for _, ln := range lines {
+		truncated := ansi.Truncate(ln, cappedWidth, "…")
+		body.WriteString(g.sty.Messages.ShellOutput.Render(truncated))
+		body.WriteString("\n")
+	}
+
+	return header + "\n" + strings.TrimRight(body.String(), "\n")
+}
+
+func pluralSuffix(count int) string {
+	if count == 1 {
+		return ""
+	}
+	return "s"
+}

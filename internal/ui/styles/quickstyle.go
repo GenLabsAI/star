@@ -1036,6 +1036,15 @@ func quickStyle(o quickStyleOpts) Styles {
 	s.Messages.ShellExitCode = lipgloss.NewStyle().Foreground(o.destructive)
 	s.Messages.ShellTruncation = muted
 
+	s.Messages.ShellGroupCommand = base.Foreground(o.fgBase)
+	s.Messages.ShellGroupCount = base.Foreground(o.success).Bold(true)
+	s.Messages.ShellGroupExpandHint = muted
+	s.Messages.ShellGroupBarFocused = lipgloss.NewStyle().PaddingLeft(1).
+		BorderStyle(messageFocussedBorder).BorderLeft(true).
+		BorderForeground(o.success)
+	s.Messages.ShellGroupBarBlurred = lipgloss.NewStyle().PaddingLeft(1).BorderLeft(true).
+		BorderForeground(o.bgMostVisible).BorderStyle(lipgloss.NormalBorder())
+
 	s.Messages.SectionHeader = base.PaddingLeft(2)
 	s.Messages.AssistantInfoIcon = subtle
 	s.Messages.AssistantInfoModel = muted
