@@ -510,7 +510,11 @@ func (t *baseToolMessageItem) Finished() bool {
 	if t.status == ToolStatusCanceled {
 		return true
 	}
-	return t.toolCall.Finished && t.result != nil
+	// A finished call may never receive a result (the run was interrupted
+	// or the tool died). Freeze on it anyway: the renderer shows a
+	// terminal state for it, so leaving the item live only keeps the list
+	// re-rendering a row that can no longer change.
+	return t.toolCall.Finished
 }
 
 // HandleMouseClick implements MouseClickable.
@@ -647,6 +651,14 @@ func toolEarlyStateContent(sty *styles.Styles, opts *ToolRenderOpts, width int) 
 	case ToolStatusAwaitingPermission:
 		msg = sty.Tool.StateWaiting.Render("Requesting permission...")
 	case ToolStatusRunning:
+		// A call the transcript already marks finished will never produce
+		// a result, so waiting on it would leave the row stuck on
+		// "Waiting for tool response..." forever. Report the terminal
+		// state instead.
+		if opts.ToolCall.Finished && opts.Result == nil {
+			msg = sty.Tool.StateCancelled.Render("No result recorded.")
+			break
+		}
 		msg = sty.Tool.StateWaiting.Render("Waiting for tool response...")
 	default:
 		return "", false
