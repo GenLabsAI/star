@@ -1135,8 +1135,9 @@ func (app *App) checkForUpdates(ctx context.Context) {
 }
 
 // updateCheckInterval is how often Star re-checks for a new release while it
-// is running.
-const updateCheckInterval = 2 * time.Minute
+// is running. The check uses GitHub's unauthenticated API (60 requests/hour
+// per IP), so this stays well clear of that for a few concurrent instances.
+const updateCheckInterval = 5 * time.Minute
 
 // pollForUpdates checks for a new release immediately and then on every
 // updateCheckInterval tick until ctx is cancelled. The result is published on
