@@ -2202,6 +2202,22 @@ func (m *UI) handleChildSessionMessage(event pubsub.Event[message.Message]) tea.
 	return tea.Sequence(cmds...)
 }
 
+// enterYeehaw arms yeehaw mode from the commands palette. Arming while a
+// turn is still running is allowed and is the normal way to step away: the
+// session mode is read when the current turn ends, so the autopilot loop
+// picks up from the next turn instead of interrupting the work in flight.
+func (m *UI) enterYeehaw() tea.Cmd {
+	if m.modeSwitching {
+		return util.ReportWarn("Please wait before entering yeehaw mode...")
+	}
+	busy := m.isAgentBusy()
+	cmd := m.setYeehawMode(true)
+	if !busy {
+		return cmd
+	}
+	return tea.Batch(cmd, util.ReportInfo("Yeehaw armed: autopilot takes over when this turn ends"))
+}
+
 func (m *UI) handleDialogMsg(msg tea.Msg) tea.Cmd {
 	var cmds []tea.Cmd
 	action := m.dialog.Update(msg)
@@ -2295,14 +2311,8 @@ func (m *UI) handleDialogMsg(msg tea.Msg) tea.Cmd {
 			if cmd := m.setYeehawMode(false); cmd != nil {
 				cmds = append(cmds, cmd)
 			}
-		} else {
-			if m.isAgentBusy() || m.modeSwitching {
-				cmds = append(cmds, util.ReportWarn("Agent is busy, please wait before entering yeehaw mode..."))
-			} else {
-				if cmd := m.setYeehawMode(true); cmd != nil {
-					cmds = append(cmds, cmd)
-				}
-			}
+		} else if cmd := m.enterYeehaw(); cmd != nil {
+			cmds = append(cmds, cmd)
 		}
 		m.dialog.CloseDialog(dialog.CommandsID)
 	case dialog.ActionSelectNotificationStyle:
