@@ -3,6 +3,7 @@ package model
 import (
 	"cmp"
 	"fmt"
+	"hash/fnv"
 	"image"
 	"strings"
 
@@ -65,6 +66,14 @@ func (m *UI) modelInfo(width int) string {
 // state mutation in the update path rather than in the draw function.
 func (m *UI) updateSidebarScrollState() {
 	if m.session == nil || m.isCompact {
+		return
+	}
+
+	// The sections below re-wrap every line of the sidebar through lipgloss,
+	// which costs a couple hundred microseconds. None of that changes on a
+	// keystroke, so hash the inputs and skip the rebuild when they match the
+	// content already on screen.
+	if sig := m.sidebarFingerprint(m.layout.sidebar.Dx(), m.layout.sidebar.Dy()); m.sidebarSigValid && m.sidebarSig == sig {
 		return
 	}
 
@@ -140,10 +149,35 @@ func (m *UI) updateSidebarScrollState() {
 		m.chat.Focus()
 	}
 
+	m.sidebarSig = m.sidebarFingerprint(width, height)
+	m.sidebarSigValid = true
+
 	// Clamp sidebarOffset.
 	if m.sidebarOffset > m.sidebarMaxOffsetVal {
 		m.sidebarOffset = m.sidebarMaxOffsetVal
 	}
+}
+
+// sidebarFingerprint hashes every input the sidebar content is rendered from.
+// It must cover anything the sections display, or the sidebar would keep
+// showing stale data until some other input changed.
+func (m *UI) sidebarFingerprint(width, height int) uint64 {
+	h := fnv.New64a()
+	fmt.Fprintf(h, "%d|%d|%s|%s|%v|%s|", width, height, m.session.ID, m.session.Title, m.hyperCredits, m.com.Workspace.WorkingDir())
+	fmt.Fprintf(h, "%d|%d|%v|%v|", m.session.CompletionTokens, m.session.PromptTokens, m.session.Cost, m.session.EstimatedUsage)
+	if model := m.selectedLargeModel(); model != nil {
+		fmt.Fprintf(h, "%s|%s|%v|%v|%v|", model.CatwalkCfg.Name, model.ModelCfg.Provider,
+			model.CatwalkCfg.CanReason, model.ModelCfg.Think, model.ModelCfg.ReasoningEffort)
+	}
+	fmt.Fprintf(h, "%v|%v|%v|", m.sessionFiles, m.lspStates, m.mcpStates)
+	for _, state := range m.skillStates {
+		fmt.Fprintf(h, "%s|%s|%v;", state.Name, state.Path, state.State)
+	}
+	if cfg := m.com.Config(); cfg != nil && cfg.Options != nil {
+		fmt.Fprintf(h, "%v|", cfg.Options.DisabledSkills)
+	}
+	fmt.Fprintf(h, "%v|%s", m.updateAvailable != nil, m.sidebarLogo)
+	return h.Sum64()
 }
 
 // drawSidebar renders the chat sidebar with a fixed logo and a
@@ -182,22 +216,20 @@ func (m *UI) drawSidebar(scr uv.Screen, area uv.Rectangle) {
 		MaxWidth(contentWidth).
 		MaxHeight(lipgloss.Height(sidebarLogo)).
 		Render(sidebarLogo)
-	if m.sidebarLogoCacheKey != logoView {
-		m.sidebarLogoStyledCache = uv.NewStyledString(logoView)
-		m.sidebarLogoCacheKey = logoView
+	if m.blitSidebarLogo == nil {
+		m.blitSidebarLogo = new(styledBlit)
 	}
-	m.sidebarLogoStyledCache.Draw(scr, logoRect)
+	m.blitSidebarLogo.draw(scr, logoRect, logoView)
 
 	// Draw the visible content in the scrollable area.
 	bodyView := lipgloss.NewStyle().
 		MaxWidth(contentWidth).
 		MaxHeight(contentHeight).
 		Render(visibleStr)
-	if m.sidebarBodyCacheKey != bodyView {
-		m.sidebarBodyStyledCache = uv.NewStyledString(bodyView)
-		m.sidebarBodyCacheKey = bodyView
+	if m.blitSidebarBody == nil {
+		m.blitSidebarBody = new(styledBlit)
 	}
-	m.sidebarBodyStyledCache.Draw(scr, contentRect)
+	m.blitSidebarBody.draw(scr, contentRect, bodyView)
 
 	// Draw scrollbar in the reserved column.
 	if scrollbarVisible {
@@ -207,7 +239,7 @@ func (m *UI) drawSidebar(scr uv.Screen, area uv.Rectangle) {
 				Min: image.Point{X: area.Max.X - 1, Y: contentRect.Min.Y},
 				Max: image.Point{X: area.Max.X, Y: area.Max.Y},
 			}
-			uv.NewStyledString(scrollbar).Draw(scr, scrollbarArea)
+			m.blitSidebarScrollbar.draw(scr, scrollbarArea, scrollbar)
 		}
 	}
 }

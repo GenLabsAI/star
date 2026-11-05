@@ -25,6 +25,14 @@ const (
 	clickTolerance       = 2                      // x,y tolerance for double/tripple click
 )
 
+// scrollbarKey identifies the scrollbar geometry the memoized styled string
+// was built for.
+type scrollbarKey struct {
+	height int
+	total  int
+	offset int
+}
+
 // DelayedClickMsg is sent after the double-click threshold to trigger a
 // single-click action (like expansion) if no double-click occurred.
 type DelayedClickMsg struct {
@@ -132,6 +140,31 @@ type Chat struct {
 	// follow is a flag to indicate whether the view should auto-scroll to
 	// bottom on new messages.
 	follow bool
+
+	// drawDecodes counts how many times the chat had to re-decode its
+	// rendered output. Benchmarks read it to prove steady-state frames hit
+	// the decoded buffer instead of re-parsing ANSI.
+	drawDecodes int
+
+	// blitGood reports that drawCache.buf is already painted on screen at
+	// blitArea. While it holds, Draw skips the per-cell copy: the cells are
+	// already what the buffer would write, and copying them would mark every
+	// chat row dirty for no visual change. Anything that paints over the
+	// chat area must call InvalidateBlit so the next frame repaints.
+	blitGood bool
+	blitArea image.Rectangle
+
+	// scrollbarBlit caches the scrollbar cells. Drawing it with a fresh
+	// StyledString cleared the reserved column on every frame, dirtying
+	// every chat row for a thumb that usually did not move.
+	scrollbarBlit styledBlit
+
+	// scrollbarMemo holds the styled scrollbar last built for scrollbarKey.
+	// Constructing it allocates a styled string per row, which dwarfed the
+	// cost of painting its 38 cells.
+	scrollbarMemo      string
+	scrollbarMemoKey   scrollbarKey
+	scrollbarMemoValid bool
 
 	// drawCache memoizes the decoded form of the last list.Render output so
 	// repeat frames with byte-identical content skip the per-cell ANSI
@@ -262,27 +295,45 @@ func (m *Chat) Draw(scr uv.Screen, area uv.Rectangle) {
 		// to the uncached path so behavior matches upstream exactly.
 		uv.NewStyledString(rendered).Draw(scr, listArea)
 	} else {
+		decoded := false
 		if m.drawCache == nil ||
 			m.drawCache.rendered != rendered ||
 			m.drawCache.method != method {
 			m.drawCache = newChatDrawCache(rendered, method)
+			m.drawDecodes++
+			decoded = true
 		}
-		drawCachedBuffer(scr, listArea, m.drawCache.buf)
+		if decoded || !m.blitGood || m.blitArea != listArea {
+			drawCachedBuffer(scr, listArea, m.drawCache.buf, decoded)
+			m.blitGood, m.blitArea = true, listArea
+		}
 	}
 
 	// Draw scrollbar if visible and needed. Only reached when not resizing
 	// (showScrollbar requires it), so TotalHeight is already computed and
 	// cached above.
 	if scrollbarWidth > 0 {
-		scrollbar := common.Scrollbar(m.com.Styles, listHeight, m.list.TotalHeight()-1, listHeight, m.list.Offset())
+		key := scrollbarKey{height: listHeight, total: m.list.TotalHeight() - 1, offset: m.list.Offset()}
+		if !m.scrollbarMemoValid || m.scrollbarMemoKey != key {
+			m.scrollbarMemo = common.Scrollbar(m.com.Styles, key.height, key.total, key.height, key.offset)
+			m.scrollbarMemoKey, m.scrollbarMemoValid = key, true
+		}
+		scrollbar := m.scrollbarMemo
 		if scrollbar != "" {
 			scrollbarArea := image.Rectangle{
 				Min: image.Point{X: area.Max.X - scrollbarWidth, Y: area.Min.Y},
 				Max: image.Point{X: area.Max.X, Y: area.Max.Y},
 			}
-			uv.NewStyledString(scrollbar).Draw(scr, scrollbarArea)
+			m.scrollbarBlit.draw(scr, scrollbarArea, scrollbar)
 		}
 	}
+}
+
+// InvalidateBlit forces the next Draw to repaint the chat cells. Call it
+// whenever something else writes over the chat area (a dialog, an overlay) or
+// the screen is cleared underneath it.
+func (m *Chat) InvalidateBlit() {
+	m.blitGood = false
 }
 
 // newChatDrawCache builds a chatDrawCache for the given rendered string by
@@ -338,14 +389,14 @@ func renderedBounds(rendered string, method ansi.Method) (w, h int) {
 // Wrap=false, Tail="" case. The clear loop matches StyledString.Draw line
 // 51-56; the buf.Draw call replaces the per-cell ANSI decode that
 // printString does on every uncached frame with a pure cell copy.
-func drawCachedBuffer(scr uv.Screen, area uv.Rectangle, buf uv.ScreenBuffer) {
-	// Clear the area first to match StyledString.Draw — leftover cells
-	// from a previous frame outside the new content must be zeroed,
-	// because Buffer.Draw skips empty cells (it doesn't clear).
-	for y := area.Min.Y; y < area.Max.Y; y++ {
-		for x := area.Min.X; x < area.Max.X; x++ {
-			scr.SetCell(x, y, nil)
-		}
+func drawCachedBuffer(scr uv.Screen, area uv.Rectangle, buf uv.ScreenBuffer, decoded bool) {
+	// Clear the area only when the buffer was just decoded: leftover cells
+	// from a previous frame outside the new content must be zeroed, because
+	// Buffer.Draw skips empty cells (it doesn't clear). Reusing the previous
+	// buffer needs no clear at all, and skipping it keeps every unchanged
+	// row untouched so View can reuse its rendered text.
+	if decoded {
+		clearScreenArea(scr, area)
 	}
 	buf.Draw(scr, area)
 }

@@ -22,15 +22,14 @@ const badgeLeftInset = 1
 
 // Status is the status bar and help model.
 type Status struct {
-	com             *common.Common
-	hideHelp        bool
-	help            help.Model
-	helpKm          help.KeyMap
-	msg             util.InfoMsg
-	helpCache       *uv.StyledString
-	helpCacheKey    string
-	messageCache    *uv.StyledString
-	messageCacheKey string
+	com      *common.Common
+	hideHelp bool
+	help     help.Model
+	helpKm   help.KeyMap
+	msg      util.InfoMsg
+	helpBlit styledBlit
+	msgBlit  styledBlit
+	msgShown bool
 
 	// msgSeq identifies the message on screen; expiry timers carry it.
 	msgSeq uint64
@@ -130,6 +129,13 @@ func (s *Status) SetHideHelp(hideHelp bool) {
 
 // Draw draws the status bar onto the screen.
 func (s *Status) Draw(scr uv.Screen, area uv.Rectangle) {
+	// A banner paints over the help hints; once it expires the help has to
+	// be repainted, even though its own text never changed.
+	if s.msg.IsEmpty() && s.msgShown {
+		s.helpBlit.invalidate()
+		s.msgShown = false
+	}
+
 	if !s.hideHelp {
 		helpStyle := s.com.Styles.Status.Help
 		helpWidth := area.Dx() - helpStyle.GetPaddingLeft() - helpStyle.GetPaddingRight()
@@ -148,7 +154,7 @@ func (s *Status) Draw(scr uv.Screen, area uv.Rectangle) {
 			helpView = strings.ReplaceAll(helpView, "\n", "\n"+indent)
 			helpView = strings.Repeat(" ", badgeLeftInset) + badge + " " + helpView
 		}
-		uv.NewStyledString(helpView).Draw(scr, area)
+		s.helpBlit.draw(scr, area, helpView)
 	}
 
 	// Render notifications
@@ -200,7 +206,8 @@ func (s *Status) Draw(scr uv.Screen, area uv.Rectangle) {
 	info := msgStyle.Render(msg)
 
 	// Draw the info message over the help view
-	uv.NewStyledString(strings.Repeat(" ", indInset)+ind+info).Draw(scr, area)
+	s.msgBlit.draw(scr, area, strings.Repeat(" ", indInset)+ind+info)
+	s.msgShown = true
 }
 
 // clearInfoMsgCmd returns a command that clears the info message after the

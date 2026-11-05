@@ -262,6 +262,20 @@ type UI struct {
 	frameDirty       bool
 	frameSkipPut     bool
 	frameGCArmed     bool
+
+	// canvas is the screen buffer View composes into. It is reused across
+	// frames and only replaced on resize: a full cell grid costs roughly
+	// 100 bytes per cell, so allocating one per frame dominated the render
+	// path's garbage (see perf_audit_test.go).
+	canvas uv.ScreenBuffer
+
+	// rows memoizes the rendered text of each screen row so a frame only
+	// re-renders rows whose cells changed (see framerows.go).
+	rows frameRowCache
+
+	// blitEditor paints the editor without clearing its area when the editor
+	// view is unchanged, keeping the rows above and below it clean.
+	blitEditor styledBlit
 	// planReadySessionID holds the session whose plan run emitted the
 	// plan-ready marker but has not been confirmed for execution yet. It
 	// lets the user reopen the handoff prompt after dismissing it.
@@ -400,10 +414,14 @@ type UI struct {
 	sidebarScrollbarSeq     int    // sequence number for auto-hide timer
 	sidebarMaxOffsetVal     int    // max scroll offset, computed in updateSidebarScrollState
 	sidebarContent          string // cached rendered sidebar content
-	sidebarTotalLines       int    // total lines in sidebarContent
-	sidebarContentHeight    int    // available height for sidebar content
-	sidebarContentWidth     int    // available width for sidebar content
-	sidebarDrawLogo         string // logo to render (may differ from sidebarLogo for short heights)
+	// sidebarSig identifies the inputs the current sidebar content was
+	// rendered from, so an unchanged frame can skip re-wrapping it.
+	sidebarSig           uint64
+	sidebarSigValid      bool
+	sidebarTotalLines    int    // total lines in sidebarContent
+	sidebarContentHeight int    // available height for sidebar content
+	sidebarContentWidth  int    // available width for sidebar content
+	sidebarDrawLogo      string // logo to render (may differ from sidebarLogo for short heights)
 
 	// Notification state
 	notifyBackend       notification.Backend
@@ -507,17 +525,17 @@ type UI struct {
 	updateInitiating  bool
 	// updateBadgeRect is the screen area of the sidebar logo while a release
 	// is outstanding. Clicking it starts the update.
-	updateBadgeRect        image.Rectangle
-	editorStyledCache      *uv.StyledString
-	editorCacheKey         string
-	pillsStyledCache       *uv.StyledString
-	pillsCacheKey          string
-	sidebarLogoStyledCache *uv.StyledString
-	sidebarLogoCacheKey    string
-	sidebarBodyStyledCache *uv.StyledString
-	sidebarBodyCacheKey    string
-	sidebarLines           []string
-	modeCache              ttlCacheMode
+	updateBadgeRect      image.Rectangle
+	editorStyledCache    *uv.StyledString
+	editorCacheKey       string
+	pillsStyledCache     *uv.StyledString
+	pillsCacheKey        string
+	blitSidebarLogo      *styledBlit
+	blitSidebarBody      *styledBlit
+	blitSidebarScrollbar styledBlit
+	blitPills            styledBlit
+	sidebarLines         []string
+	modeCache            ttlCacheMode
 }
 
 // New creates a new instance of the [UI] model.
@@ -3696,6 +3714,25 @@ func (m *UI) handleKeyPressMsg(msg tea.KeyPressMsg) tea.Cmd {
 	return tea.Sequence(cmds...)
 }
 
+// invalidateBlits drops every memoized region so the next Draw repaints its
+// cells. Call it whenever the screen is cleared or painted by something other
+// than the components themselves (dialogs, overlays, layout changes).
+func (m *UI) invalidateBlits() {
+	m.chat.InvalidateBlit()
+	m.blitEditor = styledBlit{}
+	m.blitPills = styledBlit{}
+	m.blitSidebarScrollbar = styledBlit{}
+	if m.blitSidebarLogo != nil {
+		m.blitSidebarLogo.invalidate()
+	}
+	if m.blitSidebarBody != nil {
+		m.blitSidebarBody.invalidate()
+	}
+	m.status.helpBlit.invalidate()
+	m.status.msgBlit.invalidate()
+	m.status.msgShown = false
+}
+
 // drawHeader draws the header section of the UI.
 func (m *UI) drawHeader(scr uv.Screen, area uv.Rectangle) {
 	m.header.drawHeader(
@@ -3718,6 +3755,14 @@ func (m *UI) Draw(scr uv.Screen, area uv.Rectangle) *tea.Cursor {
 	if m.layout != layout {
 		m.layout = layout
 		m.updateSize()
+		// The canvas is repainted from scratch below, so every memoized
+		// blit has to write its cells again.
+		m.invalidateBlits()
+		// Repaint from a blank canvas when regions move: a region that
+		// shrinks would otherwise leave cells from the previous layout
+		// behind. Steady-state frames skip this so unchanged rows stay
+		// untouched for the row cache in View.
+		screen.Clear(scr)
 	} else if m.state == uiChat && m.hasSession() {
 		// Re-render pills on every draw so the box appears even when
 		// the layout footprint hasn't changed (e.g. todos arrived
@@ -3730,9 +3775,6 @@ func (m *UI) Draw(scr uv.Screen, area uv.Rectangle) *tea.Cursor {
 	if m.state == uiChat && m.hasSession() && !m.isCompact {
 		m.updateSidebarScrollState()
 	}
-
-	// Clear the screen first
-	screen.Clear(scr)
 
 	switch m.state {
 	case uiOnboarding:
@@ -3761,8 +3803,7 @@ func (m *UI) Draw(scr uv.Screen, area uv.Rectangle) *tea.Cursor {
 				m.inlineCursor = m.activeInline.Draw(scr, layout.editor)
 			}
 		} else {
-			editor := uv.NewStyledString(m.renderEditorView(scr.Bounds().Dx()))
-			editor.Draw(scr, layout.editor)
+			m.blitEditor.draw(scr, layout.editor, m.renderEditorView(scr.Bounds().Dx()))
 			m.inlineCursor = nil
 		}
 
@@ -3775,7 +3816,7 @@ func (m *UI) Draw(scr uv.Screen, area uv.Rectangle) *tea.Cursor {
 
 		m.chat.Draw(scr, layout.main)
 		if layout.pills.Dy() > 0 && m.pillsView != "" {
-			uv.NewStyledString(m.pillsView).Draw(scr, layout.pills)
+			m.blitPills.draw(scr, layout.pills, m.pillsView)
 		}
 
 		if m.activeInline != nil {
@@ -3791,14 +3832,14 @@ func (m *UI) Draw(scr uv.Screen, area uv.Rectangle) *tea.Cursor {
 			if !m.isCompact {
 				editorWidth -= layout.sidebar.Dx()
 			}
-			editor := uv.NewStyledString(m.renderEditorView(editorWidth))
-			editor.Draw(scr, layout.editor)
+			m.blitEditor.draw(scr, layout.editor, m.renderEditorView(editorWidth))
 			m.inlineCursor = nil
 		}
 
 		// Draw details overlay in compact mode when open
 		if m.isCompact && m.detailsOpen {
 			m.drawSessionDetails(scr, layout.sessionDetails)
+			m.chat.InvalidateBlit()
 		}
 	}
 
@@ -3844,7 +3885,12 @@ func (m *UI) Draw(scr uv.Screen, area uv.Rectangle) *tea.Cursor {
 	// the full screen bounds because the dialogs will position themselves
 	// accordingly.
 	if m.dialog.HasDialogs() {
-		return m.dialog.Draw(scr, scr.Bounds())
+		cursor := m.dialog.Draw(scr, scr.Bounds())
+		// The dialog painted over the components, so their cells on screen
+		// are no longer what the buffers hold. Drop the blits and the next
+		// frame repaints them.
+		m.invalidateBlits()
+		return cursor
 	}
 
 	switch m.focus {
@@ -3916,17 +3962,10 @@ func (m *UI) View() tea.View {
 		}
 	}
 
-	canvas := uv.NewScreenBuffer(m.width, m.height)
+	canvas := m.frameCanvas()
 	v.Cursor = m.Draw(canvas, canvas.Bounds())
 
-	content := strings.ReplaceAll(canvas.Render(), "\r\n", "\n") // normalize newlines
-	contentLines := strings.Split(content, "\n")
-	for i, line := range contentLines {
-		// Trim trailing spaces for concise rendering
-		contentLines[i] = strings.TrimRight(line, " ")
-	}
-
-	content = strings.Join(contentLines, "\n")
+	content := m.rows.render(canvas)
 
 	v.Content = content
 	if cacheable {
@@ -3935,6 +3974,42 @@ func (m *UI) View() tea.View {
 	m.applyTerminalStatus(&v)
 
 	return v
+}
+
+// frameCanvas returns the screen buffer View composes into, reusing it across
+// frames and resizing it only when the terminal dimensions change. A full cell
+// grid costs roughly 100 bytes per cell, so allocating one per frame was the
+// largest single source of render garbage.
+func (m *UI) frameCanvas() uv.ScreenBuffer {
+	if m.canvas.RenderBuffer != nil && m.canvas.Width() == m.width && m.canvas.Height() == m.height {
+		return m.canvas
+	}
+	m.canvas = uv.NewScreenBuffer(max(m.width, 0), max(m.height, 0))
+	return m.canvas
+}
+
+// frameContent normalizes a rendered screen buffer for Bubble Tea: CRLF line
+// endings become LF and trailing spaces are trimmed per line. It walks the
+// rendered string exactly once, where the previous ReplaceAll + Split + Join
+// copied the whole frame two extra times per render.
+func frameContent(rendered string) string {
+	var b strings.Builder
+	b.Grow(len(rendered))
+	for {
+		line, rest, found := strings.Cut(rendered, "\n")
+		if found {
+			// Only a CR that precedes a LF is a line ending; a lone
+			// trailing CR is content and must be preserved.
+			line = strings.TrimSuffix(line, "\r")
+		}
+		b.WriteString(strings.TrimRight(line, " "))
+		if !found {
+			break
+		}
+		b.WriteByte('\n')
+		rendered = rest
+	}
+	return b.String()
 }
 
 // applyTerminalStatus attaches the program status, and the terminal progress
@@ -4429,6 +4504,7 @@ func (m *UI) updateTextareaWithPrevHeight(msg tea.Msg, prevHeight int) tea.Cmd {
 // updateSize updates the sizes of UI components based on the current layout.
 func (m *UI) updateSize() {
 	m.invalidateFrames()
+	m.chat.scrollbarMemoValid = false
 
 	// Set status width
 	m.status.SetWidth(m.layout.status.Dx())
@@ -6627,7 +6703,7 @@ func (m *UI) disableDockerMCP() tea.Msg {
 
 // renderLogo renders the Crush logo with the given styles and dimensions.
 func renderLogo(t *styles.Styles, compact, hyper bool, width int, updateAvailable bool) string {
-	var displayVersion = strings.Replace(version.Version, "v", " ", 1)
+	displayVersion := strings.Replace(version.Version, "v", " ", 1)
 	if updateAvailable {
 		displayVersion = "Update Now"
 	}
