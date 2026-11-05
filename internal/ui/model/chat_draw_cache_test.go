@@ -77,8 +77,12 @@ func TestChatDrawCache_MissOnDifferentRender(t *testing.T) {
 	u.updateLayoutAndSize()
 
 	got := renderToBuffer(t, u.chat, w, h)
-	require.NotSame(t, firstCache, u.chat.drawCache,
-		"changed rendered string must replace the cache entry")
+	// The cache is updated in place: reallocating its cell grid on every
+	// changed render was the scroll path's largest allocation.
+	require.Same(t, firstCache, u.chat.drawCache,
+		"changed rendered string must be decoded into the existing cache")
+	require.Equal(t, u.chat.list.Render(), u.chat.drawCache.rendered,
+		"the cache must track the current rendered string")
 
 	// Output must match a fresh uv.NewStyledString render of the current
 	// list output for the same area. This is the byte-equivalence guard

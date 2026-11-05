@@ -210,6 +210,7 @@ const scrollbarHideDuration = 2 * time.Second
 // ANSI re-parse on hit.
 type chatDrawCache struct {
 	rendered string
+	lines    []string
 	method   ansi.Method
 	buf      uv.ScreenBuffer
 }
@@ -295,16 +296,12 @@ func (m *Chat) Draw(scr uv.Screen, area uv.Rectangle) {
 		// to the uncached path so behavior matches upstream exactly.
 		uv.NewStyledString(rendered).Draw(scr, listArea)
 	} else {
-		decoded := false
-		if m.drawCache == nil ||
-			m.drawCache.rendered != rendered ||
-			m.drawCache.method != method {
-			m.drawCache = newChatDrawCache(rendered, method)
+		buf, changed := m.decodeCache(rendered, method)
+		if changed {
 			m.drawDecodes++
-			decoded = true
 		}
-		if decoded || !m.blitGood || m.blitArea != listArea {
-			drawCachedBuffer(scr, listArea, m.drawCache.buf, decoded)
+		if changed || !m.blitGood || m.blitArea != listArea {
+			drawCachedBuffer(scr, listArea, buf, changed)
 			m.blitGood, m.blitArea = true, listArea
 		}
 	}
@@ -336,46 +333,99 @@ func (m *Chat) InvalidateBlit() {
 	m.blitGood = false
 }
 
-// newChatDrawCache builds a chatDrawCache for the given rendered string by
-// running uv.StyledString.Draw into a fresh buffer sized to the text's
-// natural bounds under the active width method. This is the only place
-// ANSI decoding happens for cached frames — subsequent draws reuse buf
-// via drawCachedBuffer.
+// decodeCache assembles the decoded screen for rendered, reusing the rows the
+// previous frame already decoded whenever the viewport simply moved. A scroll
+// step changes one or two lines and shifts the rest, so re-decoding the whole
+// screen for it was the most expensive frame in the UI.
 //
-// We can't use uv.StyledString.Bounds() here: it is hard-coded to
-// ansi.GraphemeWidth, while StyledString.Draw lays cells using the
-// destination buffer's WidthMethod (which we capture in `method`). For
-// strings where graphemes and wcwidth disagree (emoji ZWJ sequences,
-// some CJK, certain combining marks) the two answers diverge, leaving
-// the cached buffer either too small (trailing cells dropped on hit) or
-// too large (dead cells past the live content). Computing dimensions
-// with `method.StringWidth` per line matches what printString tallies
-// cell-by-cell, since both decode ANSI sequences and use the same width
-// method.
-func newChatDrawCache(rendered string, method ansi.Method) *chatDrawCache {
-	w, h := renderedBounds(rendered, method)
-	if w <= 0 {
-		w = 1
+// It reports whether the content changed since the previous call, which tells
+// the caller to clear cells the new content no longer covers.
+func (m *Chat) decodeCache(rendered string, method ansi.Method) (uv.ScreenBuffer, bool) {
+	cache := m.drawCache
+	if cache != nil && cache.method == method && cache.rendered == rendered {
+		return cache.buf, false
 	}
-	if h <= 0 {
-		h = 1
+
+	lines := strings.Split(rendered, "\n")
+	width := 1
+	for _, line := range lines {
+		width = max(width, method.StringWidth(line))
 	}
-	buf := uv.NewScreenBuffer(w, h)
-	buf.Method = method
-	uv.NewStyledString(rendered).Draw(buf, buf.Bounds())
-	return &chatDrawCache{
-		rendered: rendered,
-		method:   method,
-		buf:      buf,
+
+	if cache == nil || cache.method != method {
+		cache = &chatDrawCache{method: method}
+		m.drawCache = cache
 	}
+	resized := cache.buf.RenderBuffer == nil || cache.buf.Width() != width || cache.buf.Height() != len(lines)
+	if resized {
+		cache.buf = uv.NewScreenBuffer(width, len(lines))
+		cache.buf.Method = method
+	}
+
+	shift := 0
+	if !resized {
+		shift = scrollShift(cache.lines, lines)
+	}
+	switch {
+	case shift > 0:
+		// The content moved up: pull the surviving rows toward the top and
+		// decode only the rows that scrolled in at the bottom.
+		n := len(lines)
+		for y := 0; y < n-shift; y++ {
+			copy(cache.buf.Lines[y], cache.buf.Lines[y+shift])
+		}
+		for y := n - shift; y < n; y++ {
+			drawChatLine(cache.buf, lines[y], y, width)
+		}
+	case shift < 0:
+		// The content moved down: push the surviving rows toward the bottom
+		// and decode only the rows that scrolled in at the top.
+		k := -shift
+		n := len(lines)
+		for y := n - 1; y >= k; y-- {
+			copy(cache.buf.Lines[y], cache.buf.Lines[y-k])
+		}
+		for y := 0; y < k; y++ {
+			drawChatLine(cache.buf, lines[y], y, width)
+		}
+	default:
+		for y, line := range lines {
+			drawChatLine(cache.buf, line, y, width)
+		}
+	}
+
+	cache.rendered = rendered
+	cache.lines = lines
+	return cache.buf, true
 }
 
-// renderedBounds returns the (width, height) cell extent of rendered
-// when laid out by method. Width is the widest line's StringWidth (which
-// strips ANSI sequences and tallies cells via method, exactly like
-// printString); height is the line count. Both match what
-// uv.StyledString.Draw will write into a buffer whose WidthMethod is
-// method, so the cache buffer is always sized to fit the live content.
+// scrollShift reports how many lines the viewport moved since the previous
+// frame, or 0 when the content did not line up as a scroll. Positive means
+// the content moved up (the user scrolled down).
+func scrollShift(oldLines, newLines []string) int {
+	n := min(len(oldLines), len(newLines))
+	for k := 1; k < n; k++ {
+		if slices.Equal(oldLines[k:n], newLines[:n-k]) {
+			return k
+		}
+		if slices.Equal(newLines[k:n], oldLines[:n-k]) {
+			return -k
+		}
+	}
+	return 0
+}
+
+// drawChatLine decodes a single line into row y of the cache buffer, clearing
+// the row first so shorter content leaves no stale cells behind.
+func drawChatLine(buf uv.ScreenBuffer, line string, y, width int) {
+	uv.NewStyledString(line).Draw(buf, image.Rect(0, y, width, y+1))
+}
+
+// renderedBounds returns the (width, height) cell extent of rendered when laid
+// out by method. Width is the widest line's StringWidth (which strips ANSI
+// sequences and tallies cells via method, exactly like printString); height is
+// the line count. Both match what uv.StyledString.Draw will write into a buffer
+// whose WidthMethod is method, so a cache buffer is always sized to fit.
 func renderedBounds(rendered string, method ansi.Method) (w, h int) {
 	for line := range strings.SplitSeq(rendered, "\n") {
 		w = max(w, method.StringWidth(line))
@@ -387,10 +437,10 @@ func renderedBounds(rendered string, method ansi.Method) (w, h int) {
 // drawCachedBuffer blits a previously-decoded buffer into scr at area,
 // mirroring uv.StyledString.Draw's screen-mode behavior for the default
 // Wrap=false, Tail="" case. The clear loop matches StyledString.Draw line
-// 51-56; the buf.Draw call replaces the per-cell ANSI decode that
-// printString does on every uncached frame with a pure cell copy.
+// 51-56; the buf.Draw call replaces the per-cell ANSI decode that printString
+// does on every uncached frame with a pure cell copy.
 func drawCachedBuffer(scr uv.Screen, area uv.Rectangle, buf uv.ScreenBuffer, decoded bool) {
-	// Clear the area only when the buffer was just decoded: leftover cells
+	// Clear the area only when the buffer content changed: leftover cells
 	// from a previous frame outside the new content must be zeroed, because
 	// Buffer.Draw skips empty cells (it doesn't clear). Reusing the previous
 	// buffer needs no clear at all, and skipping it keeps every unchanged

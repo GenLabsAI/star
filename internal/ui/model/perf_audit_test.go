@@ -10,6 +10,7 @@ import (
 	"github.com/charmbracelet/crush/internal/config"
 	"github.com/charmbracelet/crush/internal/session"
 	uv "github.com/charmbracelet/ultraviolet"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/stretchr/testify/require"
 )
 
@@ -345,4 +346,41 @@ func TestSidebarMemoTracksInputs(t *testing.T) {
 	u.session.Title = "A brand new session title"
 	u.updateSidebarScrollState()
 	require.NotEqual(t, first, u.sidebarContent, "the memo must notice a new title")
+}
+
+// TestChatDecodeCacheMatchesWholeDecode guards the incremental chat decode:
+// shifting decoded rows around for a scroll must produce exactly the cells a
+// whole-frame decode would, including across styled multi-line content.
+func TestChatDecodeCacheMatchesWholeDecode(t *testing.T) {
+	u := auditUI(t, 20)
+	canvas := u.frameCanvas()
+	method, ok := canvas.WidthMethod().(ansi.Method)
+	require.True(t, ok)
+
+	check := func(what string) {
+		t.Helper()
+		rendered := u.chat.list.Render()
+		buf, _ := u.chat.decodeCache(rendered, method)
+		whole := uv.NewScreenBuffer(buf.Width(), buf.Height())
+		whole.Method = method
+		uv.NewStyledString(rendered).Draw(whole, whole.Bounds())
+		require.Equal(t, whole.Render(), buf.Render(), "decoded rows diverged after %s", what)
+	}
+
+	check("initial")
+	for i := range 4 {
+		model, _ := u.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+		u = model.(*UI)
+		check(fmt.Sprintf("scroll down %d", i))
+	}
+	for i := range 4 {
+		model, _ := u.Update(tea.KeyPressMsg{Code: tea.KeyUp})
+		u = model.(*UI)
+		check(fmt.Sprintf("scroll up %d", i))
+	}
+	for i := range 2 {
+		model, _ := u.Update(tea.KeyPressMsg{Code: 'a', Text: "a"})
+		u = model.(*UI)
+		check(fmt.Sprintf("type %d", i))
+	}
 }
