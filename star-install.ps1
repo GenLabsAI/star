@@ -212,8 +212,28 @@ if ($null -eq $BinDir -or $missing) {
 }
 
 Write-Host "[6/6] installing binaries into $InstallDir"
+
+# Install the core into a versioned directory and point the launcher at it.
+# Running cores keep their old file, so an in-app update never needs to close
+# every Star window. The root star-core.exe is kept as a legacy fallback.
+$VersionsRoot = Join-Path $InstallDir "versions"
+$VersionDir = Join-Path $VersionsRoot $ResolvedTag
+New-Item -ItemType Directory -Path $VersionDir -Force | Out-Null
+Copy-Item -Path (Join-Path $BinDir "star-core.exe") -Destination (Join-Path $VersionDir "star-core.exe") -Force
 Move-Item -Path (Join-Path $BinDir "star.exe") -Destination $InstallDir -Force
 Move-Item -Path (Join-Path $BinDir "star-core.exe") -Destination $InstallDir -Force
+[System.IO.File]::WriteAllText((Join-Path $InstallDir "current"), $ResolvedTag, [System.Text.Encoding]::ASCII)
+
+# Keep the active version and one previous version. In-use files may not be
+# removable yet; cleanup retries on the next launch.
+Get-ChildItem -Path $VersionsRoot -Directory -ErrorAction SilentlyContinue |
+    Where-Object { $_.Name -ne $ResolvedTag -and -not $_.Name.StartsWith(".staging-") } |
+    Sort-Object LastWriteTime -Descending |
+    Select-Object -Skip 1 |
+    ForEach-Object { Remove-Item $_.FullName -Recurse -Force -ErrorAction SilentlyContinue }
+Get-ChildItem -Path $VersionsRoot -Directory -Filter ".staging-*" -ErrorAction SilentlyContinue |
+    ForEach-Object { Remove-Item $_.FullName -Recurse -Force -ErrorAction SilentlyContinue }
+
 Remove-Item $ExtractDir -Recurse -Force
 Remove-Item $ZipPath -Force
 

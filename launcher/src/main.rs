@@ -1,8 +1,8 @@
 //! The `star` launcher: renders the splash banner, supervises the Go core, and
-//! coordinates in-place self-updates across every running instance.
+//! coordinates versioned self-updates across every running instance.
 
 use std::io::{self, Write};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -18,20 +18,6 @@ use star_launcher::{platform, update};
 /// as a user-initiated update.
 const RAPID_EXIT_WINDOW: Duration = Duration::from_secs(10);
 const MAX_RAPID_UPDATES: u32 = 3;
-
-fn find_core() -> PathBuf {
-    let home = std::path::PathBuf::from(
-        std::env::var_os("USERPROFILE")
-            .or_else(|| std::env::var_os("HOME"))
-            .unwrap_or_else(|| ".".into()),
-    );
-    let bin_dir = home.join("bin");
-    if cfg!(target_os = "windows") {
-        bin_dir.join("star-core.exe")
-    } else {
-        bin_dir.join("star-core")
-    }
-}
 
 /// Leave the alternate screen without touching the main screen's contents.
 ///
@@ -100,12 +86,12 @@ fn run_core(coord: &Coord) -> i32 {
         }));
     }
 
-    let core = find_core();
+    let core = update::find_core();
     let mut args: Vec<String> = std::env::args().skip(1).collect();
 
-    // Resume the exact session this instance was in before it paused. An
-    // explicit session wins over `--continue`, which would otherwise resume
-    // whatever session happens to be newest.
+    // Resume the exact session this instance was in before the launcher
+    // restarted it. An explicit session wins over `--continue`, which would
+    // otherwise resume whatever session happens to be newest.
     if let Some(session) = coord.take_session(pid) {
         args.retain(|arg| arg != "--continue" && arg != "-C");
         if let Some(index) = args
@@ -178,11 +164,12 @@ fn run_core(coord: &Coord) -> i32 {
     code
 }
 
-/// Perform the install on behalf of every paused instance.
+/// Install a new core version for the instance that asked to update.
 ///
-/// The updater is whichever instance the user clicked "Update Now" in. It waits
-/// for every other live instance to confirm its core is closed, then
-/// overwrites the binary exactly once, then tells everybody to come back.
+/// The install writes a new versioned binary and flips the `current` pointer.
+/// Other running instances keep the file they were started from, so they do
+/// not need to pause or close. This instance reopens on the new version because
+/// its core exited with `EXIT_INITIATOR`.
 fn run_update(coord: &Coord, pid: u32) -> Result<(), String> {
     // If another instance already holds the lock it is doing this work
     // already; wait for its verdict rather than racing it onto the same file.
@@ -193,21 +180,14 @@ fn run_update(coord: &Coord, pid: u32) -> Result<(), String> {
 
     coord.set_phase(coord::Phase::Installing);
 
-    // On Windows the binary is locked for as long as it is running, so this
-    // wait is what makes replacing it reliable. It is bounded, because one
-    // A wedged instance must not be able to block updates forever.
-    if !coord.wait_for_quiesce(pid, coord::QUIESCE_TIMEOUT) {
-        eprintln!("  another star instance is still shutting down; continuing anyway");
-    }
+    // Versioned installs never overwrite a running core, so no quiesce wait is
+    // needed. Old windows continue on their old files; new windows read the
+    // new pointer.
+    let result = update::perform_update(&update::install_dir());
 
-    // We only update the core here; the running launcher replaces itself on the
-    // next restart via the coordinator handshake.
-    let _launcher = std::env::current_exe().ok();
-    let result = update::perform_update(&find_core());
-
-    match result {
+    match &result {
         Ok(_) => coord.set_phase(coord::Phase::Done),
-        Err(ref error) => coord.set_phase(coord::Phase::Failed(error.clone())),
+        Err(error) => coord.set_phase(coord::Phase::Failed(error.clone())),
     }
 
     // Release only after the phase is published, so a follower that wakes up
@@ -216,7 +196,7 @@ fn run_update(coord: &Coord, pid: u32) -> Result<(), String> {
     coord.clear_request();
     clear_dir(&coord.root().join("acks"));
 
-    Ok(())
+    result.map(|_| ())
 }
 
 fn clear_dir(dir: &Path) {
@@ -232,6 +212,10 @@ fn main() {
     // this binary was still running. Nothing holds them now.
     let pid = std::process::id();
     let coord = Coord::new();
+    // Best-effort cleanup of versions left by earlier launches. An old core
+    // that is still running cannot be removed on Windows, so cleanup simply
+    // leaves it for a later launch.
+    update::cleanup_install(&update::install_dir());
     coord.register(pid);
 
     let mut rapid_updates = 0u32;
@@ -252,7 +236,8 @@ fn main() {
         }
         last_exit = Instant::now();
 
-        // Our core is closed, so the binary is now safe to overwrite.
+        // Our core is closed, so this instance can install a new version
+        // while every other instance keeps running its existing core.
         coord.ack(pid);
 
         if exit_code == coord::EXIT_INITIATOR {
