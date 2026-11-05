@@ -5,6 +5,9 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/charmbracelet/crush/internal/session"
+	"github.com/charmbracelet/crush/internal/ui/styles"
 )
 
 // TestRenderItemBusyGlyphLeftOfTitle: the busy indicator is drawn to the left
@@ -27,4 +30,24 @@ func TestRenderItemIdleHasNoSpinner(t *testing.T) {
 
 	out := renderItem(ListItemStyles{}, "fix the parser", "2h ago", false, false, 40, nil, nil, "⠹")
 	require.NotContains(t, out, "⠹")
+}
+
+// TestSessionItemBusyFlagRedrawsImmediately: flipping the busy flag must drop
+// the cached render, otherwise a finished background run keeps its spinner
+// until the list is rebuilt.
+func TestSessionItemBusyFlagRedrawsImmediately(t *testing.T) {
+	t.Parallel()
+
+	items := sessionItems(&styles.Styles{}, sessionsModeNormal, func(string) bool { return false },
+		session.Session{ID: "s1", Title: "background yeehaw"})
+	item := items[0].(*SessionItem)
+
+	require.NotContains(t, item.Render(40), "⠹", "an idle session has no spinner")
+
+	item.SetBusyGlyph("⠹")
+	item.SetBusy(true)
+	require.Contains(t, item.Render(40), "⠹", "a busy session shows the spinner")
+
+	item.SetBusy(false)
+	require.NotContains(t, item.Render(40), "⠹", "the spinner must disappear as soon as the run ends")
 }

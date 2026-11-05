@@ -24,6 +24,12 @@ const SessionsID = "session"
 
 const sessionDoubleClickThreshold = 400 * time.Millisecond
 
+// sessionBusyRefreshInterval throttles re-probing which sessions still have a
+// run in flight while the dialog is open. The spinner ticks roughly ten times
+// a second, which is far too often for a workspace probe (an HTTP round-trip
+// in client/server mode).
+const sessionBusyRefreshInterval = time.Second
+
 type sessionsMode uint8
 
 // Possible modes a session item can be in
@@ -46,6 +52,9 @@ type Session struct {
 	// sessions with a run in flight, including a yeehaw session still
 	// working in the background.
 	busySpinner spinner.Model
+
+	// lastBusyRefresh throttles re-probing the sessions drawn as busy.
+	lastBusyRefresh time.Time
 
 	sessionsMode  sessionsMode
 	bodyArea      image.Rectangle
@@ -233,15 +242,36 @@ func (s *Session) HandleMsg(msg tea.Msg) Action {
 			}
 		}
 	case spinner.TickMsg:
-		// Animate the busy indicator. The chain stops as soon as nothing on
-		// screen is busy, so an idle session list does no work.
+		// Animate the busy indicator and, at most once a second, re-probe the
+		// sessions still marked busy so a finished background run stops
+		// drawing its spinner. The chain stops once nothing is busy, so an
+		// idle session list does no work at all.
 		var cmd tea.Cmd
 		s.busySpinner, cmd = s.busySpinner.Update(msg)
 		s.applyBusyGlyph()
-		if !s.anyBusySession() {
+		ids := s.busySessionIDs()
+		if len(ids) == 0 {
 			return nil
 		}
+		if now := time.Now(); s.lastBusyRefresh.IsZero() || now.Sub(s.lastBusyRefresh) >= sessionBusyRefreshInterval {
+			s.lastBusyRefresh = now
+			return ActionCmd{tea.Batch(cmd, s.busyProbeCmd(ids))}
+		}
 		return ActionCmd{cmd}
+	case sessionsBusyMsg:
+		// Apply a probe made off the Update goroutine. Only the sessions it
+		// asked about are touched, and one that went idle loses its spinner
+		// right away.
+		for _, item := range s.list.FilteredItems() {
+			it, ok := item.(*SessionItem)
+			if !ok {
+				continue
+			}
+			if busy, ok := msg.busy[it.ID()]; ok {
+				it.SetBusy(busy)
+			}
+		}
+		return nil
 	case common.CoalescedWheelMsg:
 		if image.Pt(msg.Mouse.X, msg.Mouse.Y).In(s.sessionListArea()) {
 			s.list.ScrollBy(int(msg.DeltaY))
@@ -584,4 +614,36 @@ func (s *Session) StartBusySpinner() tea.Cmd {
 	}
 	s.applyBusyGlyph()
 	return s.busySpinner.Tick
+}
+
+// sessionsBusyMsg carries the result of an off-thread probe of which listed
+// sessions still have a run in flight.
+type sessionsBusyMsg struct {
+	busy map[string]bool
+}
+
+// busySessionIDs lists the sessions currently drawn as busy.
+func (s *Session) busySessionIDs() []string {
+	var ids []string
+	for _, item := range s.list.FilteredItems() {
+		if it, ok := item.(*SessionItem); ok && it.Busy() {
+			ids = append(ids, it.ID())
+		}
+	}
+	return ids
+}
+
+// busyProbeCmd probes the workspace for the given sessions off the Update
+// goroutine. It only reads: HandleMsg applies the result, so the model is
+// never mutated inside a command.
+func (s *Session) busyProbeCmd(ids []string) tea.Cmd {
+	ws := s.com.Workspace
+	return func() tea.Msg {
+		busy := make(map[string]bool, len(ids))
+		ready := ws.AgentIsReady()
+		for _, id := range ids {
+			busy[id] = ready && ws.AgentIsSessionBusy(id)
+		}
+		return sessionsBusyMsg{busy: busy}
+	}
 }

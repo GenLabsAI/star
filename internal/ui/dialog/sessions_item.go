@@ -275,6 +275,25 @@ func (s *SessionItem) SetBusyGlyph(glyph string) {
 	}
 }
 
+// SetBusy updates whether the item shows a run in flight. Changing it
+// invalidates the cached render, so a finished background run stops drawing a
+// spinner immediately instead of at the next rebuild of the list.
+func (s *SessionItem) SetBusy(busy bool) {
+	if s.busy == busy {
+		return
+	}
+	s.cache = nil
+	s.busy = busy
+	if s.Versioned != nil {
+		s.Bump()
+	}
+}
+
+// Busy reports whether the item currently shows a run in flight.
+func (s *SessionItem) Busy() bool {
+	return s.busy
+}
+
 // SetFocused sets the focus state of the session item.
 func (s *SessionItem) SetFocused(focused bool) {
 	if s.focused == focused {
