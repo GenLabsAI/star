@@ -188,24 +188,17 @@ struct Release {
     asset_url: String,
 }
 
-/// Fetch the latest release and its platform asset. The version comes from the
-/// asset URL (`/releases/download/<tag>/<asset>`), so we do not need a JSON
-/// parser just to learn the tag.
-fn fetch_release() -> Result<Release, String> {
-    let body: String = retry(|| {
-        let resp = request(GITHUB_RELEASE_LATEST)?;
-        resp.into_body()
-            .read_to_string()
-            .map_err(|e| format!("could not read release metadata: {e}"))
-    })?;
-
-    // Minimal JSON parsing to avoid pulling in serde_json and bloating the
-    // binary. GitHub lists `name` before `browser_download_url` within each
-    // asset object, so splitting on the name key keeps the two together.
-    let wanted = asset_name();
-    let mut asset_url: Option<String> = None;
+/// Find an asset URL in the release JSON without pulling in a full JSON parser.
+///
+/// GitHub writes `"name"` before `"browser_download_url"` in each asset
+/// object. Splitting at the name key keeps the two fields together. The text
+/// after the key starts with a colon, so consume that before reading the value.
+fn asset_url_from_release(body: &str, wanted: &str) -> Option<String> {
     for block in body.split("\"name\"").skip(1) {
-        let Some(rest) = block.strip_prefix('"') else {
+        let Some(rest) = block.trim_start().strip_prefix(':') else {
+            continue;
+        };
+        let Some(rest) = rest.trim_start().strip_prefix('"') else {
             continue;
         };
         let Some(end) = rest.find('"') else {
@@ -228,12 +221,25 @@ fn fetch_release() -> Result<Release, String> {
         let Some(end) = after.find('"') else {
             continue;
         };
-        asset_url = Some(after[..end].to_string());
-        break;
+        return Some(after[..end].to_string());
     }
+    None
+}
 
-    let asset_url =
-        asset_url.ok_or_else(|| format!("release has no {wanted} asset for this platform"))?;
+/// Fetch the latest release and its platform asset. The version comes from the
+/// asset URL (`/releases/download/<tag>/<asset>`), so we do not need a JSON
+/// parser just to learn the tag.
+fn fetch_release() -> Result<Release, String> {
+    let body: String = retry(|| {
+        let resp = request(GITHUB_RELEASE_LATEST)?;
+        resp.into_body()
+            .read_to_string()
+            .map_err(|e| format!("could not read release metadata: {e}"))
+    })?;
+
+    let wanted = asset_name();
+    let asset_url = asset_url_from_release(&body, wanted)
+        .ok_or_else(|| format!("release has no {wanted} asset for this platform"))?;
     let version = version_from_asset_url(&asset_url)
         .ok_or_else(|| format!("could not determine the release version from {asset_url}"))?;
     if !safe_version(&version) {
@@ -627,6 +633,32 @@ mod tests {
         assert!(versions_dir(&install).join("v0.1.101/star-core").is_file());
         assert!(!versions_dir(&install).join("v0.1.99").exists());
         let _ = fs::remove_dir_all(install);
+    }
+
+    #[test]
+    fn finds_the_platform_asset_after_its_name() {
+        let body = r#"{
+            "tag_name": "v0.1.100",
+            "name": "v0.1.100",
+            "assets": [
+                {
+                    "name": "checksums.txt",
+                    "browser_download_url": "https://github.com/GenLabsAI/star/releases/download/v0.1.100/checksums.txt"
+                },
+                {
+                    "name": "star-linux-amd64.tar.gz",
+                    "browser_download_url": "https://github.com/GenLabsAI/star/releases/download/v0.1.100/star-linux-amd64.tar.gz"
+                }
+            ]
+        }"#;
+
+        assert_eq!(
+            asset_url_from_release(body, "star-linux-amd64.tar.gz").as_deref(),
+            Some(
+                "https://github.com/GenLabsAI/star/releases/download/v0.1.100/star-linux-amd64.tar.gz"
+            )
+        );
+        assert_eq!(asset_url_from_release(body, "star-windows-amd64.zip"), None);
     }
 
     #[test]
