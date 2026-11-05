@@ -30,6 +30,11 @@ import (
 // method so tests can pin exactly which probes ran. The embedded interface
 // panics on anything unimplemented.
 type countingWorkspace struct {
+	// sessionModes, when non-nil, gives individual sessions their own
+	// permission mode so switch tests can keep two sessions in different
+	// modes while the global mode mirrors the latest write.
+	sessionModes map[string]permission.Mode
+
 	workspace.Workspace
 
 	ready          bool
@@ -58,8 +63,9 @@ type countingWorkspace struct {
 	mcpPendingCalls int
 }
 
-func (w *countingWorkspace) AgentIsReady() bool             { w.readyCalls++; return w.ready }
-func (w *countingWorkspace) AgentIsBusy() bool              { w.agentBusyCalls++; return w.agentBusy }
+func (w *countingWorkspace) AgentIsReady() bool { w.readyCalls++; return w.ready }
+func (w *countingWorkspace) AgentIsBusy() bool  { w.agentBusyCalls++; return w.agentBusy }
+
 // AgentIsSessionBusy answers for the single session these tests use, and is
 // deliberately uncounted: it is asked once on session load rather than on
 // the per-keystroke paths whose probe counts the other stubs pin.
@@ -100,9 +106,15 @@ func (w *countingWorkspace) PermissionSetSessionSkipRequests(sessionID string, s
 	w.PermissionSetSkipRequests(skip)
 }
 func (w *countingWorkspace) PermissionSessionMode(sessionID string) permission.Mode {
+	if mode, ok := w.sessionModes[sessionID]; ok {
+		return mode
+	}
 	return w.PermissionMode()
 }
 func (w *countingWorkspace) PermissionSetSessionMode(sessionID string, mode permission.Mode) {
+	if w.sessionModes != nil {
+		w.sessionModes[sessionID] = mode
+	}
 	w.PermissionSetMode(mode)
 }
 

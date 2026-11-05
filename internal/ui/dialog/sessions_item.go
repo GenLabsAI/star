@@ -53,6 +53,7 @@ type SessionItem struct {
 	focused          bool
 	hideInfo         bool
 	busy             bool
+	busyGlyph        string
 }
 
 // Finished implements list.Item. Session items are render-stable
@@ -153,7 +154,7 @@ func (s *SessionItem) Render(width int) string {
 		}
 	}
 
-	return renderItem(styles, s.Title, info, s.focused, s.busy, width, s.cache, &s.m)
+	return renderItem(styles, s.Title, info, s.focused, s.busy, width, s.cache, &s.m, s.busyGlyph)
 }
 
 type ListItemStyles struct {
@@ -163,7 +164,7 @@ type ListItemStyles struct {
 	InfoTextFocused lipgloss.Style
 }
 
-func renderItem(t ListItemStyles, title string, info string, focused bool, busy bool, width int, cache map[int]string, m *fuzzy.Match) string {
+func renderItem(t ListItemStyles, title string, info string, focused bool, busy bool, width int, cache map[int]string, m *fuzzy.Match, busyGlyph ...string) string {
 	if cache == nil {
 		cache = make(map[int]string)
 	}
@@ -183,16 +184,29 @@ func renderItem(t ListItemStyles, title string, info string, focused bool, busy 
 	// padding pushes the line past the list width and it wraps.
 	lineWidth := max(0, width-style.GetHorizontalFrameSize())
 
+	// The busy indicator sits to the left of the title, so scanning the list
+	// shows which sessions still have a run in flight (a yeehaw run among
+	// them) without reading the right-hand info column.
+	var busyText string
+	if busy {
+		var glyph string
+		if len(busyGlyph) > 0 {
+			glyph = busyGlyph[0]
+		}
+		if glyph == "" {
+			glyph = styles.SpinnerIcon
+		}
+		if focused {
+			busyText = t.InfoTextFocused.Render(glyph) + " "
+		} else {
+			busyText = t.InfoTextBlurred.Render(glyph) + " "
+		}
+	}
+	busyWidth := lipgloss.Width(busyText)
+
 	var infoText string
 	var infoWidth int
-	if busy {
-		busyIndicator := t.InfoTextFocused.Render(styles.SpinnerIcon)
-		if !focused {
-			busyIndicator = t.InfoTextBlurred.Render(styles.SpinnerIcon)
-		}
-		infoText = fmt.Sprintf(" %s ", busyIndicator)
-		infoWidth = lipgloss.Width(infoText)
-	} else if len(info) > 0 {
+	if len(info) > 0 {
 		// Cap the info column so a long value (e.g. a provider name) can
 		// truncate instead of overflowing the row or squeezing the title
 		// to nothing; the title keeps at least half the width.
@@ -209,9 +223,9 @@ func renderItem(t ListItemStyles, title string, info string, focused bool, busy 
 		infoWidth = lipgloss.Width(infoText)
 	}
 
-	title = ansi.Truncate(title, max(0, lineWidth-infoWidth), "…")
+	title = ansi.Truncate(title, max(0, lineWidth-infoWidth-busyWidth), "…")
 	titleWidth := lipgloss.Width(title)
-	gap := strings.Repeat(" ", max(0, lineWidth-titleWidth-infoWidth))
+	gap := strings.Repeat(" ", max(0, lineWidth-titleWidth-infoWidth-busyWidth))
 	content := title
 	if m != nil && len(m.MatchedIndexes) > 0 {
 		var lastPos int
@@ -242,9 +256,23 @@ func renderItem(t ListItemStyles, title string, info string, focused bool, busy 
 		content = strings.Join(parts, "")
 	}
 
-	content = style.Render(content + gap + infoText)
+	content = style.Render(busyText + content + gap + infoText)
 	cache[width] = content
 	return content
+}
+
+// SetBusyGlyph sets the animated frame drawn left of the title while the
+// session has a run in flight. Changing it invalidates the cached render so
+// the list redraws the new frame.
+func (s *SessionItem) SetBusyGlyph(glyph string) {
+	if s.busyGlyph == glyph {
+		return
+	}
+	s.cache = nil
+	s.busyGlyph = glyph
+	if s.Versioned != nil {
+		s.Bump()
+	}
 }
 
 // SetFocused sets the focus state of the session item.

@@ -8,6 +8,7 @@ import (
 
 	"charm.land/bubbles/v2/help"
 	"charm.land/bubbles/v2/key"
+	"charm.land/bubbles/v2/spinner"
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -40,6 +41,11 @@ type Session struct {
 	input              textinput.Model
 	selectedSessionInx int
 	sessions           []session.Session
+
+	// busySpinner animates the braille indicator drawn left of the title for
+	// sessions with a run in flight, including a yeehaw session still
+	// working in the background.
+	busySpinner spinner.Model
 
 	sessionsMode  sessionsMode
 	bodyArea      image.Rectangle
@@ -75,6 +81,7 @@ func NewSessions(com *common.Common, selectedSessionID string) (*Session, error)
 	}
 
 	s.sessions = sessions
+	s.busySpinner = spinner.New(spinner.WithSpinner(spinner.MiniDot))
 	for i, sess := range sessions {
 		if sess.ID == selectedSessionID {
 			s.selectedSessionInx = i
@@ -152,25 +159,26 @@ func (s *Session) HandleMsg(msg tea.Msg) Action {
 	case tea.KeyPressMsg:
 		switch s.sessionsMode {
 		case sessionsModeDeleting:
-			switch {		case key.Matches(msg, s.keyMap.ConfirmDelete):
-			action := s.confirmDeleteSession()
-				s.list.SetItems(sessionItems(s.com.Styles, sessionsModeNormal, s.isSessionBusy, s.sessions...)...)
+			switch {
+			case key.Matches(msg, s.keyMap.ConfirmDelete):
+				action := s.confirmDeleteSession()
+				s.setListItems(sessionsModeNormal)
 				s.list.SelectFirst()
 				s.list.ScrollToSelected()
 				return action
 			case key.Matches(msg, s.keyMap.CancelDelete):
 				s.sessionsMode = sessionsModeNormal
-				s.list.SetItems(sessionItems(s.com.Styles, sessionsModeNormal, s.isSessionBusy, s.sessions...)...)
+				s.setListItems(sessionsModeNormal)
 			}
 		case sessionsModeUpdating:
 			switch {
 			case key.Matches(msg, s.keyMap.ConfirmRename):
 				action := s.confirmRenameSession()
-				s.list.SetItems(sessionItems(s.com.Styles, sessionsModeNormal, s.isSessionBusy, s.sessions...)...)
+				s.setListItems(sessionsModeNormal)
 				return action
 			case key.Matches(msg, s.keyMap.CancelRename):
 				s.sessionsMode = sessionsModeNormal
-				s.list.SetItems(sessionItems(s.com.Styles, sessionsModeNormal, s.isSessionBusy, s.sessions...)...)
+				s.setListItems(sessionsModeNormal)
 			default:
 				item := s.list.SelectedItem()
 				if item == nil {
@@ -186,10 +194,10 @@ func (s *Session) HandleMsg(msg tea.Msg) Action {
 				return ActionClose{}
 			case key.Matches(msg, s.keyMap.Rename):
 				s.sessionsMode = sessionsModeUpdating
-				s.list.SetItems(sessionItems(s.com.Styles, sessionsModeUpdating, s.isSessionBusy, s.sessions...)...)
+				s.setListItems(sessionsModeUpdating)
 			case key.Matches(msg, s.keyMap.Delete):
 				s.sessionsMode = sessionsModeDeleting
-				s.list.SetItems(sessionItems(s.com.Styles, sessionsModeDeleting, s.isSessionBusy, s.sessions...)...)
+				s.setListItems(sessionsModeDeleting)
 			case key.Matches(msg, s.keyMap.Previous):
 				s.list.Focus()
 				if s.list.IsSelectedFirst() {
@@ -224,6 +232,16 @@ func (s *Session) HandleMsg(msg tea.Msg) Action {
 				return ActionCmd{cmd}
 			}
 		}
+	case spinner.TickMsg:
+		// Animate the busy indicator. The chain stops as soon as nothing on
+		// screen is busy, so an idle session list does no work.
+		var cmd tea.Cmd
+		s.busySpinner, cmd = s.busySpinner.Update(msg)
+		s.applyBusyGlyph()
+		if !s.anyBusySession() {
+			return nil
+		}
+		return ActionCmd{cmd}
 	case common.CoalescedWheelMsg:
 		if image.Pt(msg.Mouse.X, msg.Mouse.Y).In(s.sessionListArea()) {
 			s.list.ScrollBy(int(msg.DeltaY))
@@ -526,4 +544,44 @@ func (s *Session) FullHelp() [][]key.Binding {
 		m = append(m, slice[i:end])
 	}
 	return m
+}
+
+// setListItems rebuilds the list for the given mode, then re-applies the
+// current busy frame so freshly built items do not flash a stale glyph.
+func (s *Session) setListItems(mode sessionsMode) {
+	s.list.SetItems(sessionItems(s.com.Styles, mode, s.isSessionBusy, s.sessions...)...)
+	s.applyBusyGlyph()
+}
+
+// anyBusySession reports whether any listed session currently has a run in
+// flight. It reads the flags captured when the items were built rather than
+// probing the workspace, so the animation frame costs nothing.
+func (s *Session) anyBusySession() bool {
+	for _, item := range s.list.FilteredItems() {
+		if it, ok := item.(*SessionItem); ok && it.busy {
+			return true
+		}
+	}
+	return false
+}
+
+// applyBusyGlyph pushes the current spinner frame into every listed item.
+func (s *Session) applyBusyGlyph() {
+	glyph := s.busySpinner.View()
+	for _, item := range s.list.FilteredItems() {
+		if it, ok := item.(*SessionItem); ok {
+			it.SetBusyGlyph(glyph)
+		}
+	}
+}
+
+// StartBusySpinner starts the busy-indicator animation when at least one
+// listed session has a run in flight. It returns nil when the list is idle,
+// leaving the dialog completely static.
+func (s *Session) StartBusySpinner() tea.Cmd {
+	if !s.anyBusySession() {
+		return nil
+	}
+	s.applyBusyGlyph()
+	return s.busySpinner.Tick
 }

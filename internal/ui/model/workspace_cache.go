@@ -234,21 +234,18 @@ func (m *UI) applyBusyState(msg busyStateMsg) []tea.Cmd {
 		// the Update tail.
 		m.setEditorPrompt(msg.yolo || msg.mode == permission.ModeYolo || msg.mode == permission.ModeYeehaw, msg.mode)
 	}
-	if msg.mode != permission.ModeYeehaw && m.yeehawActive {
-		// The yeehaw session ended (agent auto-revert, or a remote toggle
-		// back to normal). Restore the editor and focus so the user returns
-		// to a ready prompt rather than a retired placeholder.
-		m.yeehawActive = false
-		m.yeehawFadeContent = ""
-		m.yeehawFadeFrames = 0
-		m.yeehawHorseGen++
-		m.yeehawHorseTick = 0
-		m.setEditorPrompt(false, permission.ModeNormal)
-		m.focus = uiFocusEditor
-		m.updateLayoutAndSize()
-	}
-
 	var cmds []tea.Cmd
+
+	// The permission mode is per session, so the yeehaw presentation follows
+	// the session in view: re-opening a session that is still on autopilot
+	// brings its horse back, and a normal session never inherits it from the
+	// one we just left. A probe for another session, or one taken before the
+	// agent is ready, carries no authority over what is on screen.
+	if msg.ready && msg.forSession == m.currentSessionID() {
+		if cmd := m.syncYeehawFromMode(msg.mode); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+	}
 	busy := m.isAgentBusy()
 	if busy {
 		// A session reload that raced an unpopulated busy cache (the
@@ -462,5 +459,41 @@ func (m *UI) setYeehawMode(enable bool) tea.Cmd {
 		m.updateLayoutAndSize()
 		return nil
 	}
+	return nil
+}
+
+// syncYeehawFromMode aligns the yeehaw presentation with the permission mode
+// the workspace reports for the session in view. The mode is per session, so
+// the horse and badge follow the session rather than the UI: re-opening a
+// session that is still on autopilot brings them back, and a normal session
+// never inherits them from the one we just left.
+func (m *UI) syncYeehawFromMode(mode permission.Mode) tea.Cmd {
+	want := mode == permission.ModeYeehaw
+	if want == m.yeehawActive {
+		return nil
+	}
+	if want {
+		m.yeehawActive = true
+		// No fade on re-entry: any editor content belongs to a session we
+		// are not looking at, so replaying it would animate stale text.
+		m.yeehawFadeContent = ""
+		m.yeehawFadeFrames = 0
+		m.textarea.SetPromptFunc(4, m.yeehawPromptFunc)
+		m.focus = uiFocusMain
+		m.yeehawHorseTick = 0
+		m.updateLayoutAndSize()
+		return m.armYeehawHorse()
+	}
+	// The session left autopilot (we switched away, or the agent reverted the
+	// mode): restore the editor and focus so the user gets a ready prompt
+	// back instead of a retired placeholder.
+	m.yeehawActive = false
+	m.yeehawFadeContent = ""
+	m.yeehawFadeFrames = 0
+	m.yeehawHorseGen++
+	m.yeehawHorseTick = 0
+	m.setEditorPrompt(false, permission.ModeNormal)
+	m.focus = uiFocusEditor
+	m.updateLayoutAndSize()
 	return nil
 }

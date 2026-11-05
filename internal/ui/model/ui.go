@@ -983,17 +983,12 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.sidebarOffset = 0
 		m.sessionFiles = msg.files
 
-		// Switching sessions drops any active yeehaw session so the editor
-		// is restored for the newly loaded session.
+		// The yeehaw presentation belongs to the session in view, so switching
+		// sessions restores the editor immediately. The busy probe dispatched
+		// below re-arms the horse when the session being opened is itself
+		// still on autopilot, and a normal session never inherits it.
 		if prevSessionID != "" && prevSessionID != msg.session.ID {
-			m.yeehawActive = false
-			m.yeehawFadeContent = ""
-			m.yeehawFadeFrames = 0
-			m.yeehawHorseGen++
-			m.yeehawHorseTick = 0
-			m.setEditorPrompt(false, permission.ModeNormal)
-			m.focus = uiFocusEditor
-			m.updateLayoutAndSize()
+			m.syncYeehawFromMode(permission.ModeNormal)
 		}
 		// Session switch: the memoized busy state and queued prompts
 		// belong to the previous session. Drop them and re-fetch
@@ -5983,7 +5978,7 @@ func (m *UI) openSessionsDialog() tea.Cmd {
 	}
 
 	m.dialog.OpenDialog(dialog)
-	return nil
+	return dialog.StartBusySpinner()
 }
 
 // openFilesDialog opens the file picker dialog.
