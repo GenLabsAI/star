@@ -354,7 +354,11 @@ func (a *Agent) Prompt(ctx context.Context, params acp.PromptRequest) (acp.Promp
 		if errors.Is(err, context.Canceled) {
 			return acp.PromptResponse{StopReason: acp.StopReasonCancelled}, nil
 		}
-		// Other errors are actual errors.
+		// Other errors are actual errors. Also surface the failure as a
+		// visible agent message: some clients swallow prompt-request
+		// errors, which would otherwise leave the user staring at a turn
+		// that looks hung.
+		a.sendCommandResponse(ctx, sessionID, describeProviderError(err))
 		return acp.PromptResponse{StopReason: acp.StopReasonEndTurn}, err
 	}
 
@@ -563,6 +567,28 @@ func (a *Agent) handleCommand(ctx context.Context, sessionID, prompt string) (ac
 	a.sendCommandResponse(ctx, sessionID, response)
 
 	return acp.PromptResponse{StopReason: acp.StopReasonEndTurn}, true
+}
+
+// describeProviderError renders an agent-run failure as plain chat text,
+// translating common provider failures (bad/expired keys, quota,
+// connectivity) into actionable sentences instead of raw API errors.
+func describeProviderError(err error) string {
+	msg := strings.ToLower(err.Error())
+	switch {
+	case strings.Contains(msg, "401") || strings.Contains(msg, "unauthorized") || strings.Contains(msg, "invalid api key") || strings.Contains(msg, "incorrect api key"):
+		return "Star couldn't complete that turn: the LLM provider rejected the API key (HTTP 401). Check that the key is set and valid."
+	case strings.Contains(msg, "403") || strings.Contains(msg, "forbidden") || strings.Contains(msg, "authorization failed"):
+		return "Star couldn't complete that turn: the LLM provider refused the request (HTTP 403). The API key is likely expired or not entitled for this model."
+	case strings.Contains(msg, "429") || strings.Contains(msg, "rate limit") || strings.Contains(msg, "quota") || strings.Contains(msg, "insufficient"):
+		return "Star couldn't complete that turn: the LLM provider rate-limited the request. Wait a bit and try again."
+	case strings.Contains(msg, "timeout") || strings.Contains(msg, "deadline exceeded") || strings.Contains(msg, "connection refused") || strings.Contains(msg, "no such host") || strings.Contains(msg, "network"):
+		return "Star couldn't complete that turn: the LLM provider couldn't be reached. Check network connectivity and try again."
+	}
+	text := strings.TrimSpace(err.Error())
+	if len(text) > 300 {
+		text = text[:300] + "..."
+	}
+	return "Star couldn't complete that turn: " + text
 }
 
 // humanizeCommandError renders command failures for chat. ACP request
