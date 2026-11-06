@@ -1,0 +1,24 @@
+diff --git a/src-tauri/tauri.conf.json b/src-tauri/tauri.conf.json
+index fb81950..6eee148 100644
+--- a/src-tauri/tauri.conf.json
++++ b/src-tauri/tauri.conf.json
+@@ -1,8 +1,8 @@
+ {
+   "$schema": "https://schema.tauri.app/config/2",
+-  "productName": "acp-ui",
++  "productName": "Star Desktop",
+   "version": "0.1.16",
+-  "identifier": "formulahendry.acp-ui",
++  "identifier": "ai.genlabs.stardesktop",
+   "build": {
+     "beforeDevCommand": "npm run dev",
+     "devUrl": "http://localhost:1420",
+@@ -12,7 +12,7 @@
+   "app": {
+     "windows": [
+       {
+-        "title": "ACP UI",
++        "title": "Star",
+         "width": 1200,
+         "height": 800
+       }

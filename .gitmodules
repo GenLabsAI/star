@@ -1,0 +1,3 @@
+[submodule "clients/acp-ui"]
+	path = clients/acp-ui
+	url = https://github.com/formulahendry/acp-ui.git

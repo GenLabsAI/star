@@ -1,0 +1,31 @@
+diff --git a/src-tauri/src/config.rs b/src-tauri/src/config.rs
+index 1010e57..d3f8c8d 100644
+--- a/src-tauri/src/config.rs
++++ b/src-tauri/src/config.rs
+@@ -80,6 +80,14 @@ pub struct AgentsConfig {
+ impl Default for AgentsConfig {
+     fn default() -> Self {
+         let mut agents = IndexMap::new();
++        agents.insert(
++            "Star".to_string(),
++            AgentConfig::stdio(
++                "star".to_string(),
++                vec!["acp".to_string()],
++                std::collections::HashMap::new(),
++            ),
++        );
+         agents.insert(
+             "GitHub Copilot".to_string(),
+             AgentConfig::stdio(
+@@ -401,9 +409,9 @@ mod tests {
+     }
+ 
+     #[test]
+-    fn defaults_keep_all_eleven_stdio_agents() {
++    fn defaults_keep_all_twelve_stdio_agents() {
+         let cfg = AgentsConfig::default();
+-        assert_eq!(cfg.agents.len(), 11);
++        assert_eq!(cfg.agents.len(), 12);
+         for (_, a) in &cfg.agents {
+             assert_eq!(a.transport, AgentTransport::Stdio);
+             assert!(a.command.is_some());
