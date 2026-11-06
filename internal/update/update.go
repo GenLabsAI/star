@@ -56,26 +56,32 @@ func (i Info) Available() bool {
 
 // Check checks if a new version is available.
 func Check(ctx context.Context, current string, client Client) (Info, error) {
-	info := Info{
-		Current: current,
-		Latest:  current,
-	}
-
 	release, err := client.Latest(ctx)
 	if err != nil {
-		return info, fmt.Errorf("failed to fetch latest release: %w", err)
+		return Info{Current: current, Latest: current}, fmt.Errorf("failed to fetch latest release: %w", err)
 	}
+	return infoFromRelease(current, release), nil
+}
 
-	info.Latest = strings.TrimPrefix(release.TagName, "v")
-	info.Current = strings.TrimPrefix(info.Current, "v")
-	info.URL = release.HTMLURL
-	return info, nil
+func infoFromRelease(current string, release *Release) Info {
+	return Info{
+		Current: strings.TrimPrefix(current, "v"),
+		Latest:  strings.TrimPrefix(release.TagName, "v"),
+		URL:     release.HTMLURL,
+	}
 }
 
 // Release represents a GitHub release.
 type Release struct {
-	TagName string `json:"tag_name"`
-	HTMLURL string `json:"html_url"`
+	TagName string  `json:"tag_name"`
+	HTMLURL string  `json:"html_url"`
+	Assets  []Asset `json:"assets"`
+}
+
+// Asset is a downloadable file attached to a release.
+type Asset struct {
+	Name               string `json:"name"`
+	BrowserDownloadURL string `json:"browser_download_url"`
 }
 
 // Client is a client that can get the latest release.

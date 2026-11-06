@@ -49,7 +49,8 @@ import (
 	"github.com/charmbracelet/x/term"
 )
 
-// UpdateAvailableMsg is sent when a new version is available.
+// UpdateAvailableMsg is sent when a new version has been downloaded and is
+// waiting for the next launch.
 type UpdateAvailableMsg struct {
 	CurrentVersion string
 	LatestVersion  string
@@ -1114,17 +1115,19 @@ func (app *App) Shutdown() {
 	wg.Wait()
 }
 
-// checkForUpdates checks for available updates.
+// checkForUpdates downloads a new release in the background. The running core
+// keeps using the version it started with; the launcher activates the download
+// on the next launch.
 func (app *App) checkForUpdates(ctx context.Context) {
-	checkCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	checkCtx, cancel := context.WithTimeout(ctx, updateInstallTimeout)
 	defer cancel()
 
-	info, err := update.Check(checkCtx, version.Version, update.Default)
+	info, changed, err := update.Install(checkCtx, version.Version, update.Default)
 	if err != nil {
 		slog.Debug("Update check failed", "error", err)
 		return
 	}
-	if !info.Available() {
+	if !changed {
 		return
 	}
 	app.events.Publish(pubsub.UpdatedEvent, UpdateAvailableMsg{
@@ -1139,7 +1142,11 @@ func (app *App) checkForUpdates(ctx context.Context) {
 // per IP), so this stays well clear of that for a few concurrent instances.
 const updateCheckInterval = 5 * time.Minute
 
-// pollForUpdates checks for a new release immediately and then on every
+// Downloading an asset can take much longer than the metadata check, especially
+// on a slow connection. The context is cancelled when the app shuts down.
+const updateInstallTimeout = 10 * time.Minute
+
+// pollForUpdates downloads a new release immediately and then on every
 // updateCheckInterval tick until ctx is cancelled. The result is published on
 // the app event stream, so both the local TUI and an attached client see it.
 func (app *App) pollForUpdates(ctx context.Context) {
