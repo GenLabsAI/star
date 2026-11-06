@@ -1,0 +1,29 @@
+{
+  "$comment": "Copy to the agent working dir as crush.json (e.g. /tmp/star-work/crush.json). The API key is intentionally NOT stored here: it is read from the NVIDIA_API_KEY environment variable at runtime, so save the key as a project secret named NVIDIA_API_KEY instead of pasting it into any file.",
+  "providers": {
+    "nvidia": {
+      "name": "NVIDIA NIM",
+      "type": "openai",
+      "base_url": "https://integrate.api.nvidia.com/v1",
+      "api_key": "$NVIDIA_API_KEY",
+      "models": [
+        {
+          "id": "mistralai/mistral-large-4-1t-a52b",
+          "name": "Mistral Large 4 1T",
+          "context_window": 131072,
+          "default_max_tokens": 8192
+        }
+      ]
+    }
+  },
+  "models": {
+    "large": {
+      "provider": "nvidia",
+      "model": "mistralai/mistral-large-4-1t-a52b"
+    },
+    "small": {
+      "provider": "nvidia",
+      "model": "mistralai/mistral-large-4-1t-a52b"
+    }
+  }
+}

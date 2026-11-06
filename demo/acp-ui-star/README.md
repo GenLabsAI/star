@@ -57,3 +57,17 @@ Upstream commit verified against: acp-ui v0.1.16 (`@agentclientprotocol/sdk`
 Live agent turns need an LLM provider configured where `star acp` runs;
 without one, plain prompts return `agent is not configured: no LLM provider
 is set up` while commands, sessions, modes, and auth all work.
+
+## Wiring an LLM provider (NVIDIA NIM + Mistral Large)
+
+1. Copy `crush.json.example` to the agent working dir as `crush.json`
+   (e.g. `/tmp/star-work/crush.json`). It declares an OpenAI-compatible
+   `nvidia` provider at `https://integrate.api.nvidia.com/v1` serving
+   `mistralai/mistral-large-4-1t-a52b`, with the key referenced as
+   `$NVIDIA_API_KEY` (shell-expanded at load time).
+2. Save the API key as a project secret named `NVIDIA_API_KEY`
+   (Settings → Secrets) — never paste it into a file, a command, or chat.
+   The bridge passes its environment to each `star acp` child, so
+   restarting the bridge after the secret is set is enough.
+3. Restart the bridge and send a prompt: `session/prompt` should now
+   stream `agent_message_chunk` updates instead of `-32602`.
