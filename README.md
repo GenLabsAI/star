@@ -30,6 +30,8 @@ Star reads `crushrc` (a bash-powered config using builtins like `provider`, `mod
 
 Releases are triggered by pushes to `main` (and `workflow_dispatch`). Each release publishes `star` / `star.exe` (launcher) and `star-core` / `star-core.exe` (Go core) for Windows, Linux (amd64/arm64), and macOS (amd64/arm64), plus checksums.
 
+Each release has a companion news entry in the [Chronicle](news/). If you want the short version of what changed and why, start there.
+
 ## Development
 
 - Go core: `go build -o star-core.exe ./main.go` (or `go build .` on the host platform).
