@@ -3969,6 +3969,18 @@ func (m *UI) frameCanvas() uv.ScreenBuffer {
 	return m.canvas
 }
 
+// invalidateFrame drops the reusable screen buffer and any memoized frame so
+// the next render starts from a blank canvas. The buffer is reused across
+// frames, so cells that a frame no longer covers keep whatever was drawn there
+// before: collapsing the yeehaw lane back to a normal editor would otherwise
+// leave the horse stamped on the screen of the session we switched to.
+func (m *UI) invalidateFrame() {
+	m.canvas = uv.ScreenBuffer{}
+	if m.frames != nil {
+		m.frames.reset()
+	}
+}
+
 // frameContent normalizes a rendered screen buffer for Bubble Tea: CRLF line
 // endings become LF and trailing spaces are trimmed per line. It walks the
 // rendered string exactly once, where the previous ReplaceAll + Split + Join

@@ -456,6 +456,7 @@ func (m *UI) setYeehawMode(enable bool) tea.Cmd {
 		m.yeehawHorseTick = 0
 		m.setEditorPrompt(false, permission.ModeNormal)
 		m.focus = uiFocusEditor
+		m.invalidateFrame()
 		m.updateLayoutAndSize()
 		return nil
 	}
@@ -494,6 +495,7 @@ func (m *UI) syncYeehawFromMode(mode permission.Mode) tea.Cmd {
 	m.yeehawHorseTick = 0
 	m.setEditorPrompt(false, permission.ModeNormal)
 	m.focus = uiFocusEditor
+	m.invalidateFrame()
 	m.updateLayoutAndSize()
 	return nil
 }
