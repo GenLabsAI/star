@@ -8,7 +8,7 @@ import (
 	"github.com/coder/acp-go-sdk"
 )
 
-// HandleMessage translates a Crush message event to ACP session updates.
+// HandleMessage translates a Star message event to ACP session updates.
 func (s *Sink) HandleMessage(event pubsub.Event[message.Message]) {
 	msg := event.Payload
 

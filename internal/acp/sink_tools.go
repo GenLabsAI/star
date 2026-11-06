@@ -83,7 +83,7 @@ func parseToolInput(input string) *toolInput {
 	return ti
 }
 
-// toolKind maps Crush tool names to ACP tool kinds.
+// toolKind maps Star tool names to ACP tool kinds.
 func toolKind(name string) acp.ToolKind {
 	switch name {
 	case "view", "ls", "job_output", "lsp_diagnostics":

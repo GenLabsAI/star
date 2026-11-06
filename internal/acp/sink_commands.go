@@ -126,7 +126,7 @@ func (s *Sink) builtinCommands() []acp.AvailableCommand {
 // optionally adding a prefix.
 //
 // Star's command structs expose plain fields rather than the getter
-// methods the upstream Crush PR expects, so callers pass field
+// methods the upstream PR expects, so callers pass field
 // accessors instead.
 func translateCommands[T any](cmds []T, prefix string, getID func(T) string, getDescription func(T) string, getTitle func(T) string) []acp.AvailableCommand {
 	result := make([]acp.AvailableCommand, 0, len(cmds))

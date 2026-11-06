@@ -12,7 +12,7 @@ import (
 	"github.com/coder/acp-go-sdk"
 )
 
-// Sink receives events from Crush's pubsub system and translates them to ACP
+// Sink receives events from Star's pubsub system and translates them to ACP
 // session updates.
 type Sink struct {
 	ctx         context.Context

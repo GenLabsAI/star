@@ -183,7 +183,7 @@ func TestInitialize_ReturnsAgentInfo(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, acp.ProtocolVersion(acp.ProtocolVersionNumber), resp.ProtocolVersion)
 	require.NotNil(t, resp.AgentInfo)
-	require.Equal(t, "crush", resp.AgentInfo.Name)
+	require.Equal(t, "star", resp.AgentInfo.Name)
 	require.NotEmpty(t, resp.AgentInfo.Version)
 	require.True(t, resp.AgentCapabilities.LoadSession)
 	require.NotEmpty(t, resp.AuthMethods)

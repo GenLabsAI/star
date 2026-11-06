@@ -60,7 +60,7 @@ var availableSessionModes = []acp.SessionMode{
 	},
 }
 
-// NewAgent creates a new ACP agent backed by a Crush app instance.
+// NewAgent creates a new ACP agent backed by a Star app instance.
 func NewAgent(app *app.App) *Agent {
 	return &Agent{
 		app:          app,
@@ -109,8 +109,8 @@ func (a *Agent) Initialize(ctx context.Context, params acp.InitializeRequest) (a
 			},
 		},
 		AgentInfo: &acp.Implementation{
-			Name:    "crush",
-			Title:   acp.Ptr("Crush"),
+			Name:    "star",
+			Title:   acp.Ptr("Star"),
 			Version: version.Version,
 		},
 		AuthMethods: authMethods,
@@ -136,7 +136,7 @@ func (a *Agent) Authenticate(ctx context.Context, params acp.AuthenticateRequest
 	return acp.AuthenticateResponse{}, nil
 }
 
-// NewSession creates a new Crush session.
+// NewSession creates a new Star session.
 func (a *Agent) NewSession(ctx context.Context, params acp.NewSessionRequest) (acp.NewSessionResponse, error) {
 	slog.Info("ACP NewSession", "cwd", params.Cwd)
 
@@ -287,6 +287,9 @@ func (a *Agent) SetSessionModel(ctx context.Context, params acp.SetSessionModelR
 	}
 
 	// Check if the agent is busy.
+	if err := a.requireCoordinator(); err != nil {
+		return acp.SetSessionModelResponse{}, err
+	}
 	if a.app.AgentCoordinator.IsBusy() {
 		return acp.SetSessionModelResponse{}, fmt.Errorf("agent is busy, cannot switch models")
 	}
@@ -337,6 +340,9 @@ func (a *Agent) Prompt(ctx context.Context, params acp.PromptRequest) (acp.Promp
 	}
 
 	// Run the agent.
+	if err := a.requireCoordinator(); err != nil {
+		return acp.PromptResponse{}, err
+	}
 	result, err := a.app.AgentCoordinator.Run(ctx, string(params.SessionId), prompt, attachments...)
 	if err != nil {
 		// Permission denials no longer surface as errors here: tools return
@@ -512,6 +518,9 @@ func (a *Agent) Cancel(ctx context.Context, params acp.CancelNotification) error
 	if err := a.requireAuthenticated(); err != nil {
 		return err
 	}
+	if err := a.requireCoordinator(); err != nil {
+		return err
+	}
 	a.app.AgentCoordinator.Cancel(string(params.SessionId))
 	return nil
 }
@@ -618,6 +627,9 @@ func (a *Agent) cmdToggleThinking(ctx context.Context) (string, error) {
 
 // cmdSummarize triggers session summarization.
 func (a *Agent) cmdSummarize(ctx context.Context, sessionID string) (string, error) {
+	if err := a.requireCoordinator(); err != nil {
+		return "", err
+	}
 	if err := a.app.AgentCoordinator.Summarize(ctx, sessionID); err != nil {
 		return "", fmt.Errorf("summarization failed: %w", err)
 	}
@@ -826,6 +838,17 @@ func (a *Agent) requireAuthenticated() error {
 		return nil
 	}
 	return acp.NewAuthRequired("authenticate before creating or loading sessions")
+}
+
+// requireCoordinator reports whether the agent backend is ready to run
+// turns. It is nil when Star has no LLM provider configured (app.New
+// returns early in that case), so callers must guard instead of
+// dereferencing AgentCoordinator directly.
+func (a *Agent) requireCoordinator() error {
+	if a.app == nil || a.app.AgentCoordinator == nil {
+		return acp.NewInvalidParams("agent is not configured: no LLM provider is set up")
+	}
+	return nil
 }
 
 // Shutdown stops all active sinks.

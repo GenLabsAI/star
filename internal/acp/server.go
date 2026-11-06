@@ -1,6 +1,6 @@
-// Package acp implements the Agent-Client Protocol server for Crush.
+// Package acp implements the Agent-Client Protocol server for Star.
 //
-// ACP allows external clients (web, desktop, mobile) to drive Crush as an
+// ACP allows external clients (web, desktop, mobile) to drive Star as an
 // agent server over stdio using JSON-RPC.
 package acp
 

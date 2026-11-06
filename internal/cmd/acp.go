@@ -9,10 +9,10 @@ import (
 
 var acpCmd = &cobra.Command{
 	Use:   "acp",
-	Short: "Start Crush as an ACP server",
-	Long: `Start Crush in Agent-Client Protocol mode.
+	Short: "Start Star as an ACP server",
+	Long: `Start Star in Agent-Client Protocol mode.
 
-This allows external ACP clients (web, desktop, mobile) to drive Crush
+This allows external ACP clients (web, desktop, mobile) to drive Star
 over stdio using JSON-RPC. The client sends prompts and receives
 streaming updates about agent activity.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
