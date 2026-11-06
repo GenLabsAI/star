@@ -1,0 +1,14 @@
+{
+  "name": "acp-ui-star",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Serve acp-ui web build and bridge browser WebSockets to star acp stdio",
+  "scripts": {
+    "start": "node server.mjs"
+  },
+  "dependencies": {
+    "express": "^4.21.2",
+    "ws": "^8.18.0"
+  }
+}

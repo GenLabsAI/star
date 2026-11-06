@@ -63,3 +63,7 @@ artifacts/DejaVuSansMono.ttf
 
 # Demo web UIs (JS deps installed via npm)
 demo/star-acp-web/node_modules/
+
+# Third-party upstream clone (rebuilt via README steps, not committed)
+demo/acp-ui/
+demo/acp-ui-star/node_modules/

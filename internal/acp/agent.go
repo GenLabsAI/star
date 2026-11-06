@@ -556,13 +556,27 @@ func (a *Agent) handleCommand(ctx context.Context, sessionID, prompt string) (ac
 	}
 
 	if err != nil {
-		response = fmt.Sprintf("Error: %v", err)
+		response = fmt.Sprintf("Error: %s", humanizeCommandError(err))
 	}
 
 	// Send the response as an agent text message.
 	a.sendCommandResponse(ctx, sessionID, response)
 
 	return acp.PromptResponse{StopReason: acp.StopReasonEndTurn}, true
+}
+
+// humanizeCommandError renders command failures for chat. ACP request
+// errors stringify as a JSON blob by default; unwrap them so users see the
+// message and detail instead.
+func humanizeCommandError(err error) string {
+	var reqErr *acp.RequestError
+	if errors.As(err, &reqErr) && reqErr != nil {
+		if s, ok := reqErr.Data.(string); ok && s != "" {
+			return fmt.Sprintf("%s: %s", reqErr.Message, s)
+		}
+		return reqErr.Message
+	}
+	return err.Error()
 }
 
 // sendCommandResponse sends a text response for a command to the ACP client.
