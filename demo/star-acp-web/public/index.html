@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Star ACP Web UI</title>
+  <style>
+    :root { color-scheme: light dark; --bg:#0b0e14; --panel:#151a24; --line:#2a3344; --fg:#e6e9f0; --muted:#9aa4b2; --accent:#f5c518; }
+    * { box-sizing: border-box; }
+    body { margin:0; font-family: ui-sans-serif, system-ui, Segoe UI, Roboto, sans-serif; background:var(--bg); color:var(--fg); }
+    header { padding:14px 18px; border-bottom:1px solid var(--line); display:flex; gap:12px; align-items:center; flex-wrap:wrap; }
+    header h1 { font-size:16px; margin:0; }
+    header h1 span { color:var(--accent); }
+    main { display:grid; grid-template-columns: 340px 1fr; min-height: calc(100vh - 57px); }
+    aside { border-right:1px solid var(--line); padding:14px; background:var(--panel); overflow:auto; }
+    section.chat { padding:14px 18px; overflow:auto; display:flex; flex-direction:column; }
+    label { font-size:12px; color:var(--muted); display:block; margin:10px 0 4px; }
+    input, select, textarea, button { font: inherit; }
+    input, select, textarea { width:100%; padding:8px; border-radius:8px; border:1px solid var(--line); background:#0e131c; color:var(--fg); }
+    textarea { min-height:70px; resize:vertical; }
+    button { padding:8px 12px; border-radius:8px; border:1px solid var(--line); background:#1e2635; color:var(--fg); cursor:pointer; }
+    button.primary { background:var(--accent); color:#111; border-color:var(--accent); font-weight:600; }
+    button:disabled { opacity:.5; cursor:default; }
+    .chip { font-size:12px; padding:4px 10px; border-radius:999px; margin:2px; }
+    .row { display:flex; gap:8px; } .row > * { flex:1; }
+    .card { border:1px solid var(--line); border-radius:12px; padding:10px; margin-top:10px; background:#0e131c; }
+    .perm { border-color:var(--accent); }
+    .msg { border-top:1px solid var(--line); padding:10px 0; }
+    .msg .meta { font-size:12px; color:var(--muted); margin-bottom:6px; }
+    .msg .body { line-height:1.5; }
+    .msg .body pre, .msg pre { background:#000; padding:8px; border-radius:8px; overflow:auto; font-size:12px; }
+    .msg.tool { border-left:3px solid var(--accent); padding-left:10px; }
+    .msg.tool[data-status="failed"] { border-left-color:#e5484d; }
+    .msg.tool[data-status="completed"] { border-left-color:#46a758; }
+    .msg.tool .title { font-weight:600; margin-bottom:4px; }
+    .dim { color:var(--muted); } .small { font-size:12px; }
+    .pill { font-size:12px; padding:2px 8px; border-radius:999px; border:1px solid var(--line); }
+    .pill.ok { border-color:#46a758; color:#46a758; }
+    .pill.bad { border-color:#e5484d; color:#e5484d; }
+    #events { font-family: ui-monospace, monospace; font-size:11px; max-height:180px; overflow:auto; background:#000; border-radius:8px; padding:8px; white-space:pre-wrap; }
+    #plan { margin:6px 0; padding-left:20px; font-size:13px; }
+    #msgs { flex:1; }
+    details summary { cursor:pointer; color:var(--muted); font-size:13px; }
+    @media (max-width: 900px) { main { grid-template-columns: 1fr; } aside { border-right:0; border-bottom:1px solid var(--line); } }
+  </style>
+</head>
+<body>
+<header>
+  <h1><span>★</span> Star ACP Web UI <small style="color:var(--muted)">drives <code>star acp</code> over Agent Client Protocol</small></h1>
+  <span class="pill" id="status">disconnected</span>
+  <span class="pill" id="agent">agent: …</span>
+</header>
+<main>
+  <aside>
+    <div class="row">
+      <button id="connect" class="primary">Connect</button>
+    </div>
+    <label>Workspace cwd (absolute path on the VM)</label>
+    <input id="cwd" value="/tmp/star-work" />
+    <div class="row" style="margin-top:8px">
+      <button id="newSession">New session</button>
+      <button id="cancel">Cancel turn</button>
+    </div>
+    <label>Session</label>
+    <div id="sess" class="small dim">none</div>
+    <label><span id="modeLabel">mode: n/a</span></label>
+    <select id="modeSel" style="display:none"></select>
+    <div class="card">
+      <strong>Permissions</strong>
+      <div id="perms"><p class="dim small empty">Tool approval prompts appear here.</p></div>
+    </div>
+    <div class="card">
+      <strong>Plan</strong>
+      <ul id="plan"><li class="dim">no plan yet</li></ul>
+    </div>
+    <div class="card">
+      <strong>Slash commands</strong>
+      <div id="cmds"><span class="dim small">appear after session start</span></div>
+    </div>
+    <details style="margin-top:10px">
+      <summary>Protocol log</summary>
+      <div id="events" style="margin-top:6px">—</div>
+    </details>
+  </aside>
+  <section class="chat">
+    <div id="msgs"><p class="dim">Connect, then send a prompt. Streaming text, tool calls, diffs and plans render here live.</p></div>
+    <label>Prompt (Ctrl/Cmd+Enter to send; try <code>/summarize</code>)</label>
+    <textarea id="prompt" placeholder="Ask Star to do something in the workspace…"></textarea>
+    <div class="row" style="margin-top:8px">
+      <button id="send" class="primary">Send via session/prompt</button>
+    </div>
+  </section>
+</main>
+<script type="module" src="/app.bundle.js"></script>
+</body>
+</html>
