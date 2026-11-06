@@ -89,13 +89,9 @@ func (m *UI) updateSidebarScrollState() {
 	cwd := common.PrettyPathWithBranch(t, m.com.Workspace.WorkingDir(), m.gitBranch, contentWidth)
 	sidebarLogo := m.sidebarLogo
 	if height < logoHeightBreakpoint {
-		if m.updateAvailable != nil {
-			sidebarLogo = lipgloss.NewStyle().Foreground(m.com.Styles.Logo.VersionColor).Render("Update Now")
-		} else {
-			sidebarLogo = lipgloss.JoinVertical(lipgloss.Left, logo.SmallRender(m.com.Styles, contentWidth, logo.Opts{
-				Hyper: m.com.IsHyper(),
-			}), "")
-		}
+		sidebarLogo = lipgloss.JoinVertical(lipgloss.Left, logo.SmallRender(m.com.Styles, contentWidth, logo.Opts{
+			Hyper: m.com.IsHyper(),
+		}), "")
 	}
 
 	var logoRect, contentRect image.Rectangle
@@ -176,7 +172,7 @@ func (m *UI) sidebarFingerprint(width, height int) uint64 {
 	if cfg := m.com.Config(); cfg != nil && cfg.Options != nil {
 		fmt.Fprintf(h, "%v|", cfg.Options.DisabledSkills)
 	}
-	fmt.Fprintf(h, "%v|%s", m.updateAvailable != nil, m.sidebarLogo)
+	fmt.Fprintf(h, "%s", m.sidebarLogo)
 	return h.Sum64()
 }
 
@@ -198,10 +194,6 @@ func (m *UI) drawSidebar(scr uv.Screen, area uv.Rectangle) {
 		layout.Len(lipgloss.Height(sidebarLogo)),
 		layout.Fill(1),
 	).Split(area).Assign(&logoRect, &contentRect)
-	// The logo is the "Update Now" button while a release is outstanding, so
-	// keep its on-screen area for the click handler.
-	m.updateBadgeRect = logoRect
-
 	// Slice visible lines.
 	end := min(m.sidebarOffset+contentHeight, totalLines)
 	visibleLines := m.sidebarLines[m.sidebarOffset:end]

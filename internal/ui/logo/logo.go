@@ -86,21 +86,10 @@ func Render(base lipgloss.Style, version string, compact bool, o Opts) string {
 		version += " "
 	}
 
-	var metaRow string
-	if version == "Update Now" {
-		metaRow = fg(o.VersionColor, version)
-		// In wide mode we still want it centered under the logo text
-		if !compact {
-			paddingLeft := max(0, (crushWidth-lipgloss.Width(version))/2)
-			paddingRight := max(0, crushWidth-lipgloss.Width(version)-paddingLeft)
-			metaRow = strings.Repeat(" ", paddingLeft) + metaRow + strings.Repeat(" ", paddingRight)
-		}
-	} else {
-		metaRow = fg(o.VersionColor, version)
-		if !compact {
-			leftDiagonalsWidth := max(0, crushWidth-lipgloss.Width(version)-metaRowGap)
-			metaRow = fg(o.FieldColor, strings.Repeat(diag, leftDiagonalsWidth)) + fg(o.FieldColor, strings.Repeat(diag, metaRowGap)) + metaRow
-		}
+	metaRow := fg(o.VersionColor, version)
+	if !compact {
+		leftDiagonalsWidth := max(0, crushWidth-lipgloss.Width(version)-metaRowGap)
+		metaRow = fg(o.FieldColor, strings.Repeat(diag, leftDiagonalsWidth)) + fg(o.FieldColor, strings.Repeat(diag, metaRowGap)) + metaRow
 	}
 
 	// Join the meta row and big Crush title.

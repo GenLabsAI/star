@@ -518,14 +518,8 @@ type UI struct {
 		draft    string
 	}
 
-	pendingWakeup     *pubsub.WakeupEvent
-	wakeupEndTime     time.Time
-	updateAvailable   *app.UpdateAvailableMsg
-	updateDownloading bool
-	updateInitiating  bool
-	// updateBadgeRect is the screen area of the sidebar logo while a release
-	// is outstanding. Clicking it starts the update.
-	updateBadgeRect      image.Rectangle
+	pendingWakeup        *pubsub.WakeupEvent
+	wakeupEndTime        time.Time
 	editorStyledCache    *uv.StyledString
 	editorCacheKey       string
 	pillsStyledCache     *uv.StyledString
@@ -1320,11 +1314,6 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Adjust for chat area position
 			x -= m.layout.main.Min.X
 			y -= m.layout.main.Min.Y
-			// The sidebar logo doubles as the "Update Now" button while a
-			// release is outstanding.
-			if m.updateAvailable != nil && image.Pt(msg.X, msg.Y).In(m.updateBadgeRect) {
-				return m, tea.Batch(append(cmds, m.startUpdate())...)
-			}
 			if !image.Pt(msg.X, msg.Y).In(m.layout.sidebar) {
 				if handled, cmd := m.chat.HandleMouseDown(x, y); handled {
 					m.lastClickTime = time.Now()
@@ -1616,28 +1605,15 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		cmds = append(cmds, m.status.Show(msg))
 	case app.UpdateAvailableMsg:
-		// Remember the release so the logo, header and sidebar keep offering
-		// the update: a status line scrolls away in seconds and used to be the
-		// only trace of an available update, with no way to act on it.
-		m.updateAvailable = &msg
-		m.header.updateAvailable = true
-		m.cacheSidebarLogo(m.layout.sidebar.Dx())
-		text := fmt.Sprintf("Star update available: v%s → v%s. Click \"Update Now\" to install.", msg.CurrentVersion, msg.LatestVersion)
-		if msg.IsDevelopment {
-			text = fmt.Sprintf("This is a development version of Star. The latest version is v%s. Click \"Update Now\" to install.", msg.LatestVersion)
-		}
 		cmds = append(cmds, m.status.Show(util.InfoMsg{
 			Type: util.InfoTypeUpdate,
-			Msg:  text,
+			Msg:  fmt.Sprintf("Star update v%s is ready. Restart Star to apply it.", msg.LatestVersion),
 			TTL:  10 * time.Second,
 		}))
 	case workspace.ConnectionEvent:
 		cmds = append(cmds, m.handleConnectionEvent(msg)...)
 	case util.ClearStatusMsg:
 		m.status.ClearInfoMsg(msg.Seq)
-	case startUpdateMsg:
-		m.updateDownloading = true
-		return m, tea.Quit
 	case completions.CompletionItemsLoadedMsg:
 		if m.completionsOpen {
 			m.completions.SetItems(msg.Files, msg.Resources)
@@ -5365,7 +5341,7 @@ func (m *UI) yeehawPlaceholderView(width int) string {
 
 // cacheSidebarLogo renders and caches the sidebar logo at the specified width.
 func (m *UI) cacheSidebarLogo(width int) {
-	m.sidebarLogo = renderLogo(m.com.Styles, true, m.com.IsHyper(), width, m.updateAvailable != nil)
+	m.sidebarLogo = renderLogo(m.com.Styles, true, m.com.IsHyper(), width)
 }
 
 // applyThemeForProvider swaps the active theme to the one associated with
@@ -6707,11 +6683,8 @@ func (m *UI) disableDockerMCP() tea.Msg {
 }
 
 // renderLogo renders the Crush logo with the given styles and dimensions.
-func renderLogo(t *styles.Styles, compact, hyper bool, width int, updateAvailable bool) string {
+func renderLogo(t *styles.Styles, compact, hyper bool, width int) string {
 	displayVersion := strings.Replace(version.Version, "v", " ", 1)
-	if updateAvailable {
-		displayVersion = "Update Now"
-	}
 	return logo.Render(t.Logo.GradCanvas, displayVersion, compact, logo.Opts{
 		FieldColor:   t.Logo.FieldColor,
 		TitleColorA:  t.Logo.TitleColorA,
@@ -6722,28 +6695,3 @@ func renderLogo(t *styles.Styles, compact, hyper bool, width int, updateAvailabl
 		Hyper:        hyper,
 	})
 }
-
-// UpdateRequested reports whether the user requested an update from the UI.
-func (m *UI) UpdateRequested() bool {
-	return m.updateInitiating
-}
-
-// UpdateInitiating reports whether this instance initiated the update request.
-func (m *UI) UpdateInitiating() bool {
-	return m.updateInitiating
-}
-
-// startUpdate signals that the UI should exit with the update code.
-func (m *UI) startUpdate() tea.Cmd {
-	return func() tea.Msg {
-		m.updateDownloading = true
-		// This is the instance the user asked to update, so it has to be the
-		// updater: root only signals the launcher (and exits with the initiator
-		// code) when UpdateInitiating reports true.
-		m.updateInitiating = true
-		return startUpdateMsg{}
-	}
-}
-
-// startUpdateMsg is sent when the UI should begin the update process.
-type startUpdateMsg struct{}

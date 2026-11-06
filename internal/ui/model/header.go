@@ -27,12 +27,11 @@ type header struct {
 	logo        string
 	compactLogo string
 
-	com             *common.Common
-	width           int
-	compact         bool
-	updateAvailable bool
-	styledCache     *uv.StyledString
-	cacheKey        string
+	com         *common.Common
+	width       int
+	compact     bool
+	styledCache *uv.StyledString
+	cacheKey    string
 }
 
 // newHeader creates a new header model.
@@ -75,8 +74,8 @@ func (h *header) drawHeader(
 	gitBranch string,
 ) {
 	t := h.com.Styles
-	if width != h.width || compact != h.compact || h.updateAvailable {
-		h.logo = renderLogo(h.com.Styles, compact, h.com.IsHyper(), width, h.updateAvailable)
+	if width != h.width || compact != h.compact {
+		h.logo = renderLogo(h.com.Styles, compact, h.com.IsHyper(), width)
 	}
 
 	h.width = width
@@ -96,11 +95,7 @@ func (h *header) drawHeader(
 	}
 
 	var b strings.Builder
-	if h.updateAvailable {
-		b.WriteString(t.Header.Diagonals.Render("╱╱╱ ") + t.Header.LogoGradCanvas.Render("Update Now "))
-	} else {
-		b.WriteString(h.compactLogo)
-	}
+	b.WriteString(h.compactLogo)
 
 	availDetailWidth := width - leftPadding - rightPadding - lipgloss.Width(b.String()) - minHeaderDiags - diagToDetailsSpacing
 	details := renderHeaderDetails(

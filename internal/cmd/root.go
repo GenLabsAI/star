@@ -37,7 +37,6 @@ import (
 	"github.com/charmbracelet/crush/internal/server"
 	"github.com/charmbracelet/crush/internal/session"
 	"github.com/charmbracelet/crush/internal/skills"
-	"github.com/charmbracelet/crush/internal/update"
 
 	"github.com/charmbracelet/crush/internal/ui/exitbanner"
 	ui "github.com/charmbracelet/crush/internal/ui/model"
@@ -51,11 +50,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var (
-	clientHost       string
-	updateSessionID  string
-	updateInitiating bool
-)
+var clientHost string
 
 func init() {
 	rootCmd.PersistentFlags().StringP("cwd", "c", "", "Current working directory")
@@ -165,13 +160,6 @@ star --continue
 				banner = cfg.Options.TUI.ExitBanner
 			}
 		}
-		if model.UpdateRequested() {
-			updateInitiating = model.UpdateInitiating()
-			if current := model.CurrentSession(); current != nil {
-				updateSessionID = current.ID
-			}
-			return ErrUpdateRequested
-		}
 		printSessionResume(model, banner)
 		return nil
 	},
@@ -203,9 +191,6 @@ func printSessionResume(model *ui.UI, banner config.ExitBanner) {
 	fmt.Fprintln(colorprofile.NewWriter(os.Stderr, os.Environ()), body)
 	fmt.Fprintln(os.Stderr)
 }
-
-// copied from cobra:
-var ErrUpdateRequested = errors.New("update requested")
 
 const defaultVersionTemplate = `{{with .DisplayName}}{{printf "%s " .}}{{end}}{{printf "version %s" .Version}}
 `
@@ -246,26 +231,6 @@ func Execute() {
 			}
 		}),
 	)
-	if errors.Is(err, ErrUpdateRequested) {
-		if pid := os.Getenv("STAR_LAUNCHER_PID"); pid != "" {
-			// Record the session for *every* instance, not just the one
-			// the user clicked "Update Now" in: a session paused by
-			// somebody else's update has to come back on the same
-			// conversation, not a new one.
-			if err := update.RecordSession(pid, updateSessionID); err != nil {
-				slog.Warn("Could not record session for update handoff", "error", err)
-			}
-			if updateInitiating {
-				if err := update.PublishRequest(); err != nil {
-					slog.Warn("Could not signal update request", "error", err)
-				}
-			}
-		}
-		if updateInitiating {
-			os.Exit(update.ExitInitiator)
-		}
-		os.Exit(update.ExitFollower)
-	}
 	interrupted := ctx.Err() != nil
 	stop()
 	switch {
