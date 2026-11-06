@@ -146,3 +146,94 @@ jobs:
           git tag "$VERSION"
           git push origin "$VERSION"
           gh release create "$VERSION" dist/* --generate-notes --title "$VERSION"
+
+  desktop:
+    needs: [version, release]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: 'macos-latest'
+            args: '--target aarch64-apple-darwin'
+          - platform: 'macos-latest'
+            args: '--target x86_64-apple-darwin'
+          - platform: 'ubuntu-22.04'
+            args: ''
+          - platform: 'ubuntu-22.04-arm'
+            args: ''
+          - platform: 'windows-latest'
+            args: ''
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          submodules: recursive
+          persist-credentials: false
+      - name: Apply Star overlay patches
+        shell: bash
+        run: |
+          for p in clients/star-desktop/patches/*.patch; do
+            git -C clients/acp-ui apply --check "$GITHUB_WORKSPACE/$p"
+          done
+          for p in clients/star-desktop/patches/*.patch; do
+            echo "applying $p"
+            git -C clients/acp-ui apply "$GITHUB_WORKSPACE/$p"
+          done
+          git -C clients/acp-ui status --short
+      - name: Stamp release version
+        shell: bash
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          python3 - <<'PYEOF'
+          import json, os, re
+          tag = os.environ["VERSION"]
+          assert tag.startswith("v"), f"expected v-prefixed tag, got {tag!r}"
+          version = tag[1:]
+          conf = "clients/acp-ui/src-tauri/tauri.conf.json"
+          s = open(conf).read()
+          s, n = re.subn(r'"version": "[^"]+"', f'"version": "{version}"', s, count=1)
+          assert n == 1, "version field not found in tauri.conf.json"
+          open(conf, "w").write(s)
+          cargo = "clients/acp-ui/src-tauri/Cargo.toml"
+          s = open(cargo).read()
+          s, n = re.subn(r'^version = "[^"]+"', f'version = "{version}"', s, count=1, flags=re.M)
+          assert n == 1, "version field not found in Cargo.toml"
+          open(cargo, "w").write(s)
+          pkg = "clients/acp-ui/package.json"
+          d = json.load(open(pkg))
+          d["version"] = version
+          json.dump(d, open(pkg, "w"), indent=2)
+          open(pkg, "a").write("\n")
+          print(f"stamped version {version}")
+          PYEOF
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          cache: npm
+          cache-dependency-path: clients/acp-ui/package-lock.json
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad56587 # stable
+        with:
+          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: 'clients/acp-ui/src-tauri -> target'
+      - name: Install dependencies (Ubuntu only)
+        if: startsWith(matrix.platform, 'ubuntu')
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf xdg-utils
+      - name: Install frontend dependencies
+        working-directory: clients/acp-ui
+        run: npm ci
+      - name: Build and upload desktop installers
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          projectPath: clients/acp-ui
+          tagName: ${{ needs.version.outputs.version }}
+          args: ${{ matrix.args }}
