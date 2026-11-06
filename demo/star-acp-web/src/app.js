@@ -210,7 +210,8 @@ function askPermission(toolCall, options) {
 async function connect() {
   if (state.ctx) return;
   setStatus("connecting…");
-  const stream = createWebSocketStream(`ws://${location.host}/acp`);
+  const wsProto = location.protocol === "https:" ? "wss" : "ws";
+  const stream = createWebSocketStream(`${wsProto}://${location.host}/acp`);
   const app = acp
     .client({ name: "star-acp-web", title: "Star ACP Web UI" })
     .onRequest(acp.methods.client.session.requestPermission, async (req) => {

@@ -11937,7 +11937,8 @@ function askPermission(toolCall, options2) {
 async function connect() {
   if (state.ctx) return;
   setStatus("connecting\u2026");
-  const stream = createWebSocketStream(`ws://${location.host}/acp`);
+  const wsProto = location.protocol === "https:" ? "wss" : "ws";
+  const stream = createWebSocketStream(`${wsProto}://${location.host}/acp`);
   const app = client({ name: "star-acp-web", title: "Star ACP Web UI" }).onRequest(methods.client.session.requestPermission, async (req) => {
     const { toolCall, options: options2 } = req.params;
     logLine(`permission: ${toolCall.title ?? toolCall.name} (${options2.map((o) => o.optionId).join("/")})`);
