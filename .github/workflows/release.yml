@@ -116,16 +116,21 @@ jobs:
           cargo build --release --manifest-path launcher/Cargo.toml --target "$rust_triple"
           cp "launcher/target/${rust_triple}/release/star" dist/${{ matrix.artifact }}/star
           chmod +x dist/${{ matrix.artifact }}/star dist/${{ matrix.artifact }}/star-core
-          cp "launcher/target/${rust_triple}/release/star" dist/star-${{ matrix.goos }}-${{ matrix.goarch }}
-          chmod +x dist/star-${{ matrix.goos }}-${{ matrix.goarch }}
+          # The Unix bare launcher would share its base name with the
+          # per-platform bundle directory (dist/star-linux-amd64/), so give
+          # it a .bin suffix to keep the file and folder distinct.
+          cp "launcher/target/${rust_triple}/release/star" dist/star-${{ matrix.goos }}-${{ matrix.goarch }}.bin
+          chmod +x dist/star-${{ matrix.goos }}-${{ matrix.goarch }}.bin
           tar -C dist -czf dist/${{ matrix.artifact }}.tar.gz ${{ matrix.artifact }}
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      - name: Upload artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: ${{ matrix.artifact }}
           path: |
             dist/${{ matrix.artifact }}.zip
             dist/${{ matrix.artifact }}.tar.gz
-            dist/star-${{ matrix.goos }}-${{ matrix.goarch }}*
+            dist/star-${{ matrix.goos }}-${{ matrix.goarch }}.exe
+            dist/star-${{ matrix.goos }}-${{ matrix.goarch }}.bin
           if-no-files-found: error
 
   release:
@@ -145,7 +150,10 @@ jobs:
           VERSION: ${{ needs.version.outputs.version }}
         run: |
           cd dist
-          sha256sum star-* > checksums.txt
+          # Checksum the release files, not the bundle directories that
+          # share the star- prefix. -type f skips any directory so a stray
+          # folder can never make sha256sum fail with "Is a directory".
+          find . -maxdepth 1 -type f -name 'star-*' -exec sha256sum {} + > checksums.txt
           cd ..
           git tag "$VERSION"
           git push origin "$VERSION"
