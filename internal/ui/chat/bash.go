@@ -80,10 +80,8 @@ func (b *BashToolRenderContext) RenderTool(sty *styles.Styles, width int, opts *
 		toolParams = append(toolParams, "background", "true")
 	}
 
-	// The command is always rendered expanded (wrapped, never
-	// truncated); expansion only controls the output body.
+	// The command parameters respect the expanded state; expansion only controls the output body.
 	headerOpts := *opts
-	headerOpts.ExpandedContent = true
 	header := toolHeader(sty, opts.Status, "Bash", cappedWidth, &headerOpts, toolParams...)
 	if opts.Compact {
 		return header
