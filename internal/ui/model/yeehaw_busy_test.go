@@ -23,8 +23,8 @@ func TestEnterYeehawWhileAgentBusy(t *testing.T) {
 	m.enterYeehaw()
 
 	require.True(t, m.yeehawActive, "yeehaw must arm while the agent is still running")
-	require.Equal(t, permission.ModeYeehaw, ws.PermissionMode(),
-		"arming must switch the workspace permission mode")
+	require.Equal(t, permission.ModeYeehaw, ws.PermissionSessionMode(m.session.ID),
+		"arming must put the session in view on yeehaw")
 	require.True(t, ws.PermissionSkipRequests(),
 		"arming must skip permission requests so the run stays unattended")
 	require.True(t, m.yoloModeCached(), "the UI cache must reflect the skipped requests")
@@ -45,5 +45,5 @@ func TestEnterYeehawIdleStillWorks(t *testing.T) {
 	m.enterYeehaw()
 
 	require.True(t, m.yeehawActive, "yeehaw must arm from idle")
-	require.Equal(t, permission.ModeYeehaw, ws.PermissionMode())
+	require.Equal(t, permission.ModeYeehaw, ws.PermissionSessionMode(m.session.ID))
 }

@@ -131,3 +131,28 @@ func TestLeavingYeehawClearsTheStaleHorseCells(t *testing.T) {
 	require.False(t, m.yeehawActive)
 	require.NotContains(t, m.frameCanvas().Render(), yeehawBadgeText)
 }
+
+// TestArmingYeehawStaysOnItsSession: yeehaw is a per-session mode. Writing it
+// workspace-wide would make every other session inherit autopilot, which is
+// how the horse used to appear on sessions that were never put on yeehaw.
+func TestArmingYeehawStaysOnItsSession(t *testing.T) {
+	pinTTLs(t)
+
+	ws := &countingWorkspace{
+		ready:        true,
+		permMode:     permission.ModeNormal,
+		sessionModes: map[string]permission.Mode{},
+	}
+	m := newBusyUI(ws)
+	m.session = &session.Session{ID: "A"}
+	warmCaches(m, true)
+
+	m.setYeehawMode(true)
+
+	require.True(t, m.yeehawActive)
+	require.Equal(t, permission.ModeYeehaw, ws.sessionModes["A"], "the armed session is the one on yeehaw")
+	require.Equal(t, permission.ModeNormal, ws.PermissionMode(),
+		"arming yeehaw must not set the workspace-wide mode")
+	require.Equal(t, permission.ModeNormal, ws.PermissionSessionMode("B"),
+		"a session that was never armed must keep its own mode")
+}
