@@ -1,6 +1,7 @@
 #requires -Version 5.1
 param(
-    [switch]$SkipUpgrade
+    [switch]$SkipUpgrade,
+    [string]$Tag = ""
 )
 <#
   Install or upgrade Star to the latest GitHub release on Windows.
@@ -22,8 +23,19 @@ param(
   Optional switches:
     -SkipUpgrade
         Only install if star.exe is absent in %USERPROFILE%\bin.
+    -Tag <tag>
+        Install this release (e.g. -Tag v0.1.116) instead of asking the
+        GitHub API for the latest. Useful when api.github.com is blocked
+        on your network but github.com downloads still work.
 #>
 $ErrorActionPreference = "Stop"
+
+# Windows PowerShell 5.1 defaults to TLS 1.0, which api.github.com rejects.
+# Opt into TLS 1.2/1.3 by numeric value so this also works on .NET versions
+# where the Tls13 enum member does not exist (12288 = Tls13, 3072 = Tls12).
+try {
+    [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor 3072 -bor 12288
+} catch { }
 
 $Owner  = "GenLabsAI"
 $Repo   = "star"
@@ -80,26 +92,38 @@ if (Test-Path $TargetStar) {
 }
 
 $LatestApiUrl = "https://api.github.com/repos/$Owner/$Repo/releases/latest"
+$LatestPageUrl = "https://github.com/$Owner/$Repo/releases/latest"
 
 $ResolvedTag = $null
 $ResolvedZipUrl = $null
 $ResolvedSumUrl = $null
 
+# An explicit -Tag skips all version discovery: the release assets live at
+# fixed download URLs, so no GitHub API call is needed at all.
+if (-not [string]::IsNullOrWhiteSpace($Tag)) {
+    $ResolvedTag = $Tag.Trim()
+    $ResolvedZipUrl = "https://github.com/$Owner/$Repo/releases/download/$ResolvedTag/$Asset"
+    $ResolvedSumUrl = "https://github.com/$Owner/$Repo/releases/download/$ResolvedTag/checksums.txt"
+    Write-Host "[1/7] using explicit tag: $ResolvedTag"
+}
+
 $apiOk = $false
 $apiResp = $null
-try {
-    $req = [System.Net.WebRequest]::Create($LatestApiUrl)
-    $req.UserAgent = "star-update-script/1.0"
-    $req.Headers.Add("Accept", "application/vnd.github+json, application/vnd.github.v3+json")
-    $resp = $req.GetResponse()
-    $stream = $resp.GetResponseStream()
-    $reader = [System.IO.StreamReader]::new($stream)
-    $body = $reader.ReadToEnd()
-    $resp.Close()
-    $apiResp = $body
-    $apiOk = $true
-} catch {
-    Write-Warning "GitHub Releases API unreachable via $LatestApiUrl : $($_.Exception.GetType().Name)"
+if ([string]::IsNullOrEmpty($ResolvedTag)) {
+    try {
+        $req = [System.Net.WebRequest]::Create($LatestApiUrl)
+        $req.UserAgent = "star-update-script/1.0"
+        $req.Headers.Add("Accept", "application/vnd.github+json, application/vnd.github.v3+json")
+        $resp = $req.GetResponse()
+        $stream = $resp.GetResponseStream()
+        $reader = [System.IO.StreamReader]::new($stream)
+        $body = $reader.ReadToEnd()
+        $resp.Close()
+        $apiResp = $body
+        $apiOk = $true
+    } catch {
+        Write-Warning "GitHub Releases API unreachable via $LatestApiUrl : $($_.Exception.GetType().Name)"
+    }
 }
 
 if ($apiOk) {
@@ -133,11 +157,42 @@ if ($apiOk) {
     if ($isPrerelease) {
         Write-Warning "Latest release $ResolvedTag is marked as a prerelease. Proceeding anyway."
     }
-} else {
-    throw "Could not reach GitHub Releases API and cannot safely pick a default latest tag. Run this script again when GitHub is reachable, or open https://github.com/$Owner/$Repo/releases/latest and tell me the tag."
+} elseif ([string]::IsNullOrEmpty($ResolvedTag)) {
+    # The API call failed (often TLS or a blocked api.github.com). Fall back
+    # to the /releases/latest page, which 302-redirects to /releases/tag/<tag>.
+    Write-Warning "API lookup failed; trying $LatestPageUrl instead."
+    try {
+        $redirReq = [System.Net.WebRequest]::Create($LatestPageUrl)
+        $redirReq.AllowAutoRedirect = $false
+        $redirReq.UserAgent = "star-update-script/1.0"
+        try {
+            $redirResp = $redirReq.GetResponse()
+            $redirResp.Close()
+        } catch [System.Net.WebException] {
+            $redirResp = $_.Exception.Response
+        }
+        $location = $null
+        if ($null -ne $redirResp) {
+            $location = $redirResp.Headers["Location"]
+            try { $redirResp.Close() } catch { }
+        }
+        if ($location -match '/releases/tag/([^/?#]+)') {
+            $ResolvedTag = $Matches[1]
+            $ResolvedZipUrl = "https://github.com/$Owner/$Repo/releases/download/$ResolvedTag/$Asset"
+            $ResolvedSumUrl = "https://github.com/$Owner/$Repo/releases/download/$ResolvedTag/checksums.txt"
+            Write-Host "[1/7] resolved latest release via redirect: $ResolvedTag"
+        }
+    } catch {
+        Write-Warning "Redirect lookup failed: $($_.Exception.Message)"
+    }
+    if ([string]::IsNullOrEmpty($ResolvedTag)) {
+        throw "Could not reach GitHub to determine the latest release (tried the Releases API and the /releases/latest redirect). Run this script again when GitHub is reachable, or open $LatestPageUrl in a browser and rerun with -Tag <tag> (e.g. .\star-install.ps1 -Tag v0.1.117)."
+    }
 }
 
-Write-Host "[1/7] resolved latest release: $ResolvedTag"
+if ([string]::IsNullOrWhiteSpace($Tag)) {
+    Write-Host "[1/7] resolved latest release: $ResolvedTag"
+}
 Write-Host "        zip : $ResolvedZipUrl"
 Write-Host "        sum : $ResolvedSumUrl"
 
