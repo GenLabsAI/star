@@ -310,6 +310,35 @@ func (c *controllerV1) handlePostWorkspaceSessions(w http.ResponseWriter, r *htt
 	jsonEncode(w, out)
 }
 
+// handlePostWorkspaceSessionFork creates a session from a prefix of another
+// session's transcript.
+func (c *controllerV1) handlePostWorkspaceSessionFork(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	sid := r.PathValue("sid")
+
+	var req proto.ForkSessionRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		c.server.logError(r, "Failed to decode request", "error", err)
+		jsonError(w, http.StatusBadRequest, "failed to decode request")
+		return
+	}
+	if req.MessageID == "" {
+		jsonError(w, http.StatusBadRequest, "message_id is required")
+		return
+	}
+
+	sess, err := c.backend.ForkSession(r.Context(), id, sid, req.MessageID)
+	if err != nil {
+		c.handleError(w, r, err)
+		return
+	}
+	ws, _ := c.backend.GetWorkspace(id)
+	out := sessionToProto(sess)
+	out.IsBusy = isSessionBusy(ws, sess.ID)
+	out.AttachedClients = attachedClients(ws, sess.ID)
+	jsonEncode(w, out)
+}
+
 // handleGetWorkspaceSession returns a single session.
 func (c *controllerV1) handleGetWorkspaceSession(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")

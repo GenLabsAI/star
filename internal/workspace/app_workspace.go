@@ -50,6 +50,20 @@ func (w *AppWorkspace) CreateSession(ctx context.Context, title string) (session
 	return w.app.Sessions.Create(ctx, title)
 }
 
+func (w *AppWorkspace) ForkSession(ctx context.Context, sessionID, upToMessageID string) (session.Session, error) {
+	// Settle any in-flight state before copying: the fork reads the persisted
+	// transcript, and a streaming turn may still be buffered in memory.
+	if w.app.AgentCoordinator != nil {
+		if _, err := w.app.AgentCoordinator.ListSettledMessages(ctx, sessionID); err != nil {
+			return session.Session{}, err
+		}
+	}
+	if err := w.app.Messages.FlushAll(ctx); err != nil {
+		return session.Session{}, err
+	}
+	return w.app.Sessions.Fork(ctx, sessionID, upToMessageID, "")
+}
+
 func (w *AppWorkspace) GetSession(ctx context.Context, sessionID string) (session.Session, error) {
 	return w.app.Sessions.Get(ctx, sessionID)
 }

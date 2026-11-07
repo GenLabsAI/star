@@ -1,5 +1,10 @@
 package proto
 
+// ForkSessionRequest identifies the message a session fork should end at.
+type ForkSessionRequest struct {
+	MessageID string `json:"message_id"`
+}
+
 // Session represents a session in the proto layer.
 //
 // IsBusy is computed on read (it is not persisted with the session) and

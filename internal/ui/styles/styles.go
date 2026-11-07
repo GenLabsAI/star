@@ -344,11 +344,11 @@ type Styles struct {
 		SectionHeader      lipgloss.Style
 
 		// Shell group styles (for grouping multiple sequential shell commands).
-		ShellGroupCommand   lipgloss.Style // Command text inside a shell group.
-		ShellGroupCount     lipgloss.Style // "N commands" count text.
+		ShellGroupCommand    lipgloss.Style // Command text inside a shell group.
+		ShellGroupCount      lipgloss.Style // "N commands" count text.
 		ShellGroupExpandHint lipgloss.Style // "click to expand" hint text.
-		ShellGroupBarFocused  lipgloss.Style // Left vertical bar when focused.
-		ShellGroupBarBlurred  lipgloss.Style // Left vertical bar when blurred.
+		ShellGroupBarFocused lipgloss.Style // Left vertical bar when focused.
+		ShellGroupBarBlurred lipgloss.Style // Left vertical bar when blurred.
 
 		// Plan section styles
 		PlanBox lipgloss.Style // Border+padding for the final plan message
@@ -364,6 +364,7 @@ type Styles struct {
 		AssistantInfoDuration  lipgloss.Style
 		SubduedHypercreditIcon lipgloss.Style // Subdued ◆ for hypercredit figures within subdued text
 		AssistantCanceled      lipgloss.Style // Italic "Canceled" footer
+		ForkButton             lipgloss.Style // Fork affordance drawn on the selected message
 	}
 
 	// Tool - styles for tool call rendering
@@ -603,8 +604,8 @@ type Styles struct {
 		Help lipgloss.Style
 
 		// Mode badges shown before the help hints.
-		ModeBadgePlan  lipgloss.Style
-		ModeBadgeYolo  lipgloss.Style
+		ModeBadgePlan   lipgloss.Style
+		ModeBadgeYolo   lipgloss.Style
 		ModeBadgeYeehaw lipgloss.Style
 
 		// Full-width banners shown when switching modes.

@@ -1,0 +1,44 @@
+
+ │ Our checkout retries are double-charging customers. Can you trace where the retry is scheduled?          ╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱
+                                                                                                            ╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱
+   I'll start by looking at the payment service and the retry scheduler. The first suspect is the webhook   de el ╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱
+   handler enqueueing a second attempt before the original settles.                                         ╭──╮╶─┬─╴╭──╮ ╭──╮ ╱╱╱╱╱╱╱╱╱╱
+                                                                                                            ╰──╮  │  ├──┤ ├─┬╯ ╱╱╱╱╱╱╱╱╱╱
+ │ The duplicate charges all share the same idempotency key prefix. Check the queue consumer too.           ╰──╯  ╵  ╵  ╵ ╵ ╰╴ ╱╱╱╱╱╱╱╱╱╱
+                                                                                                            ╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱
+   Found it: the consumer re-enqueues on any timeout, including attempts that already committed. I'll add 
+   an idempotency guard keyed by the charge ID.                                                           
+
+ │ Good. Add a regression test with╭────────────────────────────────────────────────────────────────────╮   /tmp/crush-test
+                                   │ Commands ╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱ │
+ ▌ Added the guard and a test that │                                                                    │d  ◇
+ ▌ charge and skips the retry. All │ > fork                                                             │ 
+                                   │                                                                    │   Modified Files ──────────────
+                                   │ Fork From...                                                       │
+                                   │                                                                    │   None
+                                   │                                                                    │
+                                   │                                                                    │   LSPs ────────────────────────
+                                   │                                                                    │
+                                   │                                                                    │   None
+                                   │                                                                    │
+                                   │                                                                    │   MCPs ────────────────────────
+                                   │                                                                    │
+                                   │                                                                    │   None
+                                   │                                                                    │
+                                   │                                                                    │   Skills ──────────────────────
+                                   │                                                                    │
+                                   │                                                                    │   ● crush-config
+                                   │                                                                    │   ● crush-hooks
+                                   │ tab switch selection • ↑/↓ choose • enter confirm • esc cancel     │   ● jq
+                                   ╰────────────────────────────────────────────────────────────────────╯
+
+
+
+
+
+
+ ┃ Refactor the auth module                                                                                
+ ┃                                                                                                         
+ ┃                                                                                                         
+
+ tab focus editor • shift+tab mode • ctrl+p commands • ctrl+l models • ctrl+b toggle sidebar • ↑↓ scroll • shift+↑↓ scroll one item …

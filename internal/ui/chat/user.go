@@ -165,6 +165,11 @@ func (m *UserMessageItem) ID() string {
 	return m.message.ID
 }
 
+// ForkMessageID implements [MessageItem] for the fork affordance.
+func (m *UserMessageItem) ForkMessageID() string {
+	return m.message.ID
+}
+
 // renderAttachments renders attachments.
 func (m *UserMessageItem) renderAttachments(width int) string {
 	var attachments []message.Attachment

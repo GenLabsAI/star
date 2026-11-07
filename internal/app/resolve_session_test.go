@@ -36,6 +36,10 @@ func (m *mockSessionService) CreateTaskSession(context.Context, string, string, 
 	return session.Session{}, nil
 }
 
+func (m *mockSessionService) Fork(context.Context, string, string, string) (session.Session, error) {
+	return session.Session{ID: "forked-session-id"}, nil
+}
+
 func (m *mockSessionService) Get(_ context.Context, id string) (session.Session, error) {
 	for _, s := range m.sessions {
 		if s.ID == id {

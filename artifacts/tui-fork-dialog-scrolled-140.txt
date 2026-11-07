@@ -1,0 +1,44 @@
+
+                                                                                                         │  ╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱
+ │ Checkpoint 4: investigate the checkout retry path.                                                    │  ╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱
+                                                                                                         │  de el ╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱
+   Checkpoint 4: traced the retry to the payment consumer and wrote down the sequence.                   │  ╭──╮╶─┬─╴╭──╮ ╭──╮ ╱╱╱╱╱╱╱╱╱╱
+                                                                                                         │  ╰──╮  │  ├──┤ ├─┬╯ ╱╱╱╱╱╱╱╱╱╱
+ │ Checkpoint 5: investigate the checkout retry path.                                                    │  ╰──╯  ╵  ╵  ╵ ╵ ╰╴ ╱╱╱╱╱╱╱╱╱╱
+                                                                                                         │  ╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱
+   Checkpoint 5: traced the retry to the payment consumer and wrote down the sequence.                   │
+                                                                                                         │
+ │ Checkpoint 6: investigate the checkout retry path.                                                    ┃
+                                   ╭────────────────────────────────────────────────────────────────────╮┃  /tmp/crush-test
+   Checkpoint 6: traced the retry t│ Fork From... ╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱ 24 messages  │┃
+                                   │ Assistant  Checkpoint 6: traced the retry to the payment consume… ││┃  ◇
+ │ Checkpoint 7: investigate the ch│ You  Checkpoint 6: investigate the checkout retry path.           ││┃
+                                   │ Assistant  Checkpoint 5: traced the retry to the payment consume… ││┃  Modified Files ──────────────
+   Checkpoint 7: traced the retry t│ You  Checkpoint 5: investigate the checkout retry path.           ││┃
+                                   │ Assistant  Checkpoint 4: traced the retry to the payment consume… ││┃  None
+ │ Checkpoint 8: investigate the ch│ You  Checkpoint 4: investigate the checkout retry path.           ┃│┃
+                                   │ Assistant  Checkpoint 3: traced the retry to the payment consume… ┃│┃  LSPs ────────────────────────
+   Checkpoint 8: traced the retry t│ You  Checkpoint 3: investigate the checkout retry path.           ┃│┃
+                                   │ Assistant  Checkpoint 2: traced the retry to the payment consume… ┃│┃  None
+ │ Checkpoint 9: investigate the ch│ You  Checkpoint 2: investigate the checkout retry path.           ┃│┃
+                                   │ Assistant  Checkpoint 1: traced the retry to the payment consume… ┃│┃  MCPs ────────────────────────
+   Checkpoint 9: traced the retry t│ You  Checkpoint 1: investigate the checkout retry path.           ┃│┃
+                                   │                                                                   ┃│┃  None
+ │ Checkpoint 10: investigate the c│                                                                   ┃│┃
+                                   │                                                                   ┃│┃  Skills ──────────────────────
+   Checkpoint 10: traced the retry │                                                                   ┃│┃
+                                   │                                                                   ┃│┃  ● crush-config
+ │ Checkpoint 11: investigate the c│                                                                    │┃  ● crush-hooks
+                                   │ ↑↓ choose • enter fork • esc exit                                  │┃  ● jq
+   Checkpoint 11: traced the retry ╰────────────────────────────────────────────────────────────────────╯┃
+                                                                                                         ┃
+ │ Checkpoint 12: investigate the checkout retry path.                                                   ┃
+                                                                                                   Fork  ┃
+ ▌ Checkpoint 12: traced the retry to the payment consumer and wrote down the sequence.                  
+
+
+ ┃ Refactor the auth module                                                                                
+ ┃                                                                                                         
+ ┃                                                                                                         
+
+ tab focus editor • shift+tab mode • ctrl+p commands • ctrl+l models • ctrl+b toggle sidebar • ↑↓ scroll • shift+↑↓ scroll one item …

@@ -507,6 +507,29 @@ func ShouldRenderAssistantMessage(msg *message.Message) bool {
 	return !hasToolCalls || content != "" || thinking != "" || msg.IsThinking() || msg.IsErrorLike() || isCancelled
 }
 
+// ForkRequestMsg is sent when the user clicks the Fork button rendered on the
+// selected chat message.
+type ForkRequestMsg struct {
+	MessageID string
+}
+
+// ForkMessageIDFor reports the message a chat item belongs to. Assistant info
+// and tool items are anchored to the assistant message that produced them, so
+// forking from a tool call includes the turn it is part of.
+func ForkMessageIDFor(item MessageItem) (string, bool) {
+	if forkable, ok := item.(interface{ ForkMessageID() string }); ok {
+		if id := forkable.ForkMessageID(); id != "" {
+			return id, true
+		}
+	}
+	if owned, ok := item.(interface{ MessageID() string }); ok {
+		if id := owned.MessageID(); id != "" {
+			return id, true
+		}
+	}
+	return "", false
+}
+
 // BuildToolResultMap creates a map of tool call IDs to their results from a list of messages.
 // Tool result messages (role == message.Tool) contain the results that should be linked
 // to tool calls in assistant messages.
