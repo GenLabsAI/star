@@ -1960,16 +1960,14 @@ func (m *UI) appendSessionMessage(msg message.Message) tea.Cmd {
 		}
 	case message.Tool:
 		for _, tr := range msg.ToolResults() {
-			toolItem := m.chat.MessageItem(tr.ToolCallID)
-			if toolItem == nil {
+			toolMsgItem := resolveToolItem(m.chat.MessageItem(tr.ToolCallID), tr.ToolCallID)
+			if toolMsgItem == nil {
 				// we should have an item!
 				continue
 			}
-			if toolMsgItem, ok := toolItem.(chat.ToolMessageItem); ok {
-				toolMsgItem.SetResult(&tr)
-				if m.chat.Follow() {
-					m.chat.ScrollToBottom()
-				}
+			toolMsgItem.SetResult(&tr)
+			if m.chat.Follow() {
+				m.chat.ScrollToBottom()
 			}
 		}
 	}
@@ -2035,6 +2033,25 @@ func (m *UI) focusActiveInline(focus uiFocusState) {
 	}
 }
 
+// resolveToolItem returns the tool item for id, looking through grouping
+// items (such as a Bash tool group) when the call lives inside one.
+func resolveToolItem(item chat.MessageItem, id string) chat.ToolMessageItem {
+	if item == nil {
+		return nil
+	}
+	if toolItem, ok := item.(chat.ToolMessageItem); ok {
+		return toolItem
+	}
+	if container, ok := item.(chat.NestedToolContainer); ok {
+		for _, child := range container.NestedTools() {
+			if child.ID() == id {
+				return child
+			}
+		}
+	}
+	return nil
+}
+
 // updateSessionMessage updates an existing message in the current session in
 // the chat when an assistant message is updated it may include updated tool
 // calls as well that is why we need to handle creating/updating each tool call
@@ -2076,7 +2093,7 @@ func (m *UI) updateSessionMessage(msg message.Message) tea.Cmd {
 	var items []chat.MessageItem
 	for _, tc := range msg.ToolCalls() {
 		existingToolItem := m.chat.MessageItem(tc.ID)
-		if toolItem, ok := existingToolItem.(chat.ToolMessageItem); ok {
+		if toolItem := resolveToolItem(existingToolItem, tc.ID); toolItem != nil {
 			existingToolCall := toolItem.ToolCall()
 			// only update if finished state changed or input changed
 			// to avoid clearing the cache
@@ -2090,6 +2107,10 @@ func (m *UI) updateSessionMessage(msg message.Message) tea.Cmd {
 	}
 
 	m.chat.AppendMessages(items...)
+	// Once every call in a Bash run has finished, fold the run into one
+	// "Ran N commands" row. The group keeps each call ID addressable, so
+	// later result updates still reach the right child.
+	m.chat.RegroupBashToolItems(&msg)
 	if m.chat.Follow() {
 		m.chat.ScrollToBottom()
 		m.chat.SelectLast()

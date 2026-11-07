@@ -490,7 +490,9 @@ func ExtractMessageItems(sty *styles.Styles, msg *message.Message, toolResults m
 				workingDir,
 			))
 		}
-		return items
+		// A run of consecutive Bash calls is noise on its own; collapse it
+		// into one summary row that expands on demand.
+		return groupBashToolItems(sty, items)
 	}
 	return []MessageItem{}
 }

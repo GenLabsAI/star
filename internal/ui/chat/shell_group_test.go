@@ -23,11 +23,10 @@ func TestShellGroupItem_CollapsedRender(t *testing.T) {
 		{Command: "echo hello", Output: "hello", ExitCode: 0},
 	}
 
-	group := NewShellGroupItem(sty, commands)
-	require.Equal(t, 3, len(group.(*ShellGroupItem).commands))
-	require.False(t, group.(*ShellGroupItem).expanded)
+	group := NewShellGroupItem(&sty, commands).(*ShellGroupItem)
+	require.Equal(t, 3, len(group.commands))
+	require.False(t, group.expanded)
 
-	// Collapsed render should show the count
 	rendered := ansi.Strip(group.RawRender(80))
 	require.Contains(t, rendered, "✓ Bash 3 commands")
 	require.Contains(t, rendered, "click to expand")
@@ -45,10 +44,9 @@ func TestShellGroupItem_ExpandedRender(t *testing.T) {
 		{Command: "pwd", Output: "/home/user", ExitCode: 0},
 	}
 
-	group := NewShellGroupItem(sty, commands)
-	group.(*ShellGroupItem).expanded = true
+	group := NewShellGroupItem(&sty, commands).(*ShellGroupItem)
+	group.expanded = true
 
-	// Expanded render should show all commands
 	rendered := ansi.Strip(group.RawRender(80))
 	require.Contains(t, rendered, "$ ls -la")
 	require.Contains(t, rendered, "total 0")
@@ -63,39 +61,33 @@ func TestShellGroupItem_SingleCommandCollapsed(t *testing.T) {
 
 	sty := styles.CharmtonePantera()
 
-	commands := []ShellCommand{
+	group := NewShellGroupItem(&sty, []ShellCommand{
 		{Command: "ls -la", Output: "total 0", ExitCode: 0},
-	}
+	}).(*ShellGroupItem)
 
-	group := NewShellGroupItem(sty, commands)
-
-	// Collapsed render should show single command format
 	rendered := ansi.Strip(group.RawRender(80))
 	require.Contains(t, rendered, "$ 1 command")
 	require.NotContains(t, rendered, "Bash")
 }
 
-// TestShellGroupItem_ExpandToggle verifies that clicking toggles expansion.
+// TestShellGroupItem_ExpandToggle verifies that toggling expands and
+// collapses the group.
 func TestShellGroupItem_ExpandToggle(t *testing.T) {
 	t.Parallel()
 
 	sty := styles.CharmtonePantera()
 
-	commands := []ShellCommand{
+	group := NewShellGroupItem(&sty, []ShellCommand{
 		{Command: "ls", Output: "file1", ExitCode: 0},
 		{Command: "pwd", Output: "/", ExitCode: 0},
-	}
+	}).(*ShellGroupItem)
+	require.False(t, group.expanded)
 
-	group := NewShellGroupItem(sty, commands)
-	require.False(t, group.(*ShellGroupItem).expanded)
-
-	// First toggle should expand
 	require.True(t, group.ToggleExpanded())
-	require.True(t, group.(*ShellGroupItem).expanded)
+	require.True(t, group.expanded)
 
-	// Second toggle should collapse
 	require.False(t, group.ToggleExpanded())
-	require.False(t, group.(*ShellGroupItem).expanded)
+	require.False(t, group.expanded)
 }
 
 // TestShellGroupItem_CopyCommand verifies that copy key copies all commands.
@@ -104,34 +96,27 @@ func TestShellGroupItem_CopyCommand(t *testing.T) {
 
 	sty := styles.CharmtonePantera()
 
-	commands := []ShellCommand{
+	group := NewShellGroupItem(&sty, []ShellCommand{
 		{Command: "ls", Output: "file1", ExitCode: 0},
 		{Command: "pwd", Output: "/", ExitCode: 0},
-	}
+	}).(*ShellGroupItem)
 
-	group := NewShellGroupItem(sty, commands)
-
-	// Simulate copy key event
-	handled, _ := group.HandleKeyEvent(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("c")})
+	handled, _ := group.HandleKeyEvent(tea.KeyPressMsg{Code: 'c', Text: "c"})
 	require.True(t, handled)
-
-	// Note: We can't easily verify clipboard content in test,
-	// but we can verify the handler was invoked
 }
 
-// TestShellGroupItem_ExitCodeDisplay verifies that failed commands show exit code.
+// TestShellGroupItem_ExitCodeDisplay verifies that failed commands show
+// their exit code.
 func TestShellGroupItem_ExitCodeDisplay(t *testing.T) {
 	t.Parallel()
 
 	sty := styles.CharmtonePantera()
 
-	commands := []ShellCommand{
+	group := NewShellGroupItem(&sty, []ShellCommand{
 		{Command: "false", Output: "", ExitCode: 1},
 		{Command: "true", Output: "", ExitCode: 0},
-	}
-
-	group := NewShellGroupItem(sty, commands)
-	group.(*ShellGroupItem).expanded = true
+	}).(*ShellGroupItem)
+	group.expanded = true
 
 	rendered := ansi.Strip(group.RawRender(80))
 	require.Contains(t, rendered, "(exit 1)")
@@ -143,11 +128,9 @@ func TestShellGroupItem_EmptyCommands(t *testing.T) {
 	t.Parallel()
 
 	sty := styles.CharmtonePantera()
+	group := NewShellGroupItem(&sty, nil).(*ShellGroupItem)
 
-	group := NewShellGroupItem(sty, nil)
-
-	rendered := group.RawRender(80)
-	require.Equal(t, "", rendered)
+	require.Equal(t, "", group.RawRender(80))
 }
 
 // TestShellGroupItem_Pluralization verifies correct pluralization.
@@ -156,18 +139,14 @@ func TestShellGroupItem_Pluralization(t *testing.T) {
 
 	sty := styles.CharmtonePantera()
 
-	// Test singular
-	single := NewShellGroupItem(sty, []ShellCommand{{Command: "ls"}})
-	singleRendered := ansi.Strip(single.RawRender(80))
-	require.Contains(t, singleRendered, "$ 1 command")
+	single := NewShellGroupItem(&sty, []ShellCommand{{Command: "ls"}}).(*ShellGroupItem)
+	require.Contains(t, ansi.Strip(single.RawRender(80)), "$ 1 command")
 
-	// Test plural
-	multiple := NewShellGroupItem(sty, []ShellCommand{
+	multiple := NewShellGroupItem(&sty, []ShellCommand{
 		{Command: "ls"},
 		{Command: "pwd"},
-	})
-	multipleRendered := ansi.Strip(multiple.RawRender(80))
-	require.Contains(t, multipleRendered, "$ 2 commands")
+	}).(*ShellGroupItem)
+	require.Contains(t, ansi.Strip(multiple.RawRender(80)), "✓ Bash 2 commands")
 }
 
 // TestShellGroupItem_FilterValue verifies FilterValue returns first command.
@@ -176,12 +155,10 @@ func TestShellGroupItem_FilterValue(t *testing.T) {
 
 	sty := styles.CharmtonePantera()
 
-	commands := []ShellCommand{
+	group := NewShellGroupItem(&sty, []ShellCommand{
 		{Command: "first command"},
 		{Command: "second command"},
-	}
-
-	group := NewShellGroupItem(sty, commands)
+	}).(*ShellGroupItem)
 	require.Equal(t, "first command", group.FilterValue())
 }
 
@@ -191,10 +168,9 @@ func TestShellGroupItem_ID(t *testing.T) {
 
 	sty := styles.CharmtonePantera()
 
-	group1 := NewShellGroupItem(sty, []ShellCommand{{Command: "cmd1"}})
-	group2 := NewShellGroupItem(sty, []ShellCommand{{Command: "cmd2"}})
+	group1 := NewShellGroupItem(&sty, []ShellCommand{{Command: "cmd1"}})
+	group2 := NewShellGroupItem(&sty, []ShellCommand{{Command: "cmd2"}})
 
 	require.NotEqual(t, group1.ID(), group2.ID())
 	require.True(t, strings.HasPrefix(group1.ID(), "shell-group-"))
 }
-

@@ -8,7 +8,9 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/crush/internal/agent/tools"
 	"github.com/charmbracelet/crush/internal/config"
+	"github.com/charmbracelet/crush/internal/message"
 	"github.com/charmbracelet/crush/internal/ui/anim"
 	"github.com/charmbracelet/crush/internal/ui/chat"
 	"github.com/charmbracelet/crush/internal/ui/common"
@@ -1064,6 +1066,16 @@ func (m *Chat) RemoveMessage(id string) {
 		return
 	}
 
+	// Drop the nested IDs the removed item owned so a stale lookup cannot
+	// resolve into an unrelated item at the same index later.
+	if item, ok := m.list.ItemAt(idx).(chat.MessageItem); ok {
+		if container, ok := item.(chat.NestedToolContainer); ok {
+			for _, nested := range container.NestedTools() {
+				delete(m.idInxMap, nested.ID())
+			}
+		}
+	}
+
 	// Remove from list
 	m.list.RemoveItem(idx)
 
@@ -1074,8 +1086,84 @@ func (m *Chat) RemoveMessage(id string) {
 	for i := idx; i < m.list.Len(); i++ {
 		if item, ok := m.list.ItemAt(i).(chat.MessageItem); ok {
 			m.idInxMap[item.ID()] = i
+			if container, ok := item.(chat.NestedToolContainer); ok {
+				for _, nested := range container.NestedTools() {
+					m.idInxMap[nested.ID()] = i
+				}
+			}
 		}
 	}
+}
+
+// RegroupBashToolItems collapses every consecutive run of finished Bash tool
+// calls in msg into a single summary item. It reports whether the chat
+// changed. The individual call IDs keep resolving to the group, so tool
+// results that arrive later still land on the right child item.
+func (m *Chat) RegroupBashToolItems(msg *message.Message) bool {
+	if m == nil || msg == nil {
+		return false
+	}
+	calls := msg.ToolCalls()
+	if len(calls) < 2 {
+		return false
+	}
+
+	items := make([]chat.ToolMessageItem, len(calls))
+	var hosts []chat.MessageItem
+	seen := make(map[string]struct{}, len(calls))
+	for i, tc := range calls {
+		host := m.MessageItem(tc.ID)
+		if host == nil {
+			return false
+		}
+		item := resolveToolItem(host, tc.ID)
+		if item == nil || !item.Finished() {
+			return false
+		}
+		items[i] = item
+		if _, ok := seen[host.ID()]; !ok {
+			seen[host.ID()] = struct{}{}
+			hosts = append(hosts, host)
+		}
+	}
+
+	grouped := make([]chat.MessageItem, 0, len(items))
+	for i := 0; i < len(items); {
+		if items[i].ToolCall().Name != tools.BashToolName {
+			grouped = append(grouped, items[i])
+			i++
+			continue
+		}
+		j := i
+		for j < len(items) && items[j].ToolCall().Name == tools.BashToolName {
+			j++
+		}
+		if j-i >= 2 {
+			grouped = append(grouped, chat.NewBashToolGroupItem(m.com.Styles, items[i:j]))
+		} else {
+			grouped = append(grouped, items[i])
+		}
+		i = j
+	}
+
+	if len(hosts) == len(grouped) {
+		same := true
+		for i := range grouped {
+			if hosts[i].ID() != grouped[i].ID() {
+				same = false
+				break
+			}
+		}
+		if same {
+			return false
+		}
+	}
+
+	for _, host := range hosts {
+		m.RemoveMessage(host.ID())
+	}
+	m.AppendMessages(grouped...)
+	return true
 }
 
 // MessageItem returns the message item with the given ID, or nil if not found.

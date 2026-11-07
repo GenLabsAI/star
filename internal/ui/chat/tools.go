@@ -492,11 +492,25 @@ func (t *baseToolMessageItem) SetSpinningFunc(fn SpinningFunc) {
 
 // ToggleExpanded toggles the expanded state of the thinking box.
 func (t *baseToolMessageItem) ToggleExpanded() bool {
-	t.expandedContent = !t.expandedContent
-	t.clearCache()
-	t.Bump()
+	t.SetExpanded(!t.expandedContent)
 	return t.expandedContent
 }
+
+// SetExpanded sets the expanded state without toggling.
+func (t *baseToolMessageItem) SetExpanded(expanded bool) {
+	if t.expandedContent == expanded {
+		return
+	}
+	t.expandedContent = expanded
+	t.clearCache()
+	t.Bump()
+}
+
+// Expanded reports whether the item is currently expanded.
+func (t *baseToolMessageItem) Expanded() bool { return t.expandedContent }
+
+// Result returns the recorded tool result, or nil when there is none.
+func (t *baseToolMessageItem) Result() *message.ToolResult { return t.result }
 
 // Finished implements list.Item. A tool call is freezable once the
 // tool call itself is marked finished AND a result has been recorded
