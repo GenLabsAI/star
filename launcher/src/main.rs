@@ -10,6 +10,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use star_launcher::coord::{self, Coord};
+use star_launcher::desktop;
 use star_launcher::handshake;
 use star_launcher::splash;
 use star_launcher::{platform, update};
@@ -207,6 +208,34 @@ fn clear_dir(dir: &Path) {
     }
 }
 
+/// Resolve the core to launch, downloading it first on a fresh machine.
+///
+/// Exits with a plain message (no splash) when there is nothing to run:
+/// without network there is no core to fall back to, and starting the UI
+/// would only fail more confusingly a moment later.
+fn ensure_core(coord: &Coord, pid: u32) {
+    if update::find_core().is_file() {
+        return;
+    }
+    eprintln!("  First run — downloading the latest Star core (one-time setup)...");
+    if coord.acquire_install_lock(pid) {
+        let result = update::perform_update(&update::install_dir());
+        coord.release_install_lock();
+        if let Err(error) = result {
+            eprintln!("  could not download star-core: {error}");
+            eprintln!("  check your network connection and run `star` again");
+            std::process::exit(1);
+        }
+    } else {
+        // Another instance on this machine is already installing.
+        coord.wait_for_result(coord::INSTALL_TIMEOUT);
+    }
+    if !update::find_core().is_file() {
+        eprintln!("  star-core is still missing after setup; run `star` again");
+        std::process::exit(1);
+    }
+}
+
 fn main() {
     // Backups from a previous update could not be removed at the time because
     // this binary was still running. Nothing holds them now.
@@ -217,6 +246,14 @@ fn main() {
     // leaves it for a later launch.
     update::cleanup_install(&update::install_dir());
     coord.register(pid);
+
+    // Fresh machine, first run: no core on disk yet. Fetch it before the
+    // splash so the user sees one setup pass instead of a launch error.
+    ensure_core(&coord, pid);
+
+    // Desktop installs in the background while the core boots. It never
+    // blocks the terminal and never fails the launch.
+    desktop::ensure_desktop_async();
 
     let mut rapid_updates = 0u32;
     let mut last_exit = Instant::now();

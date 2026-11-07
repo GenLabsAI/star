@@ -23,7 +23,8 @@ use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
-const GITHUB_RELEASE_LATEST: &str = "https://api.github.com/repos/genlabsai/star/releases/latest";
+pub(crate) const GITHUB_RELEASE_LATEST: &str =
+    "https://api.github.com/repos/genlabsai/star/releases/latest";
 const USER_AGENT: &str = "star-launcher";
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 const CALL_TIMEOUT: Duration = Duration::from_secs(120);
@@ -36,14 +37,18 @@ const STAGING_PREFIX: &str = ".staging-";
 const STAGING_STALE: Duration = Duration::from_secs(60 * 60);
 const KEEP_VERSIONS: usize = 2;
 
-/// The directory containing the launcher and its core versions.
-pub fn install_dir() -> PathBuf {
-    let home = std::env::var_os("USERPROFILE")
+/// The user's home directory, best effort.
+pub(crate) fn home_dir() -> PathBuf {
+    std::env::var_os("USERPROFILE")
         .filter(|value| !value.is_empty())
         .or_else(|| std::env::var_os("HOME").filter(|value| !value.is_empty()))
         .map(std::path::PathBuf::from)
-        .unwrap_or_else(|| ".".into());
-    home.join("bin")
+        .unwrap_or_else(|| ".".into())
+}
+
+/// The directory containing the launcher and its core versions.
+pub fn install_dir() -> PathBuf {
+    home_dir().join("bin")
 }
 
 fn core_binary_name() -> &'static str {
@@ -93,7 +98,7 @@ fn read_current(install_dir: &Path) -> Option<String> {
     }
 }
 
-fn safe_version(version: &str) -> bool {
+pub(crate) fn safe_version(version: &str) -> bool {
     !version.is_empty()
         && version.len() <= 64
         && version != "."
@@ -153,7 +158,7 @@ fn agent(global: Duration) -> ureq::Agent {
         .into()
 }
 
-fn request(url: &str) -> Result<ureq::http::Response<ureq::Body>, String> {
+pub(crate) fn request(url: &str) -> Result<ureq::http::Response<ureq::Body>, String> {
     agent(CALL_TIMEOUT)
         .get(url)
         .header("Accept", "application/vnd.github.v3+json")
@@ -163,7 +168,7 @@ fn request(url: &str) -> Result<ureq::http::Response<ureq::Body>, String> {
 
 /// Retry `op` a few times, sleeping between attempts. The last error is
 /// returned if every attempt fails.
-fn retry<T, F>(mut op: F) -> Result<T, String>
+pub(crate) fn retry<T, F>(mut op: F) -> Result<T, String>
 where
     F: FnMut() -> Result<T, String>,
 {
@@ -261,7 +266,7 @@ fn version_from_asset_url(url: &str) -> Option<String> {
 }
 
 /// Download bytes from a URL.
-fn download(url: &str) -> Result<Vec<u8>, String> {
+pub(crate) fn download(url: &str) -> Result<Vec<u8>, String> {
     retry(|| {
         let resp = agent(CALL_TIMEOUT)
             .get(url)

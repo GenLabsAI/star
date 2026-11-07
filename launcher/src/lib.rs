@@ -7,6 +7,7 @@
 //! offline (see the `splash_filmstrip` example) without spawning a terminal.
 
 pub mod coord;
+pub mod desktop;
 pub mod handshake;
 pub mod platform;
 pub mod splash;

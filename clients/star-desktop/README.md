@@ -7,6 +7,14 @@ Tauri shell) plus a tiny Star overlay applied at build time:
 - a preconfigured **`Star` agent** (`star acp` over stdio, first in the list),
 - **Star branding** (app name, window title, bundle identifier).
 
+## How users get it
+
+End users never build this. They download the bare `star` launcher for
+their OS from a GitHub release (`star-<os>-<arch>[.exe]`, renamed to
+`star`), put it on PATH, and run `star`. On first run the launcher
+silently fetches the latest `star-core` and the Star Desktop app
+(per-user, no admin, background install while the core boots).
+
 ## Layout
 
 ```
