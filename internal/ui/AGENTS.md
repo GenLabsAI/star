@@ -237,3 +237,13 @@ through all components that need access to app state or styles.
 - Dialog messages are intercepted first in `Update` before other routing.
 - Focus state determines key event routing: `uiFocusEditor` sends keys to
   the textarea, `uiFocusMain` sends them to the chat list.
+
+## Visual proof for UI changes
+
+Use the headless harness to capture real `UI.View()` states instead of
+describing pixels. Add a `TUIShot` table for each state, render the grids to
+PNGs with `artifacts/render_tui.py`, then turn ordered PNGs and short
+captions into a GIF (optionally MP4) with `artifacts/render_flow.py`. See
+`artifacts/README.md` and `artifacts/flows/fork.json` for the full recipe.
+Keep behavior tests separate: the walkthrough is evidence, not a substitute
+for integration coverage.

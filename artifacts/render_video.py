@@ -12,8 +12,8 @@ Usage:
 
 Requires: Pillow. ffmpeg is used when found (PATH or the imageio-ffmpeg
 wheel); without it only the GIF/PNGs are written.
-The DejaVuSansMono.ttf next to this script is reused and downloaded if missing
-(same as render_tui.py).
+The shared tui_font helper downloads a monospace TTF if missing (same as
+render_tui.py).
 """
 
 import argparse
@@ -24,12 +24,12 @@ import re
 import shutil
 import subprocess
 import sys
-import urllib.request
+
+from tui_font import resolve_font
 
 FONT_SIZE = 13
 PAD = 10
 FRAME_MS = 120
-FONT_URL = "https://github.com/dejavu-fonts/dejavu-fonts/raw/master/ttf/DejaVuSansMono.ttf"
 
 
 def main() -> None:
@@ -38,6 +38,7 @@ def main() -> None:
     ap.add_argument("video_dir", nargs="?", default=os.path.join(here, "video"))
     ap.add_argument("--out", default=os.path.join(here, "yeehaw-horse.mp4"))
     ap.add_argument("--font-size", type=int, default=FONT_SIZE)
+    ap.add_argument("--font", default=None, help="Monospace TTF (default: auto-downloaded).")
     ap.add_argument("--duration", type=int, default=FRAME_MS)
     args = ap.parse_args()
 
@@ -54,10 +55,7 @@ def main() -> None:
             "(run TestYeehawHorseVideo with TUI_VIDEO=1 first)"
         )
 
-    font_path = os.path.join(here, "DejaVuSansMono.ttf")
-    if not os.path.exists(font_path):
-        print("downloading font ...")
-        urllib.request.urlretrieve(FONT_URL, font_path)
+    font_path = resolve_font(args.font, here)
 
     from PIL import Image, ImageDraw, ImageFont
 

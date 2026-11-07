@@ -60,6 +60,8 @@ completions/crush.*sh
 artifacts/tui-*.json
 artifacts/video/
 artifacts/DejaVuSansMono.ttf
+artifacts/JetBrainsMono-Regular.ttf
+__pycache__/
 
 # Demo web UIs (JS deps installed via npm)
 demo/star-acp-web/node_modules/
