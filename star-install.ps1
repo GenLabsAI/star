@@ -1,25 +1,27 @@
 #requires -Version 5.1
+param(
+    [switch]$SkipUpgrade
+)
 <#
   Install or upgrade Star to the latest GitHub release on Windows.
 
-  By default, installs into the folder containing this script. If a suitable
-  install is already present in ~/bin (both star.exe and star-core.exe),
-  that folder is preferred instead, so existing PATH-based usage keeps working.
+  Always installs into %USERPROFILE%\bin (creating it if needed), because
+  that is the only folder the star launcher loads its core from. Installing
+  anywhere else is silently ignored by the launcher, so this script does not
+  offer another target. %USERPROFILE%\bin is added to the user PATH when
+  missing, so `star` works in new terminals.
 
   The latest release is resolved from the GitHub Releases API at runtime so
   this script does not hardcode a version.
 
   Idempotent: rerun safely. If the release is unreachable or the download is
-  corrupt it aborts without replacing the current install.
+  corrupt it aborts without replacing the current install. After installing
+  the binaries, the first `star` run uses the new core immediately, and Star
+  Desktop installs itself in the background (Start Menu entry included).
 
   Optional switches:
     -SkipUpgrade
-        Only install if star.exe is absent in the chosen install folder.
-
-  Environment:
-    STAR_INSTALL_BIN
-        If set and non-empty, overrides folder selection and installs into this
-        path instead of the script folder or ~/bin.
+        Only install if star.exe is absent in %USERPROFILE%\bin.
 #>
 $ErrorActionPreference = "Stop"
 
@@ -44,37 +46,38 @@ $BinHome = $env:USERPROFILE
 if ([string]::IsNullOrEmpty($BinHome)) {
     $BinHome = [Environment]::GetFolderPath("Profile")
 }
-$StarBinDir = Join-Path $BinHome "bin"
+$InstallDir = Join-Path $BinHome "bin"
+if (-not (Test-Path $InstallDir)) {
+    New-Item -ItemType Directory -Path $InstallDir -Force | Out-Null
+}
+$InstallDir = (Resolve-Path $InstallDir).Path
 
-$Explicit = $env:STAR_INSTALL_BIN
-if ([string]::IsNullOrWhiteSpace($Explicit)) {
-    $Explicit = $null
+Write-Host "[0/7] install target: $InstallDir"
+
+if ($SkipUpgrade -and (Test-Path (Join-Path $InstallDir "star.exe"))) {
+    Write-Host "[0/7] star.exe already present and -SkipUpgrade set; stopping."
+    Write-Host "        To force an upgrade, rerun without -SkipUpgrade or delete the old binaries first."
+    exit 0
 }
 
-$InstallDir = $null
-$Reason = $null
-
-if (-not [string]::IsNullOrWhiteSpace($Explicit)) {
-    if (-not (Test-Path $Explicit)) {
-        New-Item -ItemType Directory -Path $Explicit -Force | Out-Null
+# Fail early with a clear message instead of a cryptic "Access denied" halfway
+# through: a running star.exe cannot be replaced on Windows.
+$TargetStar = Join-Path $InstallDir "star.exe"
+if (Test-Path $TargetStar) {
+    $locked = $true
+    for ($i = 0; $i -lt 3 -and $locked; $i++) {
+        try {
+            $probe = [System.IO.File]::Open($TargetStar, [System.IO.FileMode]::Open, [System.IO.FileAccess]::ReadWrite, [System.IO.FileShare]::None)
+            $probe.Close()
+            $locked = $false
+        } catch {
+            Start-Sleep -Milliseconds 500
+        }
     }
-    $InstallDir = (Resolve-Path $Explicit).Path
-    $Reason = "STAR_INSTALL_BIN=$InstallDir"
-} elseif ((Test-Path $StarBinDir) -and
-          (Test-Path (Join-Path $StarBinDir "star.exe")) -and
-          (Test-Path (Join-Path $StarBinDir "star-core.exe"))) {
-    $InstallDir = (Resolve-Path $StarBinDir).Path
-    $Reason = "~/bin already has star.exe and star-core.exe"
-} else {
-    $InstallDir = $PSScriptRoot
-    if ([string]::IsNullOrWhiteSpace($InstallDir)) {
-        $InstallDir = (Get-Location).Path
+    if ($locked) {
+        throw "star.exe is currently running from $InstallDir. Close all Star windows and rerun this script."
     }
-    $InstallDir = (Resolve-Path $InstallDir).Path
-    $Reason = "fallback: script folder"
 }
-
-Write-Host "[0/6] install target: $InstallDir  ($Reason)"
 
 $LatestApiUrl = "https://api.github.com/repos/$Owner/$Repo/releases/latest"
 
@@ -134,7 +137,7 @@ if ($apiOk) {
     throw "Could not reach GitHub Releases API and cannot safely pick a default latest tag. Run this script again when GitHub is reachable, or open https://github.com/$Owner/$Repo/releases/latest and tell me the tag."
 }
 
-Write-Host "[1/6] resolved latest release: $ResolvedTag"
+Write-Host "[1/7] resolved latest release: $ResolvedTag"
 Write-Host "        zip : $ResolvedZipUrl"
 Write-Host "        sum : $ResolvedSumUrl"
 
@@ -148,7 +151,7 @@ if (-not (Test-Uri $ResolvedZipUrl)) {
 $ZipPath = Join-Path $InstallDir $Asset
 $SumPath  = Join-Path $InstallDir "checksums.txt"
 
-Write-Host "[2/6] downloading checksums.txt"
+Write-Host "[2/7] downloading checksums.txt"
 Invoke-WebRequest -UseBasicParsing -Uri $ResolvedSumUrl -OutFile $SumPath
 if (-not (Test-Path $SumPath)) {
     throw "checksums.txt download failed"
@@ -166,30 +169,24 @@ if ($null -eq $AssetLine -or $null -eq $Matches[1]) {
     throw "checksums.txt does not contain an entry for $Asset.`nContents:`n$($SumLines -join "`n")"
 }
 $ExpectedSha = $Matches[1]
-Write-Host "[2/6] expected sha256 = $ExpectedSha"
+Write-Host "[2/7] expected sha256 = $ExpectedSha"
 
-if ($SkipUpgrade -and (Test-Path (Join-Path $InstallDir "star.exe"))) {
-    Write-Host "[3/6] star.exe already present and -SkipUpgrade set; stopping."
-    Write-Host "        To force an upgrade, rerun without -SkipUpgrade or delete the old binaries first."
-    exit 0
-}
-
-Write-Host "[3/6] downloading zip"
+Write-Host "[3/7] downloading zip"
 $Start = Get-Date
 Invoke-WebRequest -UseBasicParsing -Uri $ResolvedZipUrl -OutFile $ZipPath
 $Elapsed = (Get-Date) - $Start
 $ActualSize = (Get-Item $ZipPath).Length
-Write-Host "[3/6] zip written: $ZipPath  size=$ActualSize bytes  elapsed=$([math]::Round($Elapsed.TotalSeconds, 1))s"
+Write-Host "[3/7] zip written: $ZipPath  size=$ActualSize bytes  elapsed=$([math]::Round($Elapsed.TotalSeconds, 1))s"
 
-Write-Host "[4/6] verifying SHA-256"
+Write-Host "[4/7] verifying SHA-256"
 $ActualSha = (Get-FileHash -Path $ZipPath -Algorithm SHA256).Hash.ToLower()
 if ($ActualSha -ne $ExpectedSha.ToLower()) {
     Remove-Item $ZipPath -Force -ErrorAction SilentlyContinue
     throw "SHA-256 mismatch:`n  expected: $ExpectedSha`n  actual:   $ActualSha"
 }
-Write-Host "[4/6] SHA-256 OK"
+Write-Host "[4/7] SHA-256 OK"
 
-Write-Host "[5/6] extracting"
+Write-Host "[5/7] extracting"
 $ExtractDir = Join-Path $InstallDir "star-extract"
 if (Test-Path $ExtractDir) {
     Remove-Item $ExtractDir -Recurse -Force
@@ -211,7 +208,7 @@ if ($null -eq $BinDir -or $missing) {
     throw "zip did not contain the expected binaries.`nExpected: $($Needed -join ' ')`nFound: $($FoundNames -join ' ')`nContents:`n$(Get-ChildItem $ExtractDir -Recurse -File | Select-Object -ExpandProperty FullName -Unique | Out-String)"
 }
 
-Write-Host "[6/6] installing binaries into $InstallDir"
+Write-Host "[6/7] installing binaries into $InstallDir"
 
 # Install the core into a versioned directory and point the launcher at it.
 # Running cores keep their old file, so an in-app update never needs to close
@@ -237,8 +234,29 @@ Get-ChildItem -Path $VersionsRoot -Directory -Filter ".staging-*" -ErrorAction S
 Remove-Item $ExtractDir -Recurse -Force
 Remove-Item $ZipPath -Force
 
+Write-Host "[7/7] ensuring $InstallDir is on the user PATH"
+$UserPath = [Environment]::GetEnvironmentVariable("Path", "User")
+if ([string]::IsNullOrEmpty($UserPath)) { $UserPath = "" }
+$onPath = $false
+foreach ($p in ($UserPath -split ';')) {
+    if ($p -and ($p.TrimEnd('\', '/') -ieq $InstallDir.TrimEnd('\', '/'))) { $onPath = $true; break }
+}
+if (-not $onPath) {
+    [Environment]::SetEnvironmentVariable("Path", ($UserPath.TrimEnd(';') + ';' + $InstallDir).TrimStart(';'), "User")
+    Write-Host "[7/7] added to user PATH (takes effect in new terminals)"
+} else {
+    Write-Host "[7/7] already on user PATH"
+}
+if ($env:Path) {
+    $sessionOnPath = $false
+    foreach ($p in ($env:Path -split ';')) {
+        if ($p -and ($p.TrimEnd('\', '/') -ieq $InstallDir.TrimEnd('\', '/'))) { $sessionOnPath = $true; break }
+    }
+    if (-not $sessionOnPath) { $env:Path += ";$InstallDir" }
+}
+
 Write-Host "`nInstalled/updated $ResolvedTag into:"
-Write-Host "  $InstallDir  ($Reason)"
+Write-Host "  $InstallDir"
 Write-Host ""
 Write-Host "Binaries:"
 Get-ChildItem -Path $InstallDir -Filter "*.exe" | ForEach-Object {
@@ -246,5 +264,7 @@ Get-ChildItem -Path $InstallDir -Filter "*.exe" | ForEach-Object {
     Write-Host "  $($_.Name)  $($_.Length) bytes  SHA256=$h"
 }
 Write-Host ""
-Write-Host "Note: this script installed binaries into $InstallDir."
-Write-Host "      PATH or shortcuts are not modified automatically."
+Write-Host "Next steps:"
+Write-Host "  1. Open a NEW terminal (so it picks up PATH) and run: star"
+Write-Host "  2. The first run uses the new core immediately; Star Desktop"
+Write-Host "     installs itself in the background with a Start Menu entry."
