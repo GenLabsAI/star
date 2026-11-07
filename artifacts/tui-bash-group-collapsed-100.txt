@@ -1,0 +1,29 @@
+
+  ╱╱╱ STAR ╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱ /tmp/crush-test • ctrl+d open 
+
+ │ Refactor the auth middleware and get the suite green. Keep the transcript quiet - I mostly care
+ │ about what changed.                                                                            
+
+   Found the refresh bug. I'll patch the middleware and run the checks.                           
+
+ ▌ ✓ Ran 4 commands (F5 to expand)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+ ┃ Refactor the auth module                                                                        
+ ┃                                                                                                 
+ ┃                                                                                                 
+
+ tab focus editor • shift+tab mode • ctrl+p commands • ctrl+l models • ↑↓ scroll …
