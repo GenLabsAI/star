@@ -90,7 +90,47 @@ fn asset_suffixes() -> &'static [&'static str] {
 /// insensitive), honouring preference order. Returns
 /// `(tag, asset name, download url)`; the tag is parsed from the download URL
 /// (`/releases/download/<tag>/<asset>`), the same way the core updater does.
+/// Only assets built for this machine's architecture are considered: a
+/// wrong-arch install would write the marker and never retry.
 fn pick_asset(body: &str, suffixes: &[&str]) -> Option<(String, String, String)> {
+    pick_asset_for_arch(body, suffixes, arch_tokens())
+}
+
+/// Architecture tokens identifying builds for this machine.
+fn arch_tokens() -> &'static [&'static str] {
+    #[cfg(target_arch = "x86_64")]
+    {
+        &["x86_64", "x64", "amd64"]
+    }
+    #[cfg(target_arch = "aarch64")]
+    {
+        &["aarch64", "arm64"]
+    }
+    #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
+    {
+        &[]
+    }
+}
+
+/// Every architecture token we recognise, for any machine.
+const ANY_ARCH_TOKENS: &[&str] = &["x86_64", "x64", "amd64", "aarch64", "arm64"];
+
+/// Does this asset name target this machine? A name carrying our arch token
+/// is ours; a name with no arch token at all is treated as universal; a
+/// name carrying another arch's token is for someone else.
+fn name_matches_arch(name: &str, tokens: &[&str]) -> bool {
+    let lowered = name.to_lowercase();
+    if tokens.iter().any(|token| lowered.contains(token)) {
+        return true;
+    }
+    !ANY_ARCH_TOKENS.iter().any(|token| lowered.contains(token))
+}
+
+fn pick_asset_for_arch(
+    body: &str,
+    suffixes: &[&str],
+    arch: &[&str],
+) -> Option<(String, String, String)> {
     let mut found: Vec<(String, String)> = Vec::new();
     for block in body.split("\"name\"").skip(1) {
         let Some(rest) = block.trim_start().strip_prefix(':') else {
@@ -119,10 +159,9 @@ fn pick_asset(body: &str, suffixes: &[&str]) -> Option<(String, String, String)>
         found.push((name, after[..end].to_string()));
     }
     for suffix in suffixes {
-        if let Some((name, url)) = found
-            .iter()
-            .find(|(name, _)| name.to_lowercase().ends_with(suffix))
-        {
+        if let Some((name, url)) = found.iter().find(|(name, _)| {
+            name.to_lowercase().ends_with(suffix) && name_matches_arch(name, arch)
+        }) {
             let rest = url.split_once("/download/")?.1;
             let tag = rest.split('/').next()?;
             if update::safe_version(tag) {
@@ -513,7 +552,8 @@ mod tests {
 
     #[test]
     fn prefers_nsis_over_msi() {
-        let picked = pick_asset(RELEASE_JSON, &["-setup.exe", ".msi"]).expect("pick windows asset");
+        let picked = pick_asset_for_arch(RELEASE_JSON, &["-setup.exe", ".msi"], &["x64"])
+            .expect("pick windows asset");
         assert_eq!(picked.0, "v0.1.115");
         assert!(picked.1.ends_with("-setup.exe"));
         assert!(picked.2.contains("/download/v0.1.115/"));
@@ -521,14 +561,16 @@ mod tests {
 
     #[test]
     fn prefers_app_tarball_over_dmg() {
-        let picked = pick_asset(RELEASE_JSON, &[".app.tar.gz", ".dmg"]).expect("pick macos asset");
+        let picked = pick_asset_for_arch(RELEASE_JSON, &[".app.tar.gz", ".dmg"], &["aarch64"])
+            .expect("pick macos asset");
         assert_eq!(picked.0, "v0.1.115");
         assert!(picked.1.ends_with(".app.tar.gz"));
     }
 
     #[test]
     fn prefers_appimage_over_deb_case_insensitively() {
-        let picked = pick_asset(RELEASE_JSON, &[".appimage", ".deb"]).expect("pick linux asset");
+        let picked = pick_asset_for_arch(RELEASE_JSON, &[".appimage", ".deb"], &["amd64"])
+            .expect("pick linux asset");
         assert_eq!(picked.0, "v0.1.115");
         assert!(picked.1.to_lowercase().ends_with(".appimage"));
     }
@@ -537,14 +579,50 @@ mod tests {
     fn falls_back_down_the_preference_list() {
         // No NSIS uploader ran: the MSI is still a valid pick.
         let body = RELEASE_JSON.replace("-setup.exe", "-setup.ex_");
-        let picked = pick_asset(&body, &["-setup.exe", ".msi"]).expect("fall back to msi");
+        let picked = pick_asset_for_arch(&body, &["-setup.exe", ".msi"], &["x64"])
+            .expect("fall back to msi");
         assert!(picked.1.ends_with(".msi"));
     }
 
     #[test]
     fn no_matching_asset_is_none() {
-        assert!(pick_asset(RELEASE_JSON, &[".rpm"]).is_none());
-        assert!(pick_asset("{}", &["-setup.exe"]).is_none());
+        assert!(pick_asset_for_arch(RELEASE_JSON, &[".rpm"], &["x64"]).is_none());
+        assert!(pick_asset_for_arch("{}", &["-setup.exe"], &["x64"]).is_none());
+    }
+
+    #[test]
+    fn wrong_arch_assets_are_skipped() {
+        // Mirrors the real v0.1.115 release: the aarch64 AppImage is listed
+        // before the amd64 one, but each machine must pick its own build.
+        const BODY: &str = r#"{
+            "tag_name": "v0.1.115",
+            "assets": [
+                {"name": "star-desktop_0.1.115_aarch64.AppImage",
+                 "browser_download_url": "https://github.com/GenLabsAI/star/releases/download/v0.1.115/star-desktop_0.1.115_aarch64.AppImage"},
+                {"name": "star-desktop_0.1.115_amd64.AppImage",
+                 "browser_download_url": "https://github.com/GenLabsAI/star/releases/download/v0.1.115/star-desktop_0.1.115_amd64.AppImage"}
+            ]
+        }"#;
+        let picked = pick_asset_for_arch(BODY, &[".appimage"], &["x86_64", "amd64"])
+            .expect("pick linux asset for x86_64");
+        assert!(picked.1.contains("amd64"), "picked {}", picked.1);
+        let picked = pick_asset_for_arch(BODY, &[".appimage"], &["aarch64", "arm64"])
+            .expect("pick linux asset for aarch64");
+        assert!(picked.1.contains("aarch64"), "picked {}", picked.1);
+        // With only foreign-arch assets available there is no pick at all,
+        // rather than a broken install (RELEASE_JSON has amd64-only Linux
+        // assets).
+        assert!(
+            pick_asset_for_arch(RELEASE_JSON, &[".appimage", ".deb"], &["aarch64", "arm64"])
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn archless_names_are_universal() {
+        assert!(name_matches_arch("Star Desktop.AppImage", &["amd64"]));
+        assert!(name_matches_arch("Star Desktop_x64-setup.exe", &["x64"]));
+        assert!(!name_matches_arch("Star Desktop_aarch64.dmg", &["x64"]));
     }
 
     #[test]
