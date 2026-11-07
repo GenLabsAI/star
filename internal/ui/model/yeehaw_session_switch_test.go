@@ -1,8 +1,10 @@
 package model
 
 import (
+	"image"
 	"testing"
 
+	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/stretchr/testify/require"
 
 	"github.com/charmbracelet/crush/internal/permission"
@@ -94,4 +96,38 @@ func TestDoubleEscOnOtherSessionLeavesYeehawAlone(t *testing.T) {
 	require.Equal(t, permission.ModeNormal, ws.sessionModes["B"],
 		"the session in view must not be promoted to yeehaw")
 	require.False(t, m.yeehawActive, "B must not inherit the horse")
+}
+
+// TestLeavingYeehawClearsTheStaleHorseCells: the frame canvas is reused across
+// frames, so the rows the horse lane occupied are never painted again once the
+// lane collapses. Leaving yeehaw must drop the buffer (and any memoized frame)
+// or the horse stays stamped on the screen of the session we switched to.
+func TestLeavingYeehawClearsTheStaleHorseCells(t *testing.T) {
+	pinTTLs(t)
+
+	ws := &countingWorkspace{
+		ready:     true,
+		agentBusy: true,
+		sessionModes: map[string]permission.Mode{
+			"A": permission.ModeYeehaw,
+			"B": permission.ModeNormal,
+		},
+	}
+	m := newBusyUI(ws)
+	m.session = &session.Session{ID: "A"}
+	warmCaches(m, true)
+	yeehawProbe(m, "A", permission.ModeYeehaw)
+	require.True(t, m.yeehawActive)
+
+	// Paint the lane the way a real frame does, into the reusable canvas.
+	m.width, m.height = 100, 30
+	canvas := m.frameCanvas()
+	uv.NewStyledString(m.yeehawHorseView(90)).Draw(canvas, image.Rect(0, 20, 100, 27))
+	require.Contains(t, canvas.Render(), yeehawBadgeText, "the horse lane must be painted")
+
+	// Switch to a normal session: the horse must leave the screen.
+	m.session = &session.Session{ID: "B"}
+	yeehawProbe(m, "B", permission.ModeNormal)
+	require.False(t, m.yeehawActive)
+	require.NotContains(t, m.frameCanvas().Render(), yeehawBadgeText)
 }
