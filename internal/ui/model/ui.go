@@ -481,7 +481,20 @@ type UI struct {
 	// faded out frame by frame until the yeehaw placeholder takes over.
 	yeehawFadeContent string
 	yeehawFadeFrames  int
-	pillsView         string
+	// yeehawSessions records which sessions the user left on yeehaw, so
+	// switching back restores the horse without trusting a probe's
+	// fallback-prone mode reading.
+	yeehawSessions map[string]bool
+	// yeehawAdoptProbe is true between a session's first load and the
+	// first authoritative probe for it, the only window in which a probe
+	// may raise the horse: a --yeehaw launch established the mode, never a
+	// switch.
+	yeehawAdoptProbe bool
+	// yeehawSessionID is the session the yeehaw presentation belongs to. It
+	// is reconciled on load instead of the load order: a switch may replace
+	// m.session before loadSessionMsg runs.
+	yeehawSessionID string
+	pillsView       string
 
 	// Todo spinner
 	todoSpinner    spinner.Model
@@ -969,20 +982,21 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.turnOutcome = ""
 		}
 		m.setState(uiChat, m.focus)
-		prevSessionID := ""
-		if m.session != nil {
-			prevSessionID = m.session.ID
-		}
 		m.session = msg.session
 		m.sidebarOffset = 0
 		m.sessionFiles = msg.files
 
-		// The yeehaw presentation belongs to the session in view, so switching
-		// sessions restores the editor immediately. The busy probe dispatched
-		// below re-arms the horse when the session being opened is itself
-		// still on autopilot, and a normal session never inherits it.
-		if prevSessionID != "" && prevSessionID != msg.session.ID {
-			m.syncYeehawFromMode(permission.ModeNormal)
+		// The yeehaw presentation belongs to the session in view: leaving a
+		// session takes its horse with it, and a session the user armed gets
+		// it back when they return. A probe may not raise it.
+		if id := m.currentSessionID(); id != m.yeehawSessionID {
+			first := m.yeehawSessionID == ""
+			if cmd := m.switchYeehawSession(m.yeehawSessionID, id); cmd != nil {
+				cmds = append(cmds, cmd)
+			}
+			// A --yeehaw launch may have set the mode before any probe
+			// could report it, but only that first session may adopt it.
+			m.yeehawAdoptProbe = first
 		}
 		// Session switch: the memoized busy state and queued prompts
 		// belong to the previous session. Drop them and re-fetch

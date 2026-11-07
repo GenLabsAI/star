@@ -241,7 +241,13 @@ func (m *UI) applyBusyState(msg busyStateMsg) []tea.Cmd {
 	// brings its horse back, and a normal session never inherits it from the
 	// one we just left. A probe for another session, or one taken before the
 	// agent is ready, carries no authority over what is on screen.
-	if msg.ready && msg.forSession == m.currentSessionID() {
+	if msg.ready && m.hasSession() && msg.forSession == m.currentSessionID() {
+		if m.yeehawAdoptProbe {
+			m.yeehawAdoptProbe = false
+			if cmd := m.adoptYeehawMode(msg.mode); cmd != nil {
+				cmds = append(cmds, cmd)
+			}
+		}
 		if cmd := m.syncYeehawFromMode(msg.mode); cmd != nil {
 			cmds = append(cmds, cmd)
 		}
@@ -434,6 +440,8 @@ func (m *UI) setYeehawMode(enable bool) tea.Cmd {
 		m.yoloCache.set(true)
 		m.busyFetchGen++
 		m.yeehawActive = true
+		m.rememberYeehaw(sessionID, true)
+		m.yeehawSessionID = sessionID
 		// Capture the editor content for the fade-out and clear the textarea
 		// so new keystrokes cannot land in a retired editor.
 		m.yeehawFadeContent = m.textarea.View()
@@ -451,6 +459,7 @@ func (m *UI) setYeehawMode(enable bool) tea.Cmd {
 		m.yoloCache.set(false)
 		m.busyFetchGen++
 		m.yeehawActive = false
+		m.rememberYeehaw(sessionID, false)
 		m.yeehawFadeContent = ""
 		m.yeehawFadeFrames = 0
 		m.yeehawHorseGen++
@@ -464,18 +473,69 @@ func (m *UI) setYeehawMode(enable bool) tea.Cmd {
 	return nil
 }
 
-// syncYeehawFromMode aligns the yeehaw presentation with the permission mode
-// the workspace reports for the session in view. The mode is per session, so
-// the horse and badge follow the session rather than the UI: re-opening a
-// session that is still on autopilot brings them back, and a normal session
-// never inherits them from the one we just left.
+// syncYeehawFromMode retires the yeehaw presentation when the workspace
+// reports that the session in view left autopilot. A probe may only ever
+// retire the horse, never raise it: the reported mode falls back to the
+// workspace-wide mode for a session that has no mode of its own, and arming
+// from that fallback is how the horse used to follow the user onto a session
+// they never armed. Raising belongs to the user's action (setYeehawMode), to
+// a --yeehaw launch (adoptYeehawMode) and to re-entering an armed session
+// (switchYeehawSession).
 func (m *UI) syncYeehawFromMode(mode permission.Mode) tea.Cmd {
-	want := mode == permission.ModeYeehaw
+	if mode == permission.ModeYeehaw || !m.yeehawActive {
+		return nil
+	}
+	return m.setYeehawPresentation(false)
+}
+
+// adoptYeehawMode applies the mode a --yeehaw launch established for the
+// session that was just loaded. Only the first probe for a freshly loaded
+// session may adopt it, before any switch could be confused with the
+// workspace-wide fallback.
+func (m *UI) adoptYeehawMode(mode permission.Mode) tea.Cmd {
+	if mode != permission.ModeYeehaw {
+		return nil
+	}
+	m.rememberYeehaw(m.currentSessionID(), true)
+	return m.setYeehawPresentation(true)
+}
+
+// switchYeehawSession hands the horse to the session being left and restores
+// whatever the session being entered was left with. A session the user never
+// armed has no entry, so it never inherits the horse from the one before it.
+func (m *UI) switchYeehawSession(from, to string) tea.Cmd {
+	if from == to {
+		return nil
+	}
+	m.rememberYeehaw(from, m.yeehawActive)
+	m.yeehawSessionID = to
+	return m.setYeehawPresentation(m.yeehawSessions[to])
+}
+
+// rememberYeehaw records whether a session was showing the horse.
+func (m *UI) rememberYeehaw(sessionID string, active bool) {
+	if sessionID == "" {
+		return
+	}
+	if !active {
+		delete(m.yeehawSessions, sessionID)
+		return
+	}
+	if m.yeehawSessions == nil {
+		m.yeehawSessions = map[string]bool{}
+	}
+	m.yeehawSessions[sessionID] = true
+}
+
+// setYeehawPresentation shows or hides the yeehaw presentation for the
+// session in view.
+func (m *UI) setYeehawPresentation(want bool) tea.Cmd {
 	if want == m.yeehawActive {
 		return nil
 	}
 	if want {
 		m.yeehawActive = true
+		m.yeehawSessionID = m.currentSessionID()
 		// No fade on re-entry: any editor content belongs to a session we
 		// are not looking at, so replaying it would animate stale text.
 		m.yeehawFadeContent = ""
