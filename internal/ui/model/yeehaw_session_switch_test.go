@@ -25,7 +25,7 @@ func yeehawProbe(m *UI, sessionID string, mode permission.Mode) {
 
 // TestYeehawFollowsSessionSwitch: the horse and badge belong to the session
 // in view, not to the UI. Leaving a yeehaw session hides them, re-opening it
-// brings them back, and a probe about a different session has no say.
+// brings them back, and a probe about another session has no say.
 func TestYeehawFollowsSessionSwitch(t *testing.T) {
 	pinTTLs(t)
 
@@ -41,12 +41,14 @@ func TestYeehawFollowsSessionSwitch(t *testing.T) {
 	m.session = &session.Session{ID: "A"}
 	warmCaches(m, true)
 
-	yeehawProbe(m, "A", permission.ModeYeehaw)
-	require.True(t, m.yeehawActive, "a session on autopilot must show the horse")
+	// The user arms yeehaw on A.
+	m.setYeehawMode(true)
+	require.True(t, m.yeehawActive, "an armed session must show the horse")
 	require.Equal(t, uiFocusMain, m.focus, "the retired editor must not keep focus")
 
 	// Switch to a normal session: the horse must not follow.
 	m.session = &session.Session{ID: "B"}
+	m.switchYeehawSession("A", "B")
 	yeehawProbe(m, "B", permission.ModeNormal)
 	require.False(t, m.yeehawActive, "the horse must not show on a normal session")
 	require.Equal(t, uiFocusEditor, m.focus, "a normal session must restore the editor")
@@ -57,10 +59,34 @@ func TestYeehawFollowsSessionSwitch(t *testing.T) {
 
 	// Re-opening the yeehaw session restores it, without replaying the fade.
 	m.session = &session.Session{ID: "A"}
-	yeehawProbe(m, "A", permission.ModeYeehaw)
+	m.switchYeehawSession("B", "A")
 	require.True(t, m.yeehawActive, "re-opening a yeehaw session must bring the horse back")
 	require.Zero(t, m.yeehawFadeFrames, "re-entering must not replay the fade")
 	require.Equal(t, uiFocusMain, m.focus)
+}
+
+// TestProbeCannotArmYeehawOnAnUnarmedSession: the workspace reports the
+// workspace-wide mode for a session with no mode of its own, so a probe can
+// claim yeehaw for a session the user never armed. Acting on that handed the
+// horse, and autopilot's look, to whatever session the user switched to.
+func TestProbeCannotArmYeehawOnAnUnarmedSession(t *testing.T) {
+	pinTTLs(t)
+
+	ws := &countingWorkspace{
+		ready:        true,
+		agentBusy:    true,
+		permMode:     permission.ModeYeehaw,
+		sessionModes: map[string]permission.Mode{},
+	}
+	m := newBusyUI(ws)
+	m.session = &session.Session{ID: "B"}
+	warmCaches(m, true)
+
+	yeehawProbe(m, "B", ws.PermissionSessionMode("B"))
+	require.Equal(t, permission.ModeYeehaw, ws.PermissionSessionMode("B"),
+		"the probe really does report the fallback mode")
+	require.False(t, m.yeehawActive, "a probe must never arm a session the user did not arm")
+	require.Equal(t, uiFocusEditor, m.focus)
 }
 
 // TestDoubleEscOnOtherSessionLeavesYeehawAlone: stopping the session in view
@@ -79,11 +105,12 @@ func TestDoubleEscOnOtherSessionLeavesYeehawAlone(t *testing.T) {
 	m := newBusyUI(ws)
 	m.session = &session.Session{ID: "A"}
 	warmCaches(m, true)
-	yeehawProbe(m, "A", permission.ModeYeehaw)
+	m.setYeehawMode(true)
 	require.True(t, m.yeehawActive)
 
 	// Switch to B and stop it with double esc.
 	m.session = &session.Session{ID: "B"}
+	m.switchYeehawSession("A", "B")
 	yeehawProbe(m, "B", permission.ModeNormal)
 	require.False(t, m.yeehawActive, "B is a normal session")
 
@@ -116,7 +143,7 @@ func TestLeavingYeehawClearsTheStaleHorseCells(t *testing.T) {
 	m := newBusyUI(ws)
 	m.session = &session.Session{ID: "A"}
 	warmCaches(m, true)
-	yeehawProbe(m, "A", permission.ModeYeehaw)
+	m.setYeehawMode(true)
 	require.True(t, m.yeehawActive)
 
 	// Paint the lane the way a real frame does, into the reusable canvas.
@@ -127,6 +154,7 @@ func TestLeavingYeehawClearsTheStaleHorseCells(t *testing.T) {
 
 	// Switch to a normal session: the horse must leave the screen.
 	m.session = &session.Session{ID: "B"}
+	m.switchYeehawSession("A", "B")
 	yeehawProbe(m, "B", permission.ModeNormal)
 	require.False(t, m.yeehawActive)
 	require.NotContains(t, m.frameCanvas().Render(), yeehawBadgeText)
