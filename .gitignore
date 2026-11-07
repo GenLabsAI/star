@@ -56,8 +56,10 @@ completions/crush.*sh
 .task
 
 # TUI screenshot scaffold: keep the harness + PNG/TXT snapshots, ignore
-# regenerable grids and the auto-downloaded font.
+# regenerable grids, walkthrough media, and auto-downloaded fonts.
 artifacts/tui-*.json
+artifacts/tui-*.gif
+artifacts/tui-*.mp4
 artifacts/video/
 artifacts/DejaVuSansMono.ttf
 artifacts/JetBrainsMono-Regular.ttf

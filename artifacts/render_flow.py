@@ -5,19 +5,20 @@ A walkthrough manifest orders the still images and gives each one a short
 caption:
 
     {
-      "output": "tui-fork-flow",
+      "output": "tui-feature-flow",
       "width": 1000,
       "duration_ms": 2600,
       "frames": [
-        {"image": "tui-fork-button-140.png",
-         "caption": "Click a message - Fork appears at its top-right edge."},
+        {"image": "tui-feature-state-140.png",
+         "caption": "Short description of this user-visible state."},
         ...
       ]
     }
 
 Image names resolve from this script's directory first, then the manifest's
 directory. The renderer writes a looping GIF next to the images, and can also
-write an MP4 when ffmpeg is available.
+write an MP4 when ffmpeg is available. See artifacts/flows/fork.json for a
+complete worked manifest.
 
 Usage:
     python3 artifacts/render_flow.py artifacts/flows/fork.json
