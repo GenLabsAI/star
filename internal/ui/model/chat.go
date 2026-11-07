@@ -192,6 +192,12 @@ type Chat struct {
 	resizing        bool
 	resizeSettleSeq int
 	warmNext        int
+
+	// forkButtonArea and forkButtonMsgID describe the Fork affordance drawn
+	// on the selected message. The area is viewport-relative so a mouse
+	// click can be matched without knowing the chat's screen position.
+	forkButtonArea  image.Rectangle
+	forkButtonMsgID string
 }
 
 // scrollbarHideDuration is how long the scrollbar remains visible after scroll activity.
@@ -326,6 +332,57 @@ func (m *Chat) Draw(scr uv.Screen, area uv.Rectangle) {
 			m.scrollbarBlit.draw(scr, scrollbarArea, scrollbar)
 		}
 	}
+
+	m.drawForkButton(scr, area, listArea)
+}
+
+// drawForkButton paints the Fork affordance on the top-right edge of the
+// selected message while the chat has focus. A click on a message focuses the
+// chat, so selecting a message is enough to reveal the button.
+func (m *Chat) drawForkButton(scr uv.Screen, area, listArea image.Rectangle) {
+	m.forkButtonArea = image.Rectangle{}
+	m.forkButtonMsgID = ""
+	if !m.list.Focused() {
+		return
+	}
+	idx := m.list.Selected()
+	item, ok := m.list.ItemAt(idx).(chat.MessageItem)
+	if !ok {
+		return
+	}
+	msgID, ok := chat.ForkMessageIDFor(item)
+	if !ok {
+		return
+	}
+	y, ok := m.list.ItemViewportOffset(idx)
+	if !ok {
+		return
+	}
+	label := m.com.Styles.Messages.ForkButton.Render("Fork")
+	width := ansi.StringWidth(label)
+	if width == 0 || listArea.Dx() < width+2 {
+		return
+	}
+	// Prefer the blank gap directly above the message so the button never
+	// covers its first line. The very first visible row has no gap, so fall
+	// back to overlaying that row there.
+	buttonY := y
+	if y > 0 {
+		buttonY = y - 1
+	}
+	x := listArea.Max.X - width - 1
+	rect := image.Rect(x, listArea.Min.Y+buttonY, x+width, listArea.Min.Y+buttonY+1)
+	if !rect.In(listArea) {
+		return
+	}
+	uv.NewStyledString(label).Draw(scr, rect)
+	m.forkButtonArea = image.Rect(
+		rect.Min.X-area.Min.X,
+		rect.Min.Y-area.Min.Y,
+		rect.Max.X-area.Min.X,
+		rect.Max.Y-area.Min.Y,
+	)
+	m.forkButtonMsgID = msgID
 }
 
 // InvalidateBlit forces the next Draw to repaint the chat cells. Call it
@@ -1222,6 +1279,15 @@ func (m *Chat) HandleKeyMsg(key tea.KeyMsg) (bool, tea.Cmd) {
 func (m *Chat) HandleMouseDown(x, y int) (bool, tea.Cmd) {
 	if m.list.Len() == 0 {
 		return false, nil
+	}
+
+	// The fork affordance overlays the selected message, so it has to win
+	// over the item hit test underneath it.
+	if m.forkButtonMsgID != "" && image.Pt(x, y).In(m.forkButtonArea) {
+		msgID := m.forkButtonMsgID
+		return true, func() tea.Msg {
+			return chat.ForkRequestMsg{MessageID: msgID}
+		}
 	}
 
 	itemIdx, itemY := m.list.ItemIndexAtPosition(x, y)

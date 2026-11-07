@@ -1,0 +1,29 @@
+
+  ╱╱╱ STAR ╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱ /tmp/crush-test • ctrl+d open 
+
+ │ Our checkout retries are double-charging customers. Can you trace where the retry is scheduled?
+
+   I'll start by looking at the payment service and the retry scheduler. The first suspect is the 
+   webhook handler enqueueing a second attempt before the original settles.                       
+
+ │ The duplicate charges all share the same idempotency key prefix. Check the queue consumer too. 
+
+   Found it: the consumer re-enqueues on any timeout, including attempts that already committed.  
+   I'll add an idempotency guard keyed by the charge ID.                                          
+
+ │ Good. Add a regression test with a simulated timeout after commit.                             
+                                                                                            Fork 
+ ▌ Added the guard and a test that forces the post-commit timeout. The charging path now sees the 
+ ▌ recorded charge and skips the retry. All checkout tests pass.                                  
+
+
+
+
+
+
+
+ ┃ Refactor the auth module                                                                        
+ ┃                                                                                                 
+ ┃                                                                                                 
+
+ tab focus editor • shift+tab mode • ctrl+p commands • ctrl+l models • ↑↓ scroll …

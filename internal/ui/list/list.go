@@ -941,6 +941,27 @@ func (l *List) ItemAt(index int) Item {
 	return l.items[index]
 }
 
+// ItemViewportOffset returns the viewport-relative y coordinate where the
+// first line of the item at index is drawn, or false when the item's first
+// line is above the viewport or the index is out of range. It is used to place
+// per-item overlays (the fork affordance) at the item's right edge.
+func (l *List) ItemViewportOffset(index int) (int, bool) {
+	if index < 0 || index >= len(l.items) || index < l.offsetIdx {
+		return 0, false
+	}
+	y := -l.offsetLine
+	for i := l.offsetIdx; i < index; i++ {
+		y += l.getItem(i).height
+		if l.gap > 0 {
+			y += l.gap
+		}
+	}
+	if y < 0 || y >= l.height {
+		return 0, false
+	}
+	return y, true
+}
+
 // ItemIndexAtPosition returns the item at the given viewport-relative y
 // coordinate. Returns the item index and the y offset within that item. It
 // returns -1, -1 if no item is found.

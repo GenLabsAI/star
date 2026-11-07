@@ -1263,6 +1263,30 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	case copyChatHighlightMsg:
 		cmds = append(cmds, m.copyChatHighlight())
+	case chat.ForkRequestMsg:
+		if m.session == nil {
+			break
+		}
+		if m.isAgentBusy() {
+			cmds = append(cmds, util.ReportWarn("Agent is busy, please wait before forking..."))
+			break
+		}
+		cmds = append(cmds, m.forkSession(m.session.ID, msg.MessageID))
+	case forkPointsLoadedMsg:
+		if msg.sessionID != m.currentSessionID() {
+			break
+		}
+		if len(msg.points) == 0 {
+			cmds = append(cmds, util.ReportWarn("No messages to fork from yet."))
+			break
+		}
+		m.dialog.CloseDialog(dialog.CommandsID)
+		m.dialog.OpenDialog(dialog.NewForkFrom(m.com, msg.points))
+	case forkCreatedMsg:
+		cmds = append(cmds, util.ReportInfo("Forked conversation"))
+		if cmd := m.loadSession(msg.sessionID); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
 	case DelayedClickMsg:
 		// Handle delayed single-click action (e.g., expansion).
 		m.chat.HandleDelayedClick(msg)
@@ -2298,6 +2322,24 @@ func (m *UI) handleDialogMsg(msg tea.Msg) tea.Cmd {
 		if cmd := m.openDialog(msg.DialogID); cmd != nil {
 			cmds = append(cmds, cmd)
 		}
+
+	case dialog.ActionForkFrom:
+		if m.isAgentBusy() {
+			cmds = append(cmds, util.ReportWarn("Agent is busy, please wait before forking..."))
+			break
+		}
+		m.dialog.CloseDialog(dialog.CommandsID)
+		cmds = append(cmds, m.loadForkPoints(msg.SessionID))
+	case dialog.ActionForkSession:
+		if m.isAgentBusy() {
+			cmds = append(cmds, util.ReportWarn("Agent is busy, please wait before forking..."))
+			break
+		}
+		if m.session == nil {
+			break
+		}
+		m.dialog.CloseDialog(dialog.ForkFromID)
+		cmds = append(cmds, m.forkSession(m.session.ID, msg.MessageID))
 
 	// Command dialog messages.
 	case dialog.ActionToggleYoloMode:

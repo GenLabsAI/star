@@ -20,6 +20,27 @@ func (b *Backend) CreateSession(ctx context.Context, workspaceID, title string) 
 	return ws.Sessions.Create(ctx, title)
 }
 
+// ForkSession copies a session's transcript up to messageID into a new
+// session in the same workspace.
+func (b *Backend) ForkSession(ctx context.Context, workspaceID, sessionID, messageID string) (session.Session, error) {
+	ws, err := b.GetWorkspace(workspaceID)
+	if err != nil {
+		return session.Session{}, err
+	}
+
+	// Settle in-flight state so the copy reads the same transcript the
+	// attached client sees.
+	if ws.AgentCoordinator != nil {
+		if _, err := ws.AgentCoordinator.ListSettledMessages(ctx, sessionID); err != nil {
+			return session.Session{}, err
+		}
+	}
+	if err := ws.Messages.FlushAll(ctx); err != nil {
+		return session.Session{}, err
+	}
+	return ws.Sessions.Fork(ctx, sessionID, messageID, "")
+}
+
 // GetSession retrieves a session by workspace and session ID.
 func (b *Backend) GetSession(ctx context.Context, workspaceID, sessionID string) (session.Session, error) {
 	ws, err := b.GetWorkspace(workspaceID)

@@ -142,6 +142,14 @@ func (w *ClientWorkspace) CreateSession(ctx context.Context, title string) (sess
 	return protoToSession(*sess), nil
 }
 
+func (w *ClientWorkspace) ForkSession(ctx context.Context, sessionID, upToMessageID string) (session.Session, error) {
+	sess, err := w.client.ForkSession(ctx, w.workspaceID(), sessionID, upToMessageID)
+	if err != nil {
+		return session.Session{}, err
+	}
+	return protoToSession(*sess), nil
+}
+
 func (w *ClientWorkspace) GetSession(ctx context.Context, sessionID string) (session.Session, error) {
 	sess, err := w.client.GetSession(ctx, w.workspaceID(), sessionID)
 	if err != nil {

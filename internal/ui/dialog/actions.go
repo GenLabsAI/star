@@ -98,7 +98,17 @@ type (
 		Name string
 	}
 	ActionInitializeProject struct{}
-	ActionSummarize         struct {
+	// ActionForkFrom opens the dialog that lists the current session's
+	// messages as possible fork points.
+	ActionForkFrom struct {
+		SessionID string
+	}
+	// ActionForkSession creates a new session from the transcript up to
+	// MessageID.
+	ActionForkSession struct {
+		MessageID string
+	}
+	ActionSummarize struct {
 		SessionID string
 	}
 	// ActionSelectReasoningEffort is a message indicating a reasoning effort

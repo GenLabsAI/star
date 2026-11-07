@@ -8,17 +8,18 @@ Usage:
     python3 artifacts/render_tui.py [options] [input_dir]
 
     python3 artifacts/render_tui.py artifacts/
-    python3 artifacts/render_tui.py --pattern 'yeehaw*' --font-size 16 artifacts/
+    python3 artifacts/render_tui.py --pattern 'tui-yeehaw*.json' --font-size 16 artifacts/
     TUI_SHOT_FILTER=yeehaw go test ./internal/ui/model \\
         -run TestTUIScreenshots -count=1 -v
-    python3 artifacts/render_tui.py --pattern 'tui-yeehaw*'
+    python3 artifacts/render_tui.py --pattern 'tui-yeehaw*.json'
 
 Options mirror the generic harness: the input directory defaults to the
 artifacts/ folder next to this script, the output directory defaults to
 the input directory, and --pattern filters which grids get rendered.
 
-Requires: Pillow. The font defaults to DejaVuSansMono.ttf next to this
-script and is downloaded automatically if missing.
+Requires: Pillow. The font defaults to a monospace TTF next to this
+script and is downloaded automatically if missing; use --font to choose
+another one.
 """
 
 import argparse
@@ -26,16 +27,13 @@ import fnmatch
 import json
 import os
 import sys
-import urllib.request
+
+from tui_font import resolve_font
 
 DEFAULT_FONT_SIZE = 15
 DEFAULT_PAD = 12
 DEFAULT_FG = "#e5e5e5"
 DEFAULT_BG = "#101014"
-FONT_URL = (
-    "https://github.com/dejavu-fonts/dejavu-fonts/raw/master/ttf/"
-    "DejaVuSansMono.ttf"
-)
 
 
 def parse_args(argv=None):
@@ -55,7 +53,7 @@ def parse_args(argv=None):
     p.add_argument(
         "--font",
         default=None,
-        help="TTF path (default: DejaVuSansMono.ttf next to this script).",
+        help="TTF path (default: auto-downloaded monospace font).",
     )
     p.add_argument("--font-size", type=int, default=DEFAULT_FONT_SIZE)
     p.add_argument("--pad", type=int, default=DEFAULT_PAD)
@@ -69,26 +67,13 @@ def parse_args(argv=None):
     return p.parse_args(argv)
 
 
-def ensure_font(path):
-    if os.path.exists(path):
-        return path
-    try:
-        print(f"downloading font to {os.path.basename(path)} ...")
-        urllib.request.urlretrieve(FONT_URL, path)
-        return path
-    except Exception as exc:  # noqa: BLE001 - report and exit cleanly.
-        sys.exit(f"missing font {path}: {exc}\n"
-                 "install DejaVuSansMono.ttf next to this script.")
-
-
 def main(argv=None) -> None:
     args = parse_args(argv)
     indir = os.path.abspath(args.input_dir)
     outdir = os.path.abspath(args.out_dir or indir)
     os.makedirs(outdir, exist_ok=True)
-    font_path = args.font or os.path.join(
-        os.path.dirname(os.path.abspath(__file__)), "DejaVuSansMono.ttf")
-    ensure_font(font_path)
+    font_path = resolve_font(
+        args.font, os.path.dirname(os.path.abspath(__file__)))
 
     from PIL import Image, ImageDraw, ImageFont
 

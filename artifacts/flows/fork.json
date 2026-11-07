@@ -1,0 +1,27 @@
+{
+  "output": "tui-fork-flow",
+  "width": 1000,
+  "duration_ms": 2600,
+  "frames": [
+    {
+      "image": "tui-fork-button-140.png",
+      "caption": "Click a message - Fork appears at its top-right edge."
+    },
+    {
+      "image": "tui-fork-command-140.png",
+      "caption": "Or filter commands to Fork From..."
+    },
+    {
+      "image": "tui-fork-dialog-140.png",
+      "caption": "It opens on the newest message, already selected."
+    },
+    {
+      "image": "tui-fork-dialog-scrolled-140.png",
+      "caption": "Scroll down to fork from an older message."
+    },
+    {
+      "image": "tui-forked-session-140.png",
+      "caption": "The new session holds everything up to that point."
+    }
+  ]
+}
