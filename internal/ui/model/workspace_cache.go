@@ -441,6 +441,7 @@ func (m *UI) setYeehawMode(enable bool) tea.Cmd {
 		m.busyFetchGen++
 		m.yeehawActive = true
 		m.rememberYeehaw(sessionID, true)
+		m.yeehawSessionID = sessionID
 		// Capture the editor content for the fade-out and clear the textarea
 		// so new keystrokes cannot land in a retired editor.
 		m.yeehawFadeContent = m.textarea.View()
@@ -507,6 +508,7 @@ func (m *UI) switchYeehawSession(from, to string) tea.Cmd {
 		return nil
 	}
 	m.rememberYeehaw(from, m.yeehawActive)
+	m.yeehawSessionID = to
 	return m.setYeehawPresentation(m.yeehawSessions[to])
 }
 
@@ -533,6 +535,7 @@ func (m *UI) setYeehawPresentation(want bool) tea.Cmd {
 	}
 	if want {
 		m.yeehawActive = true
+		m.yeehawSessionID = m.currentSessionID()
 		// No fade on re-entry: any editor content belongs to a session we
 		// are not looking at, so replaying it would animate stale text.
 		m.yeehawFadeContent = ""

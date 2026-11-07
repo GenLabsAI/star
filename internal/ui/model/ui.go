@@ -490,7 +490,11 @@ type UI struct {
 	// may raise the horse: a --yeehaw launch established the mode, never a
 	// switch.
 	yeehawAdoptProbe bool
-	pillsView        string
+	// yeehawSessionID is the session the yeehaw presentation belongs to. It
+	// is reconciled on load instead of the load order: a switch may replace
+	// m.session before loadSessionMsg runs.
+	yeehawSessionID string
+	pillsView       string
 
 	// Todo spinner
 	todoSpinner    spinner.Model
@@ -978,10 +982,6 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.turnOutcome = ""
 		}
 		m.setState(uiChat, m.focus)
-		prevSessionID := ""
-		if m.session != nil {
-			prevSessionID = m.session.ID
-		}
 		m.session = msg.session
 		m.sidebarOffset = 0
 		m.sessionFiles = msg.files
@@ -989,16 +989,14 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// The yeehaw presentation belongs to the session in view: leaving a
 		// session takes its horse with it, and a session the user armed gets
 		// it back when they return. A probe may not raise it.
-		if prevSessionID == "" {
-			// First load in this process: a --yeehaw launch may have
-			// established the mode before any probe could report it.
-			m.yeehawAdoptProbe = true
-		}
-		if prevSessionID != "" && prevSessionID != msg.session.ID {
-			m.yeehawAdoptProbe = false
-			if cmd := m.switchYeehawSession(prevSessionID, msg.session.ID); cmd != nil {
+		if id := m.currentSessionID(); id != m.yeehawSessionID {
+			first := m.yeehawSessionID == ""
+			if cmd := m.switchYeehawSession(m.yeehawSessionID, id); cmd != nil {
 				cmds = append(cmds, cmd)
 			}
+			// A --yeehaw launch may have set the mode before any probe
+			// could report it, but only that first session may adopt it.
+			m.yeehawAdoptProbe = first
 		}
 		// Session switch: the memoized busy state and queued prompts
 		// belong to the previous session. Drop them and re-fetch
