@@ -283,6 +283,11 @@ func (a *AssistantMessageItem) ID() string {
 	return a.message.ID
 }
 
+// ForkMessageID implements [MessageItem] for the fork affordance.
+func (a *AssistantMessageItem) ForkMessageID() string {
+	return a.message.ID
+}
+
 // RawRender implements [MessageItem].
 func (a *AssistantMessageItem) RawRender(width int) string {
 	cappedWidth := cappedMessageWidth(width)

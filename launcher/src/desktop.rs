@@ -389,9 +389,9 @@ fn install_mac_app(archive_bytes: &[u8]) -> Result<(), String> {
             continue;
         }
         if root.is_none() {
-            root = Some(first.as_os_str().to_os_string());
+            root = Some(first.to_os_string());
         }
-        if root.as_deref() != Some(first.as_os_str()) {
+        if root.as_deref() != Some(first) {
             continue;
         }
         let mut buf = Vec::new();

@@ -668,6 +668,30 @@ func (c *Client) ListSessionHistoryFiles(ctx context.Context, id string, session
 	return files, nil
 }
 
+// ForkSession creates a new session containing a copy of the source
+// session's transcript up to and including messageID.
+func (c *Client) ForkSession(ctx context.Context, id string, sessionID string, messageID string) (*proto.Session, error) {
+	rsp, err := c.post(
+		ctx,
+		fmt.Sprintf("/workspaces/%s/sessions/%s/fork", id, sessionID),
+		nil,
+		jsonBody(proto.ForkSessionRequest{MessageID: messageID}),
+		http.Header{"Content-Type": []string{"application/json"}},
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fork session: %w", err)
+	}
+	defer rsp.Body.Close()
+	if err := checkStatus(rsp); err != nil {
+		return nil, fmt.Errorf("failed to fork session: %w", err)
+	}
+	var sess proto.Session
+	if err := json.NewDecoder(rsp.Body).Decode(&sess); err != nil {
+		return nil, fmt.Errorf("failed to decode session: %w", err)
+	}
+	return &sess, nil
+}
+
 // CreateSession creates a new session in a workspace as a proto type.
 func (c *Client) CreateSession(ctx context.Context, id string, title string) (*proto.Session, error) {
 	rsp, err := c.post(ctx, fmt.Sprintf("/workspaces/%s/sessions", id), nil, jsonBody(proto.Session{Title: title}), http.Header{"Content-Type": []string{"application/json"}})

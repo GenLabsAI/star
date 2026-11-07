@@ -998,6 +998,11 @@ func quickStyle(o quickStyleOpts) Styles {
 	s.Messages.AssistantBlurred = s.Messages.NoContent.PaddingLeft(2)
 	s.Messages.AssistantFocused = s.Messages.NoContent.PaddingLeft(1).BorderLeft(true).
 		BorderForeground(o.successMostSubtle).BorderStyle(messageFocussedBorder)
+	s.Messages.ForkButton = lipgloss.NewStyle().
+		Background(o.primary).
+		Foreground(o.onPrimary).
+		Bold(true).
+		Padding(0, 1)
 	s.Messages.Thinking = lipgloss.NewStyle().MaxHeight(10)
 	s.Messages.ErrorTag = lipgloss.NewStyle().Padding(0, 1).
 		Background(o.destructive).Foreground(o.onPrimary)
@@ -1170,9 +1175,9 @@ func quickStyle(o quickStyleOpts) Styles {
 
 	s.Status.Help = lipgloss.NewStyle().Padding(0, 1)
 	s.Status.ModeBadgePlan = lipgloss.NewStyle().Foreground(o.fgBase).Background(o.primary).Padding(0, 1).Bold(true).SetString("PLAN MODE")
-s.Status.ModeBadgeYolo = lipgloss.NewStyle().Foreground(o.bgBase).Background(o.busy).Padding(0, 1).Bold(true).SetString("YOLO MODE")
-s.Status.ModeBadgeYeehaw = lipgloss.NewStyle().Foreground(o.bgBase).Background(o.yeehaw).Padding(0, 1).Bold(true).SetString("YEEHAW MODE")
-s.Status.ModeBannerPlanBadge = s.Status.ModeBadgePlan
+	s.Status.ModeBadgeYolo = lipgloss.NewStyle().Foreground(o.bgBase).Background(o.busy).Padding(0, 1).Bold(true).SetString("YOLO MODE")
+	s.Status.ModeBadgeYeehaw = lipgloss.NewStyle().Foreground(o.bgBase).Background(o.yeehaw).Padding(0, 1).Bold(true).SetString("YEEHAW MODE")
+	s.Status.ModeBannerPlanBadge = s.Status.ModeBadgePlan
 	s.Status.ModeBannerPlan = lipgloss.NewStyle().Foreground(o.fgBase).Background(o.planMoreSubtle).Padding(0, 1)
 	s.Status.ModeBannerYoloBadge = s.Status.ModeBadgeYolo
 	s.Status.ModeBannerYolo = lipgloss.NewStyle().Foreground(o.bgBase).Background(o.yolo).Padding(0, 1)

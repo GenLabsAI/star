@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/charmbracelet/crush/internal/db"
 	"github.com/charmbracelet/crush/internal/event"
@@ -69,6 +70,9 @@ type Service interface {
 	Create(ctx context.Context, title string) (Session, error)
 	CreateTitleSession(ctx context.Context, parentSessionID string) (Session, error)
 	CreateTaskSession(ctx context.Context, toolCallID, parentSessionID, title string) (Session, error)
+	// Fork creates a new session containing a copy of the messages up to
+	// and including upToMessageID from sourceSessionID.
+	Fork(ctx context.Context, sourceSessionID, upToMessageID, title string) (Session, error)
 	Get(ctx context.Context, id string) (Session, error)
 	GetLast(ctx context.Context) (Session, error)
 	List(ctx context.Context) ([]Session, error)
@@ -124,6 +128,120 @@ func (s *service) CreateTaskSession(ctx context.Context, toolCallID, parentSessi
 	}
 	session := s.fromDBItem(dbSession)
 	s.Publish(pubsub.CreatedEvent, session)
+	return session, nil
+}
+
+// Fork creates a new session that starts with a copy of the conversation up
+// to and including upToMessageID. The copied messages keep their parts
+// (including tool calls and results) verbatim; only their IDs, session IDs and
+// timestamps change, so the new session can be continued without the original
+// one being touched.
+func (s *service) Fork(ctx context.Context, sourceSessionID, upToMessageID, title string) (Session, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return Session{}, fmt.Errorf("beginning transaction: %w", err)
+	}
+	defer tx.Rollback() //nolint:errcheck
+
+	qtx := s.q.WithTx(tx)
+	source, err := qtx.GetSessionByID(ctx, sourceSessionID)
+	if err != nil {
+		return Session{}, err
+	}
+	if strings.TrimSpace(title) == "" {
+		title = "Fork of " + strings.TrimSpace(source.Title)
+		if strings.TrimSpace(source.Title) == "" {
+			title = "Fork"
+		}
+	}
+
+	type storedMessage struct {
+		id           string
+		role         string
+		parts        string
+		model        sql.NullString
+		provider     sql.NullString
+		isSummary    int64
+		prismModelID sql.NullString
+		prismName    sql.NullString
+		prismHyper   sql.NullFloat64
+		prismDollar  sql.NullFloat64
+		finishedAt   sql.NullInt64
+	}
+
+	rows, err := tx.QueryContext(ctx, `
+		SELECT id, role, parts, model, provider, is_summary_message,
+		       prism_model_id, prism_model_name, prism_hypercredit_savings,
+		       prism_dollar_savings, finished_at
+		FROM messages
+		WHERE session_id = ?
+		ORDER BY created_at ASC, rowid ASC`, sourceSessionID)
+	if err != nil {
+		return Session{}, fmt.Errorf("reading source messages: %w", err)
+	}
+	var stored []storedMessage
+	cutoff := -1
+	for rows.Next() {
+		var m storedMessage
+		if err := rows.Scan(
+			&m.id, &m.role, &m.parts, &m.model, &m.provider, &m.isSummary,
+			&m.prismModelID, &m.prismName, &m.prismHyper, &m.prismDollar,
+			&m.finishedAt,
+		); err != nil {
+			rows.Close()
+			return Session{}, fmt.Errorf("reading source messages: %w", err)
+		}
+		if m.id == upToMessageID {
+			cutoff = len(stored)
+		}
+		stored = append(stored, m)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return Session{}, fmt.Errorf("reading source messages: %w", err)
+	}
+	rows.Close()
+	if cutoff < 0 {
+		return Session{}, fmt.Errorf("message %q not found in session %s", upToMessageID, sourceSessionID)
+	}
+	prefix := stored[:cutoff+1]
+
+	dbSession, err := qtx.CreateSession(ctx, db.CreateSessionParams{
+		ID:    uuid.New().String(),
+		Title: title,
+	})
+	if err != nil {
+		return Session{}, err
+	}
+
+	// created_at only has one-second resolution, so rewrite the copies'
+	// timestamps in sequence. Without this, a fast fork could persist every
+	// message with the same timestamp and ListMessages would return them in
+	// an arbitrary order.
+	now := time.Now().Unix()
+	base := now - int64(len(prefix))
+	for i, m := range prefix {
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO messages (
+			    id, session_id, role, parts, model, provider, is_summary_message,
+			    created_at, updated_at, prism_model_id, prism_model_name,
+			    prism_hypercredit_savings, prism_dollar_savings, finished_at
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			uuid.New().String(), dbSession.ID, m.role, m.parts, m.model, m.provider,
+			m.isSummary, base+int64(i), now, m.prismModelID, m.prismName,
+			m.prismHyper, m.prismDollar, m.finishedAt,
+		); err != nil {
+			return Session{}, fmt.Errorf("copying messages: %w", err)
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return Session{}, fmt.Errorf("committing transaction: %w", err)
+	}
+
+	session := s.fromDBItem(dbSession)
+	s.Publish(pubsub.CreatedEvent, session)
+	event.SessionCreated()
 	return session, nil
 }
 

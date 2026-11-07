@@ -11,6 +11,7 @@ import (
 	"github.com/charmbracelet/crush/internal/agent/notify"
 	"github.com/charmbracelet/crush/internal/config"
 	"github.com/charmbracelet/crush/internal/csync"
+	"github.com/charmbracelet/crush/internal/lsp"
 	"github.com/charmbracelet/crush/internal/message"
 	"github.com/charmbracelet/crush/internal/permission"
 	"github.com/charmbracelet/crush/internal/session"
@@ -133,6 +134,7 @@ type testWorkspace struct {
 	yolo              bool
 	runHidden         []bool
 	compactCalls      []bool
+	forkCalls         [][2]string
 }
 
 func (w *testWorkspace) Config() *config.Config {
@@ -200,6 +202,19 @@ func (w *testWorkspace) AgentRun(ctx context.Context, _ string, prompt string, _
 func (w *testWorkspace) SetCompactMode(scope config.Scope, compact bool) error {
 	w.compactCalls = append(w.compactCalls, compact)
 	return nil
+}
+
+func (w *testWorkspace) ForkSession(_ context.Context, sessionID, messageID string) (session.Session, error) {
+	w.forkCalls = append(w.forkCalls, [2]string{sessionID, messageID})
+	return session.Session{ID: "forked-session", Title: "Fork of Test"}, nil
+}
+
+func (w *testWorkspace) LSPGetStates() map[string]workspace.LSPClientInfo {
+	return nil
+}
+
+func (w *testWorkspace) LSPGetDiagnosticCounts(string) lsp.DiagnosticCounts {
+	return lsp.DiagnosticCounts{}
 }
 
 func TestDefaultKeyMapHasShiftTab(t *testing.T) {
