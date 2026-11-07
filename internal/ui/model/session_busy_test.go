@@ -112,10 +112,14 @@ func (w *countingWorkspace) PermissionSessionMode(sessionID string) permission.M
 	return w.PermissionMode()
 }
 func (w *countingWorkspace) PermissionSetSessionMode(sessionID string, mode permission.Mode) {
-	if w.sessionModes != nil {
-		w.sessionModes[sessionID] = mode
+	if sessionID == "" {
+		w.PermissionSetMode(mode)
+		return
 	}
-	w.PermissionSetMode(mode)
+	if w.sessionModes == nil {
+		w.sessionModes = map[string]permission.Mode{}
+	}
+	w.sessionModes[sessionID] = mode
 }
 
 func (w *countingWorkspace) AgentClearQueue(string) { w.clearQueueCalls++; w.queued = nil }

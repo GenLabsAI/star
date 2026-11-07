@@ -426,8 +426,10 @@ func (m *UI) setYeehawMode(enable bool) tea.Cmd {
 		// Yeehaw = skip permission requests + autonomous loop. Set both so
 		// the session behaves like a --yeehaw launch.
 		m.com.Workspace.PermissionSetSessionSkipRequests(sessionID, true)
+		// The mode is written for this session only. Writing it globally
+		// would make every other session fall back to yeehaw, handing them
+		// autopilot and a horse they never asked for.
 		m.com.Workspace.PermissionSetSessionMode(sessionID, permission.ModeYeehaw)
-		m.com.Workspace.PermissionSetMode(permission.ModeYeehaw)
 		m.modeCache.set(permission.ModeYeehaw)
 		m.yoloCache.set(true)
 		m.busyFetchGen++
@@ -445,7 +447,6 @@ func (m *UI) setYeehawMode(enable bool) tea.Cmd {
 		return m.armYeehawHorse()
 	} else {
 		m.com.Workspace.PermissionSetSessionMode(sessionID, permission.ModeNormal)
-		m.com.Workspace.PermissionSetMode(permission.ModeNormal)
 		m.modeCache.set(permission.ModeNormal)
 		m.yoloCache.set(false)
 		m.busyFetchGen++
