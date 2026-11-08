@@ -309,7 +309,11 @@ func (m *Chat) Draw(scr uv.Screen, area uv.Rectangle) {
 			m.drawDecodes++
 		}
 		if changed || !m.blitGood || m.blitArea != listArea {
-			drawCachedBuffer(scr, listArea, buf, changed)
+			// An invalidated blit must clear its area even when the rendered
+			// content is byte-identical: a dialog or overlay may have painted
+			// cells over it that Buffer.Draw skips because they are empty in
+			// the cache.
+			drawCachedBuffer(scr, listArea, buf, changed || !m.blitGood)
 			m.blitGood, m.blitArea = true, listArea
 		}
 	}
@@ -498,13 +502,12 @@ func renderedBounds(rendered string, method ansi.Method) (w, h int) {
 // Wrap=false, Tail="" case. The clear loop matches StyledString.Draw line
 // 51-56; the buf.Draw call replaces the per-cell ANSI decode that printString
 // does on every uncached frame with a pure cell copy.
-func drawCachedBuffer(scr uv.Screen, area uv.Rectangle, buf uv.ScreenBuffer, decoded bool) {
-	// Clear the area only when the buffer content changed: leftover cells
-	// from a previous frame outside the new content must be zeroed, because
-	// Buffer.Draw skips empty cells (it doesn't clear). Reusing the previous
-	// buffer needs no clear at all, and skipping it keeps every unchanged
-	// row untouched so View can reuse its rendered text.
-	if decoded {
+func drawCachedBuffer(scr uv.Screen, area uv.Rectangle, buf uv.ScreenBuffer, clear bool) {
+	// Leftover cells from a previous frame outside the new content must be
+	// zeroed because Buffer.Draw skips empty cells (it doesn't clear). This
+	// is also required when a dialog invalidated the chat: the content may be
+	// identical, but the cells on screen are no longer the cached ones.
+	if clear {
 		clearScreenArea(scr, area)
 	}
 	buf.Draw(scr, area)

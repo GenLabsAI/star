@@ -9,7 +9,9 @@
 //! Per-OS strategy (silent, no elevation):
 //!
 //! - Windows: NSIS `-setup.exe` with `/S /D=<LocalAppData>\Programs\…`,
-//!   falling back to `msiexec /qn` per-user for `.msi`.
+//!   falling back to `msiexec /qn` per-user for `.msi`. The launcher also
+//!   owns the Start Menu shortcut itself, since silent installs do not
+//!   reliably leave one behind.
 //! - macOS: `.app.tar.gz` extracted straight into `~/Applications`
 //!   (no installer UI at all), falling back to a quiet `hdiutil` `.dmg`
 //!   mount-and-copy.
@@ -37,15 +39,19 @@ pub fn ensure_desktop_async() {
 fn ensure_desktop() -> Result<(), String> {
     let install_dir = update::install_dir();
     let (tag, asset_name, asset_url) = latest_desktop_asset()?;
-    if marker_version(&install_dir).as_deref() == Some(tag.as_str())
-        && install_present(&install_dir)
+    if marker_version(&install_dir).as_deref() != Some(tag.as_str())
+        || !install_present(&install_dir)
     {
-        return Ok(());
+        eprintln!("  Setting up Star Desktop {tag} (one-time setup)...");
+        install_asset(&install_dir, &asset_name, &asset_url)?;
+        write_marker(&install_dir, &tag)?;
+        eprintln!("  Star Desktop {tag} is ready.");
     }
-    eprintln!("  Setting up Star Desktop {tag} (one-time setup)...");
-    install_asset(&install_dir, &asset_name, &asset_url)?;
-    write_marker(&install_dir, &tag)?;
-    eprintln!("  Star Desktop {tag} is ready.");
+    // The silent NSIS install does not reliably leave a Start Menu entry,
+    // so the launcher owns the shortcut itself. Cheap once it exists: a
+    // single file-exists check on the background thread.
+    #[cfg(target_os = "windows")]
+    ensure_windows_shortcut()?;
     Ok(())
 }
 
@@ -361,6 +367,111 @@ fn install_msi(msi_bytes: &[u8]) -> Result<(), String> {
     Ok(())
 }
 
+/// Make sure Star Desktop is in the Start Menu.
+///
+/// The silent NSIS install does not reliably create a Start Menu entry, so
+/// the launcher owns the shortcut itself:
+/// `%APPDATA%\Microsoft\Windows\Start Menu\Programs\Star Desktop\Star Desktop.lnk`.
+/// Creating it is idempotent and also repairs installs from before this
+/// step existed. An MSI install that already left its own shortcut behind
+/// is left alone.
+#[cfg(target_os = "windows")]
+fn ensure_windows_shortcut() -> Result<(), String> {
+    let appdata = std::env::var_os("APPDATA")
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
+        .ok_or_else(|| "could not locate the app-data directory".to_string())?;
+    let link = start_menu_link_in(&appdata);
+    if link.is_file() {
+        return Ok(());
+    }
+    let dir = windows_install_dir()
+        .ok_or_else(|| "could not locate the local app-data directory".to_string())?;
+    let target = pick_main_exe(&dir, APP_NAME)
+        .ok_or_else(|| "desktop app folder has no executable to link".to_string())?;
+    if let Some(parent) = link.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|e| format!("could not create the Start Menu folder: {e}"))?;
+    }
+    create_shortcut(&link, &target, &dir)
+}
+
+/// Join the Start Menu link path under an app-data dir. Pure for tests;
+/// the only caller fills in `%APPDATA%`.
+/// Compiled out of non-Windows builds except under test.
+#[cfg(any(target_os = "windows", test))]
+fn start_menu_link_in(appdata: &Path) -> PathBuf {
+    appdata
+        .join("Microsoft")
+        .join("Windows")
+        .join("Start Menu")
+        .join("Programs")
+        .join(APP_NAME)
+        .join(format!("{APP_NAME}.lnk"))
+}
+
+/// Pick the executable a shortcut should point at: `<App>.exe` when it is
+/// there, otherwise the first non-uninstaller `.exe` in the folder.
+/// Compiled out of non-Windows builds except under test.
+#[cfg(any(target_os = "windows", test))]
+fn pick_main_exe(dir: &Path, app_name: &str) -> Option<PathBuf> {
+    let wanted = format!("{app_name}.exe").to_lowercase();
+    let mut fallback: Option<PathBuf> = None;
+    for entry in fs::read_dir(dir).ok()?.flatten() {
+        let path = entry.path();
+        if !path.is_file() {
+            continue;
+        }
+        if !path
+            .extension()
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("exe"))
+        {
+            continue;
+        }
+        let name = path
+            .file_name()
+            .map(|name| name.to_string_lossy().to_lowercase())
+            .unwrap_or_default();
+        if name == wanted {
+            return Some(path);
+        }
+        if fallback.is_none() && !name.starts_with("uninstall") && !name.starts_with("uninst")
+        {
+            fallback = Some(path);
+        }
+    }
+    fallback
+}
+
+/// Create a `.lnk` through the built-in Windows shell object. PowerShell
+/// ships with Windows, so this needs nothing extra installed.
+#[cfg(target_os = "windows")]
+fn create_shortcut(link: &Path, target: &Path, workdir: &Path) -> Result<(), String> {
+    let script = format!(
+        "$ws = New-Object -ComObject WScript.Shell; \
+         $sc = $ws.CreateShortcut('{}'); \
+         $sc.TargetPath = '{}'; $sc.WorkingDirectory = '{}'; $sc.Save()",
+        ps_quote(&link.to_string_lossy()),
+        ps_quote(&target.to_string_lossy()),
+        ps_quote(&workdir.to_string_lossy()),
+    );
+    let status = std::process::Command::new("powershell")
+        .args(["-NoProfile", "-NonInteractive", "-Command", &script])
+        .status()
+        .map_err(|e| format!("could not create the Start Menu shortcut: {e}"))?;
+    if !status.success() {
+        return Err("could not create the Start Menu shortcut".to_string());
+    }
+    Ok(())
+}
+
+/// Quote a value for embedding in a single-quoted PowerShell literal.
+/// Compiled out of non-Windows builds except under test.
+#[cfg(any(target_os = "windows", test))]
+fn ps_quote(value: &str) -> String {
+    value.replace('\'', "''")
+}
+
 /// Extract a `.app.tar.gz` straight into `~/Applications`.
 /// No installer UI, no elevation.
 #[cfg(target_os = "macos")]
@@ -637,5 +748,49 @@ mod tests {
         write_marker(&dir, "v0.1.115").expect("write marker");
         assert_eq!(marker_version(&dir).as_deref(), Some("v0.1.115"));
         let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn shortcut_exe_prefers_product_over_uninstaller() {
+        let dir = std::env::temp_dir().join(format!(
+            "star-desktop-exe-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).expect("create dir");
+        fs::write(dir.join("Uninstall Star Desktop.exe"), b"x").expect("write");
+        fs::write(dir.join("readme.txt"), b"x").expect("write");
+        assert!(pick_main_exe(&dir, "Star Desktop").is_none());
+        fs::write(dir.join("Star Desktop.exe"), b"x").expect("write");
+        assert_eq!(
+            pick_main_exe(&dir, "Star Desktop"),
+            Some(dir.join("Star Desktop.exe"))
+        );
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn shortcut_path_matches_tauri_layout() {
+        // Built with joins so the assertion holds on any host separator;
+        // on Windows this is the `Programs\Star Desktop\Star Desktop.lnk`
+        // layout the Start Menu indexer picks up.
+        let base = Path::new("AppData");
+        let link = start_menu_link_in(base);
+        assert_eq!(
+            link,
+            base.join("Microsoft")
+                .join("Windows")
+                .join("Start Menu")
+                .join("Programs")
+                .join("Star Desktop")
+                .join("Star Desktop.lnk")
+        );
+    }
+
+    #[test]
+    fn ps_single_quotes_are_escaped() {
+        assert_eq!(ps_quote("o'clock"), "o''clock");
+        assert_eq!(ps_quote("plain"), "plain");
     }
 }

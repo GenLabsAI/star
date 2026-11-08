@@ -82,6 +82,10 @@ type Overlay struct {
 	// each eating a keystroke.
 	lastClosedID string
 	lastClosedAt time.Time
+
+	// generation changes whenever the stack or its front dialog changes.
+	// The UI uses it to reset cells painted by the previous overlay.
+	generation uint64
 }
 
 // NewOverlay creates a new [Overlay] instance.
@@ -89,6 +93,12 @@ func NewOverlay(dialogs ...Dialog) *Overlay {
 	return &Overlay{
 		dialogs: dialogs,
 	}
+}
+
+// Generation reports a value that changes whenever the dialog stack changes.
+// It is used to invalidate screen regions painted by an earlier overlay.
+func (d *Overlay) Generation() uint64 {
+	return d.generation
 }
 
 // HasDialogs checks if there are any active dialogs.
@@ -120,6 +130,7 @@ func (d *Overlay) ContainsDialog(dialogID string) bool {
 // OpenDialog opens a new dialog to the stack.
 func (d *Overlay) OpenDialog(dialog Dialog) {
 	d.dialogs = append(d.dialogs, dialog)
+	d.generation++
 	d.graceOpenedAt = time.Time{}
 	d.graceLastInputAt = time.Time{}
 }
@@ -137,6 +148,7 @@ func (d *Overlay) OpenDialog(dialog Dialog) {
 func (d *Overlay) OpenDialogWithGrace(dialog Dialog) {
 	now := time.Now()
 	d.dialogs = append(d.dialogs, dialog)
+	d.generation++
 
 	// Skip grace when reopening the same dialog type immediately.
 	if dialog.ID() == d.lastClosedID && now.Sub(d.lastClosedAt) < reopenGraceWindow {
@@ -192,6 +204,7 @@ func (d *Overlay) removeDialog(idx int) {
 		d.lastClosedAt = time.Now()
 	}
 	d.dialogs = append(d.dialogs[:idx], d.dialogs[idx+1:]...)
+	d.generation++
 	// Clear grace state when the front dialog changes.
 	if idx == len(d.dialogs) {
 		d.graceOpenedAt = time.Time{}
@@ -224,6 +237,7 @@ func (d *Overlay) BringToFront(dialogID string) {
 			// Move the dialog to the end of the slice
 			d.dialogs = append(d.dialogs[:i], d.dialogs[i+1:]...)
 			d.dialogs = append(d.dialogs, dialog)
+			d.generation++
 			return
 		}
 	}
