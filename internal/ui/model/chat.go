@@ -8,7 +8,6 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
-	"github.com/charmbracelet/crush/internal/agent/tools"
 	"github.com/charmbracelet/crush/internal/config"
 	"github.com/charmbracelet/crush/internal/message"
 	"github.com/charmbracelet/crush/internal/ui/anim"
@@ -1155,16 +1154,14 @@ func (m *Chat) RemoveMessage(id string) {
 	}
 }
 
-// RegroupBashToolItems collapses every consecutive run of finished Bash tool
-// calls in msg into a single summary item. It reports whether the chat
-// changed. The individual call IDs keep resolving to the group, so tool
-// results that arrive later still land on the right child item.
-func (m *Chat) RegroupBashToolItems(msg *message.Message) bool {
+// RegroupToolItems folds consecutive groupable tool calls in msg into summary
+// rows. Edits, writes, and subagent runs break a run and stay on their own.
+func (m *Chat) RegroupToolItems(msg *message.Message) bool {
 	if m == nil || msg == nil {
 		return false
 	}
 	calls := msg.ToolCalls()
-	if len(calls) < 2 {
+	if len(calls) == 0 {
 		return false
 	}
 
@@ -1177,7 +1174,7 @@ func (m *Chat) RegroupBashToolItems(msg *message.Message) bool {
 			return false
 		}
 		item := resolveToolItem(host, tc.ID)
-		if item == nil || !item.Finished() {
+		if item == nil {
 			return false
 		}
 		items[i] = item
@@ -1189,20 +1186,16 @@ func (m *Chat) RegroupBashToolItems(msg *message.Message) bool {
 
 	grouped := make([]chat.MessageItem, 0, len(items))
 	for i := 0; i < len(items); {
-		if items[i].ToolCall().Name != tools.BashToolName {
+		if !chat.GroupableTool(items[i].ToolCall().Name) || !items[i].Finished() {
 			grouped = append(grouped, items[i])
 			i++
 			continue
 		}
 		j := i
-		for j < len(items) && items[j].ToolCall().Name == tools.BashToolName {
+		for j < len(items) && chat.GroupableTool(items[j].ToolCall().Name) && items[j].Finished() {
 			j++
 		}
-		if j-i >= 2 {
-			grouped = append(grouped, chat.NewBashToolGroupItem(m.com.Styles, items[i:j]))
-		} else {
-			grouped = append(grouped, items[i])
-		}
+		grouped = append(grouped, chat.NewToolGroupItem(m.com.Styles, items[i:j]))
 		i = j
 	}
 

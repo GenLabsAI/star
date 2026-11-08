@@ -1,9 +1,9 @@
 package model
 
-// Double-click is the primary gesture for a Bash run; a single click must
-// only select the row. Run with:
+// Double-click is the primary gesture for a tool-run summary; a single click
+// must only select the row. Run with:
 //
-//	go test ./internal/ui/model -run TestChatDoubleClickExpandsBashGroup -count=1 -v
+//	go test ./internal/ui/model -run TestChatDoubleClickExpandsToolGroup -count=1 -v
 
 import (
 	"testing"
@@ -12,10 +12,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestChatDoubleClickExpandsBashGroup(t *testing.T) {
+func TestChatDoubleClickExpandsToolGroup(t *testing.T) {
 	u := NewScreenshotUI(t)
 	shotSize(u, 140, 45)
-	seedBashGroup(u)
+	seedToolGroup(u, t)
 
 	// Locate a row inside the grouped item using the same hit test the mouse
 	// handler uses.

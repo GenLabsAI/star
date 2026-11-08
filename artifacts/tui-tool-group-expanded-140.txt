@@ -1,0 +1,44 @@
+
+ │ Fix the refresh flow and keep the transcript quiet - I mostly care about what changed.                ┃  ╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱
+                                                                                                         ┃  ╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱
+   I'll trace the refresh path, check prior art, then patch it.                                          ┃  de el ╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱
+                                                                                                         ┃  ╭──╮╶─┬─╴╭──╮ ╭──╮ ╱╱╱╱╱╱╱╱╱╱
+ ▌ ✓ Ran 2 commands, Read 2 files, Searched the web, Sourcegraph (double-click to collapse)              ┃  ╰──╮  │  ├──┤ ├─┬╯ ╱╱╱╱╱╱╱╱╱╱
+ ▌                                                                                                       ┃  ╰──╯  ╵  ╵  ╵ ╵ ╰╴ ╱╱╱╱╱╱╱╱╱╱
+ ▌ ✓ Bash git status --short                                                                             ┃  ╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱
+ ▌                                                                                                       ┃
+ ▌     M internal/auth/middleware.go                                                                     ┃
+ ▌     M internal/auth/middleware_test.go                                                                ┃
+ ▌    ?? internal/auth/token.go                                                                          ┃  /tmp/crush-test
+ ▌                                                                                                       ┃
+ ▌ ✓ Bash go test ./internal/auth/...                                                                    ┃  ◇
+ ▌                                                                                                       ┃
+ ▌    ok      github.com/charmbracelet/crush/internal/auth/oauth   0.31s                                 ┃  Modified Files ──────────────
+ ▌    --- FAIL: TestRefreshToken (0.01s)                                                                 ┃
+ ▌        middleware_test.go:88: Error: Not equal:                                                       ┃  None
+ ▌            expected: "Bearer abc123"                                                                  ┃
+ ▌            actual  : "Bearer "                                                                        ┃  LSPs ────────────────────────
+ ▌    --- FAIL: TestRotateSession (0.02s)                                                                │
+ ▌        middleware_test.go:140: Error: token was not rotated                                           │  None
+ ▌    FAIL                                                                                               │
+ ▌    FAIL    github.com/charmbracelet/crush/internal/auth    0.58s                                      │  MCPs ────────────────────────
+ ▌    FAIL                                                                                               │
+ ▌    exit status 1                                                                                      │  None
+ ▌                                                                                                       │
+ ▌ ✓ View internal/auth/middleware.go (limit=60, offset=180)                                             │  Skills ──────────────────────
+ ▌                                                                                                       │
+ ▌    181      180  func (m *Middleware) Refresh(ctx context.Context, sess *Session) error {             │  ● crush-config
+ ▌    182      181      token, err := m.tokens.Rotate(ctx, sess.Token)                                   │  ● crush-hooks
+ ▌    183      182      if err != nil {                                                                  │  ● jq
+ ▌    184      183          return fmt.Errorf("rotate token: %w", err)                                   │
+ ▌    185      ...                                                                                       │
+ ▌    186      212      sess.Token = token.Value                                                         │
+ ▌    187      213      return m.sessions.Save(ctx, sess)                                                │
+ ▌
+
+
+ ┃ Refactor the auth module                                                                                
+ ┃                                                                                                         
+ ┃                                                                                                         
+
+ tab focus editor • shift+tab mode • ctrl+p commands • ctrl+l models • ctrl+b toggle sidebar • ↑↓ scroll • shift+↑↓ scroll one item …

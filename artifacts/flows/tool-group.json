@@ -1,0 +1,19 @@
+{
+  "output": "tui-tool-group-flow",
+  "width": 1000,
+  "duration_ms": 2600,
+  "frames": [
+    {
+      "image": "tui-tool-group-collapsed-140.png",
+      "caption": "Reads and searches share one summary; edits stay visible."
+    },
+    {
+      "image": "tui-tool-group-expanded-140.png",
+      "caption": "Double-click to expand every command and result."
+    },
+    {
+      "image": "tui-tool-group-scrolled-140.png",
+      "caption": "Scroll the details, then double-click to fold it again."
+    }
+  ]
+}

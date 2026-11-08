@@ -2069,7 +2069,7 @@ func (m *UI) focusActiveInline(focus uiFocusState) {
 }
 
 // resolveToolItem returns the tool item for id, looking through grouping
-// items (such as a Bash tool group) when the call lives inside one.
+// items (such as a tool-run summary) when the call lives inside one.
 func resolveToolItem(item chat.MessageItem, id string) chat.ToolMessageItem {
 	if item == nil {
 		return nil
@@ -2142,10 +2142,10 @@ func (m *UI) updateSessionMessage(msg message.Message) tea.Cmd {
 	}
 
 	m.chat.AppendMessages(items...)
-	// Once every call in a Bash run has finished, fold the run into one
-	// "Ran N commands" row. The group keeps each call ID addressable, so
-	// later result updates still reach the right child.
-	m.chat.RegroupBashToolItems(&msg)
+	// Fold completed runs into one summary row ("Ran 2 commands, Read 2
+	// files"). The group keeps each call ID addressable, so later result
+	// updates still reach the right child.
+	m.chat.RegroupToolItems(&msg)
 	if m.chat.Follow() {
 		m.chat.ScrollToBottom()
 		m.chat.SelectLast()

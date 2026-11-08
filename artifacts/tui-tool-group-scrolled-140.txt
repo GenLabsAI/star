@@ -1,0 +1,44 @@
+
+ ▌ ✓ Bash go test ./internal/auth/...                                                                    │  ╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱
+ ▌                                                                                                       │  ╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱
+ ▌    ok      github.com/charmbracelet/crush/internal/auth/oauth   0.31s                                 │  de el ╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱
+ ▌    --- FAIL: TestRefreshToken (0.01s)                                                                 │  ╭──╮╶─┬─╴╭──╮ ╭──╮ ╱╱╱╱╱╱╱╱╱╱
+ ▌        middleware_test.go:88: Error: Not equal:                                                       │  ╰──╮  │  ├──┤ ├─┬╯ ╱╱╱╱╱╱╱╱╱╱
+ ▌            expected: "Bearer abc123"                                                                  │  ╰──╯  ╵  ╵  ╵ ╵ ╰╴ ╱╱╱╱╱╱╱╱╱╱
+ ▌            actual  : "Bearer "                                                                        │  ╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱
+ ▌    --- FAIL: TestRotateSession (0.02s)                                                                ┃
+ ▌        middleware_test.go:140: Error: token was not rotated                                           ┃
+ ▌    FAIL                                                                                               ┃
+ ▌    FAIL    github.com/charmbracelet/crush/internal/auth    0.58s                                      ┃  /tmp/crush-test
+ ▌    FAIL                                                                                               ┃
+ ▌    exit status 1                                                                                      ┃  ◇
+ ▌                                                                                                       ┃
+ ▌ ✓ View internal/auth/middleware.go (limit=60, offset=180)                                             ┃  Modified Files ──────────────
+ ▌                                                                                                       ┃
+ ▌    181      180  func (m *Middleware) Refresh(ctx context.Context, sess *Session) error {             ┃  None
+ ▌    182      181      token, err := m.tokens.Rotate(ctx, sess.Token)                                   ┃
+ ▌    183      182      if err != nil {                                                                  ┃  LSPs ────────────────────────
+ ▌    184      183          return fmt.Errorf("rotate token: %w", err)                                   ┃
+ ▌    185      ...                                                                                       ┃  None
+ ▌    186      212      sess.Token = token.Value                                                         ┃
+ ▌    187      213      return m.sessions.Save(ctx, sess)                                                ┃  MCPs ────────────────────────
+ ▌                                                                                                       ┃
+ ▌ ✓ View internal/auth/middleware_test.go (limit=80, offset=70)                                         ┃  None
+ ▌                                                                                                       ┃
+ ▌    71       70  func TestRefreshToken(t *testing.T) {                                                 │  Skills ──────────────────────
+ ▌    72       71      sess := newSession("Bearer abc123")                                               │
+ ▌    73       72      require.NoError(t, mw.Refresh(ctx, sess))                                         │  ● crush-config
+ ▌    74       88      require.Equal(t, "Bearer abc123", sess.Token)                                     │  ● crush-hooks
+ ▌    75      140      require.NotEqual(t, oldExpiry, sess.Expiry)                                       │  ● jq
+ ▌                                                                                                       │
+ ▌ ✓ Search oauth refresh token rotation avoid reusing old token                                         │
+ ▌                                                                                                       │
+ ▌                                                                                                       │
+ ▌   1. OAuth 2.0 Security Best Current Practice - Refresh token rotation                               
+
+
+ ┃ Refactor the auth module                                                                                
+ ┃                                                                                                         
+ ┃                                                                                                         
+
+ tab focus editor • shift+tab mode • ctrl+p commands • ctrl+l models • ctrl+b toggle sidebar • ↑↓ scroll • shift+↑↓ scroll one item …
