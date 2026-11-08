@@ -121,6 +121,9 @@ star --continue
 		// runs, which scrolls or blanks the launcher's splash.
 		splash := newSplashModel(cmd, sessionID, continueLast)
 		splash.handshake = newLauncherHandshake()
+		// The launcher keeps the alternate screen active through the handoff;
+		// the core only owns it when launched directly from a shell.
+		splash.launcherOwnsAltScreen = splash.handshake.active
 
 		ready := make(chan splashReadyMsg, 1)
 		go func() { ready <- splash.initialize() }()

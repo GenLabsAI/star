@@ -234,6 +234,12 @@ type UI struct {
 
 	isTransparent bool
 
+	// altScreenDisabled keeps Bubble Tea from re-entering the alternate
+	// screen when the launcher already owns it. A second DECSET 1049 on
+	// handoff makes some terminals restore their saved alt buffer, which
+	// still contains the splash and shows through as a ghost banner.
+	altScreenDisabled bool
+
 	// mouseEnabled controls whether Bubble Tea mouse reporting is active.
 	// When false, the terminal emulator (or tmux) handles text selection,
 	// copy/paste, right-click, and scrolling instead of Crush.
@@ -268,6 +274,11 @@ type UI struct {
 	// 100 bytes per cell, so allocating one per frame dominated the render
 	// path's garbage (see perf_audit_test.go).
 	canvas uv.ScreenBuffer
+
+	// dialogGeneration tracks the previous frame's overlay stack. A dialog
+	// paints cells that the underlying components may leave blank, so any
+	// stack change has to reset the reused canvas before they redraw.
+	dialogGeneration uint64
 
 	// rows memoizes the rendered text of each screen row so a frame only
 	// re-renders rows whose cells changed (see framerows.go).
@@ -3788,6 +3799,8 @@ func (m *UI) drawHeader(scr uv.Screen, area uv.Rectangle) {
 // Draw implements [uv.Drawable] and draws the UI model.
 func (m *UI) Draw(scr uv.Screen, area uv.Rectangle) *tea.Cursor {
 	layout := m.generateLayout(area.Dx(), area.Dy())
+	dialogsOpen := m.dialog.HasDialogs()
+	dialogGeneration := m.dialog.Generation()
 
 	if m.layout != layout {
 		m.layout = layout
@@ -3800,6 +3813,12 @@ func (m *UI) Draw(scr uv.Screen, area uv.Rectangle) *tea.Cursor {
 		// behind. Steady-state frames skip this so unchanged rows stay
 		// untouched for the row cache in View.
 		screen.Clear(scr)
+	} else if dialogGeneration != m.dialogGeneration {
+		// Opening, closing, or replacing a dialog changes cells over empty
+		// regions that the underlying components do not repaint. Reset the
+		// reused canvas so no modal text survives into the next frame.
+		screen.Clear(scr)
+		m.invalidateBlits()
 	} else if m.state == uiChat && m.hasSession() {
 		// Re-render pills on every draw so the box appears even when
 		// the layout footprint hasn't changed (e.g. todos arrived
@@ -3808,6 +3827,8 @@ func (m *UI) Draw(scr uv.Screen, area uv.Rectangle) *tea.Cursor {
 		// this catches the steady-state case.
 		m.renderPills()
 	}
+
+	m.dialogGeneration = dialogGeneration
 
 	if m.state == uiChat && m.hasSession() && !m.isCompact {
 		m.updateSidebarScrollState()
@@ -3921,7 +3942,7 @@ func (m *UI) Draw(scr uv.Screen, area uv.Rectangle) *tea.Cursor {
 	// This needs to come last to overlay on top of everything. We always pass
 	// the full screen bounds because the dialogs will position themselves
 	// accordingly.
-	if m.dialog.HasDialogs() {
+	if dialogsOpen {
 		cursor := m.dialog.Draw(scr, scr.Bounds())
 		// The dialog painted over the components, so their cells on screen
 		// are no longer what the buffers hold. Drop the blits and the next
@@ -3978,10 +3999,18 @@ func mouseMode(enabled, wantsMotion bool) tea.MouseMode {
 	}
 }
 
+// SetAltScreen controls whether Bubble Tea enters the alternate screen. A
+// launcher-driven core must disable this because the launcher already owns the
+// alternate screen; requesting it again makes some terminals restore the old
+// splash buffer on top of the first UI frame.
+func (m *UI) SetAltScreen(enabled bool) {
+	m.altScreenDisabled = !enabled
+}
+
 // View renders the UI model's view.
 func (m *UI) View() tea.View {
 	var v tea.View
-	v.AltScreen = true
+	v.AltScreen = !m.altScreenDisabled
 	if !m.isTransparent {
 		v.BackgroundColor = m.com.Styles.Background
 	}
