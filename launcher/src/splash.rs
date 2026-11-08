@@ -6,6 +6,9 @@
 //! and an incremental diff would then leave the old banner showing through
 //! cells this frame considers blank. Writing every cell means the next frame
 //! erases that stale content no matter when it appears.
+//!
+//! Recurring regressions and their guards are documented in
+//! `../SPLASH_REGRESSIONS.md`.
 
 use std::fmt::Write as _;
 use std::time::Duration;
