@@ -47,6 +47,13 @@ type Expandable interface {
 	ToggleExpanded() bool
 }
 
+// MouseDoubleClickHandler is implemented by items that own a double-click
+// gesture on their row. Returning true consumes the click so the chat does
+// not fall back to selecting a word.
+type MouseDoubleClickHandler interface {
+	HandleDoubleClick(x, y int) bool
+}
+
 // KeyEventHandler is an interface for items that can handle key events.
 type KeyEventHandler interface {
 	HandleKeyEvent(key tea.KeyMsg) (bool, tea.Cmd)

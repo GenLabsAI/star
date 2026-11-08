@@ -1342,6 +1342,17 @@ func (m *Chat) HandleMouseDown(x, y int) (bool, tea.Cmd) {
 			}
 		})
 	case 2:
+		// Items that own a double-click gesture (like the Bash group)
+		// consume it instead of selecting a word.
+		if handler, ok := m.list.ItemAt(itemIdx).(chat.MouseDoubleClickHandler); ok {
+			if handler.HandleDoubleClick(x, itemY) {
+				m.clickCount = 0
+				if m.follow {
+					m.ScrollToBottom()
+				}
+				break
+			}
+		}
 		// Double click - select word (no delayed action)
 		m.selectWord(itemIdx, x, itemY)
 	case 3:

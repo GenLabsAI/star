@@ -30,11 +30,12 @@ type BashToolGroupItem struct {
 }
 
 var (
-	_ MessageItem         = (*BashToolGroupItem)(nil)
-	_ Expandable          = (*BashToolGroupItem)(nil)
-	_ NestedToolContainer = (*BashToolGroupItem)(nil)
-	_ KeyEventHandler     = (*BashToolGroupItem)(nil)
-	_ list.MouseClickable = (*BashToolGroupItem)(nil)
+	_ MessageItem             = (*BashToolGroupItem)(nil)
+	_ Expandable              = (*BashToolGroupItem)(nil)
+	_ NestedToolContainer     = (*BashToolGroupItem)(nil)
+	_ KeyEventHandler         = (*BashToolGroupItem)(nil)
+	_ list.MouseClickable     = (*BashToolGroupItem)(nil)
+	_ MouseDoubleClickHandler = (*BashToolGroupItem)(nil)
 )
 
 // NewBashToolGroupItem creates a group from a run of Bash tool items.
@@ -108,9 +109,16 @@ func (g *BashToolGroupItem) AddNestedTool(item ToolMessageItem) {
 	g.Bump()
 }
 
-// HandleMouseClick implements MouseClickable so clicks select the group.
+// HandleMouseClick implements MouseClickable. A single click only selects
+// the row; expansion is a deliberate double-click.
 func (g *BashToolGroupItem) HandleMouseClick(btn ansi.MouseButton, x, y int) bool {
-	return btn == ansi.MouseLeft
+	return false
+}
+
+// HandleDoubleClick implements MouseDoubleClickHandler.
+func (g *BashToolGroupItem) HandleDoubleClick(x, y int) bool {
+	g.ToggleExpanded()
+	return true
 }
 
 // HandleKeyEvent implements KeyEventHandler for copying the whole run.
@@ -200,9 +208,9 @@ func (g *BashToolGroupItem) renderSummary(width int) string {
 		line += g.sty.Tool.ErrorMessage.Render(fmt.Sprintf(" · %d failed", failed))
 	}
 
-	hint := "(F5 to expand)"
+	hint := "(double-click to expand)"
 	if g.expanded {
-		hint = "(F5 to collapse)"
+		hint = "(double-click to collapse)"
 	}
 	line += " " + g.sty.Messages.ShellGroupExpandHint.Render(hint)
 

@@ -4,7 +4,7 @@
                                                                                                          ┃  de el ╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱
    Found the refresh bug. I'll patch the middleware and run the checks.                                  ┃  ╭──╮╶─┬─╴╭──╮ ╭──╮ ╱╱╱╱╱╱╱╱╱╱
                                                                                                          ┃  ╰──╮  │  ├──┤ ├─┬╯ ╱╱╱╱╱╱╱╱╱╱
- ▌ ✓ Ran 4 commands (F5 to collapse)                                                                     ┃  ╰──╯  ╵  ╵  ╵ ╵ ╰╴ ╱╱╱╱╱╱╱╱╱╱
+ ▌ ✓ Ran 4 commands (double-click to collapse)                                                           ┃  ╰──╯  ╵  ╵  ╵ ╵ ╰╴ ╱╱╱╱╱╱╱╱╱╱
  ▌                                                                                                       ┃  ╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱
  ▌ ✓ Bash git status --short                                                                             ┃
  ▌                                                                                                       ┃

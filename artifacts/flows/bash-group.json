@@ -9,11 +9,11 @@
     },
     {
       "image": "tui-bash-group-expanded-140.png",
-      "caption": "F5 expands the run: every command and its output, in order."
+      "caption": "Double-click the run: every command and its output, in order."
     },
     {
       "image": "tui-bash-group-scrolled-140.png",
-      "caption": "Scroll the output; the run stays one bordered block, F5 closes it."
+      "caption": "Scroll the output, then double-click again to fold it back to one line."
     }
   ]
 }

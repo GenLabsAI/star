@@ -41,7 +41,7 @@ func TestBashToolGroupItem_CollapsedSummary(t *testing.T) {
 
 	out := ansi.Strip(group.RawRender(120))
 	require.Contains(t, out, "Ran 3 commands")
-	require.Contains(t, out, "F5 to expand")
+	require.Contains(t, out, "double-click to expand")
 	require.NotContains(t, out, "git status --short", "collapsed group must not list individual commands")
 	require.NotContains(t, out, "gofmt", "collapsed group must not list individual commands")
 }
@@ -138,4 +138,27 @@ func TestExtractMessageItems_SingleBashCallNotGrouped(t *testing.T) {
 	require.Len(t, items, 2)
 	_, ok := items[1].(*BashToolMessageItem)
 	require.True(t, ok, "a lone bash call keeps its own row")
+}
+
+func TestBashToolGroupItem_DoubleClickToggles(t *testing.T) {
+	t.Parallel()
+
+	sty := styles.CharmtonePantera()
+	group := NewBashToolGroupItem(&sty, []ToolMessageItem{
+		newTestBashItem(t, &sty, "b1", "git status --short", " M a.go", ToolStatusSuccess),
+		newTestBashItem(t, &sty, "b2", "go build ./...", "", ToolStatusSuccess),
+	})
+	item := group.(*BashToolGroupItem)
+
+	require.False(t, item.HandleMouseClick(ansi.MouseButton1, 4, 0),
+		"a single click must not expand the group")
+	require.True(t, item.HandleDoubleClick(4, 0))
+	out := ansi.Strip(item.RawRender(120))
+	require.Contains(t, out, "git status --short")
+	require.Contains(t, out, "double-click to collapse")
+
+	require.True(t, item.HandleDoubleClick(4, 0))
+	out = ansi.Strip(item.RawRender(120))
+	require.NotContains(t, out, "git status --short")
+	require.Contains(t, out, "double-click to expand")
 }
