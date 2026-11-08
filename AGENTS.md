@@ -226,7 +226,8 @@ func TestYourFunction(t *testing.T) {
 ## Working on the TUI (UI)
 
 Anytime you need to work on the TUI, read `internal/ui/AGENTS.md` before
-starting work.
+starting work. For visual proof, load the project skill at
+`.agents/skills/tui-walkthrough/SKILL.md`.
 
 ## Styling System
 

@@ -2,7 +2,8 @@
 
 Generic, reusable harness for headless screenshots of the Bubble Tea UI.
 It captures feature states without a live terminal and turns an ordered set
-of stills into a captioned, looping walkthrough.
+of stills into a captioned, looping walkthrough. Walkthrough media is review
+output: generate it, inspect it, share it, and leave it untracked.
 
 ## Pieces
 
@@ -23,9 +24,15 @@ of stills into a captioned, looping walkthrough.
 - `artifacts/render_flow.py` — manifest-driven walkthrough renderer.
   It bakes short captions into a header strip and writes a looping GIF,
   plus an MP4 with `--mp4` when ffmpeg is available.
-- `artifacts/flows/` — one JSON manifest per walkthrough. The fork
-  feature lives in `artifacts/flows/fork.json`.
+- `artifacts/flows/` — one JSON manifest per walkthrough. `fork.json` is a
+  worked example to copy.
 - `artifacts/tui_font.py` — shared font resolver for all renderers.
+
+## Agent entry point
+
+Agents should load `.agents/skills/tui-walkthrough/SKILL.md` before doing
+visual proof. The skill is project-local, versioned with the repository, and
+links back here for the full harness and renderer details.
 
 ## Typical screenshot flow
 
@@ -52,23 +59,23 @@ the images and captions in a manifest:
 
 ```json
 {
-  "output": "tui-fork-flow",
+  "output": "tui-<feature>-flow",
   "width": 1000,
   "duration_ms": 2600,
   "frames": [
     {
-      "image": "tui-fork-button-140.png",
-      "caption": "Click a message - Fork appears at its top-right edge."
+      "image": "tui-<feature>-<state>-140.png",
+      "caption": "Short description of this user-visible state."
     },
     {
-      "image": "tui-fork-command-140.png",
-      "caption": "Or filter commands to Fork From..."
+      "image": "tui-<feature>-<next-state>-140.png",
+      "caption": "What changed after the interaction."
     }
   ]
 }
 ```
 
-Render it:
+A complete worked manifest is `artifacts/flows/fork.json`. Render it:
 
 ```sh
 go test ./internal/ui/model -run TestForkScreenshots -count=1 -v
@@ -85,9 +92,11 @@ from `artifacts/` first, then the manifest's directory. Per-frame
 the available width are truncated with `...`.
 
 The GIF is the review artifact: it embeds and animates in chat. The optional
-MP4 uses ffmpeg from `PATH` or the `imageio-ffmpeg` wheel. Use
-`render_video.py` instead for frame-by-frame animation loops (fades,
-spinners, the horse), which need many captured ticks rather than captions.
+MP4 uses ffmpeg from `PATH` or the `imageio-ffmpeg` wheel. Both are generated
+proof, not source: they are git-ignored and should be attached or inspected
+rather than committed. Use `render_video.py` instead for frame-by-frame
+animation loops (fades, spinners, the horse), which need many captured ticks
+rather than captions.
 
 ## Adding a new walkthrough
 
@@ -97,18 +106,18 @@ spinners, the horse), which need many captured ticks rather than captions.
 2. Run the screenshot test and `render_tui.py` to produce the PNGs.
 3. Add `artifacts/flows/<feature>.json` with the ordered frames and short
    captions.
-4. Run `render_flow.py` and inspect the GIF before sharing it. Keep the
-   manifest, PNGs, TXT frames, and GIF (and MP4 when generated) tracked.
+4. Run `render_flow.py` and inspect the GIF before sharing it. Track the
+   manifest, PNGs, and TXT frames; leave the GIF/MP4 untracked.
 5. Treat the walkthrough as evidence, not as a behavior test. Keep the
    real integration/UI tests alongside it.
 
 ## What's tracked
 
-- Tracked: this README, the renderer scripts, `tui_screenshot_test.go`,
-  flow manifests, and the review-friendly `tui-*.png`, `tui-*.txt`,
-  `tui-*.gif`, and `tui-*.mp4` snapshots.
-- Ignored (regenerable): `tui-*.json` grids and the auto-downloaded
-  `DejaVuSansMono.ttf` / `JetBrainsMono-Regular.ttf` fonts.
+- Tracked: this README, the renderer scripts, the project skill,
+  `tui_screenshot_test.go`, flow manifests, and the review-friendly
+  `tui-*.png` / `tui-*.txt` snapshots.
+- Ignored (regenerable): `tui-*.json` grids, `tui-*.gif` / `tui-*.mp4`
+  walkthrough media, and the auto-downloaded fonts.
 
 ## Horse video
 
