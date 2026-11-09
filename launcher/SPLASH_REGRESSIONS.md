@@ -161,7 +161,20 @@ CGO_ENABLED=0 go test ./internal/ui/model \
 CGO_ENABLED=0 go build ./...
 ```
 
-## 4. Core updated, launcher left behind
+## 4. Small glyph above the wordmark
+
+The splash intentionally has no small breathing glyph directly above the
+wordmark. It read as clutter next to the mark. The surrounding starfield is
+still allowed to twinkle; only the centred icon above the logo is removed.
+
+If the icon is reintroduced, the regression test below will fail:
+
+```sh
+cargo test --release --manifest-path launcher/Cargo.toml \
+  no_glyph_above_the_wordmark -- --nocapture
+```
+
+## 5. Core updated, launcher left behind
 
 The updater in `launcher/src/update.rs` installs `star-core` into a versioned
 directory. It does not replace the running `star` launcher. As a result,

@@ -90,7 +90,6 @@ struct Star {
 struct Layout {
     left: usize,
     width: usize,
-    mark_y: usize,
     wm_y: usize,
     rule_y: usize,
 }
@@ -131,17 +130,16 @@ impl Splash {
         };
         splash.prev = vec![Cell::blank(); cols * rows];
 
-        // Six rows of banner (mark, wordmark, gap, hairline) plus breathing
-        // room. Anything smaller just gets a blank screen.
+        // Five rows of banner (wordmark, gap, hairline) plus breathing room.
+        // Anything smaller just gets a blank screen.
         if cols >= width + 4 && rows >= 9 {
-            let top = (rows - 6) / 2;
+            let top = (rows - 5) / 2;
             let left = (cols - width) / 2;
             splash.layout = Some(Layout {
                 left,
                 width,
-                mark_y: top,
-                wm_y: top + 1,
-                rule_y: top + 5,
+                wm_y: top,
+                rule_y: top + 4,
             });
             splash.stars = starfield(&splash.layout, cols, rows);
         }
@@ -212,7 +210,7 @@ impl Splash {
         // --- travelling bloom --------------------------------------------
         if env > 0.001 {
             let cy = l.wm_y as f64 + 1.0;
-            let top = l.mark_y as isize - 1;
+            let top = l.wm_y as isize - 1;
             let bot = l.rule_y as isize + 1;
             // `sweep` is wordmark-local, but the bloom is painted into the
             // screen buffer, so shift it by the wordmark's left edge.
@@ -238,7 +236,7 @@ impl Splash {
             }
         }
 
-        // --- stars (behind the banner, so the mark overwrites any overlap) ---
+        // --- stars (behind the banner, so the wordmark overwrites any overlap) ---
         for s in &self.stars {
             let tw = (0.5 + 0.5 * (s.phase + t / 1_000.0 * s.rate).sin()).powf(2.4);
             let v = 0.10 + 0.90 * tw;
@@ -257,18 +255,6 @@ impl Splash {
                 let cool2 = l.saturating_sub(6);
                 (l, cool, cool2)
             };
-        }
-
-        // --- the mark ------------------------------------------------------
-        {
-            let breathe = 0.5 + 0.5 * (t / 2_600.0 * TAU).sin();
-            let x = l.left + w / 2;
-            let y = l.mark_y;
-            if y < rows && x < cols {
-                let cell = &mut self.cur[y * cols + x];
-                cell.ch = MARK;
-                cell.fg = mix(GOLD_A, WHITE, breathe * 0.55);
-            }
         }
 
         // --- the wordmark --------------------------------------------------
@@ -398,10 +384,7 @@ fn starfield(layout: &Option<Layout>, cols: usize, rows: usize) -> Vec<Star> {
         // Keep stars out of the banner's bounding box so nothing sparkles
         // through the wordmark.
         if let Some(l) = layout {
-            if y + 2 >= l.mark_y
-                && y <= l.rule_y + 2
-                && x + 3 >= l.left
-                && x <= l.left + l.width + 3
+            if y + 2 >= l.wm_y && y <= l.rule_y + 2 && x + 3 >= l.left && x <= l.left + l.width + 3
             {
                 continue;
             }
@@ -732,6 +715,22 @@ mod tests {
             "the bloom is not centred: centre={:?}, left={:?}",
             cells[row * cols + centre].bg,
             cells[row * cols].bg
+        );
+    }
+
+    #[test]
+    fn no_glyph_above_the_wordmark() {
+        let cols = SIZE.0 as usize;
+        let mut banner = Splash::new(SIZE.0, SIZE.1);
+        banner.frame(min_duration());
+        let layout = banner.layout.expect("banner laid out");
+        let x = layout.left + layout.width / 2;
+        let y = layout.wm_y - 1;
+
+        assert_ne!(
+            banner.cells()[y * cols + x].ch,
+            MARK,
+            "the splash should not draw a mark directly above the wordmark"
         );
     }
 
