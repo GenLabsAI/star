@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"strings"
+	"unicode"
 
 	"github.com/charmbracelet/crush/internal/message"
 )
@@ -50,9 +51,42 @@ func NewService(db *sql.DB, messages message.Service) Service {
 	}
 }
 
+// matchQuery converts a raw user query into an FTS5 MATCH expression.
+//
+// FTS5 reads characters such as quotes, brackets, parentheses, asterisks
+// and colons, and keywords such as AND, OR and NOT, as query syntax. Passing
+// the raw query through makes anything containing them fail outright with a
+// syntax error, so every whitespace-separated term is quoted as literal text
+// (embedded quotes are doubled, FTS5's escape) and the terms are joined with
+// AND so adding words narrows the results.
+//
+// Terms without any letters or numbers carry no searchable tokens and are
+// dropped; a query made only of punctuation searches for nothing.
+func matchQuery(query string) string {
+	terms := make([]string, 0, len(query))
+	for _, term := range strings.Fields(query) {
+		if !hasSearchableRune(term) {
+			continue
+		}
+		terms = append(terms, `"`+strings.ReplaceAll(term, `"`, `""`)+`"`)
+	}
+	return strings.Join(terms, " AND ")
+}
+
+// hasSearchableRune reports whether s contains a rune the FTS5 tokenizer
+// keeps, i.e. a letter or a number.
+func hasSearchableRune(s string) bool {
+	for _, r := range s {
+		if unicode.IsLetter(r) || unicode.IsNumber(r) {
+			return true
+		}
+	}
+	return false
+}
+
 func (s *service) Search(ctx context.Context, query string, opts SearchOpts) ([]Result, error) {
-	query = strings.TrimSpace(query)
-	if query == "" {
+	match := matchQuery(query)
+	if match == "" {
 		return nil, nil
 	}
 	if opts.Limit <= 0 {
@@ -76,7 +110,7 @@ func (s *service) Search(ctx context.Context, query string, opts SearchOpts) ([]
 			bm25(messages_fts) AS rank
 		FROM messages_fts mf
 		WHERE messages_fts MATCH ?`)
-	args := []any{query}
+	args := []any{match}
 
 	if opts.SessionID != "" {
 		b.WriteString(" AND mf.session_id = ?")
