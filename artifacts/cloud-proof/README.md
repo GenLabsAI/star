@@ -65,6 +65,16 @@ to direct use.
 * Relay WS routes `/terminal/runner/<id>` + `/terminal/browser/<id>`
   are registered in the deployed app.
 * `/deca-agents/v1/jobs/*` does NOT exist in prod (clean 404s).
+* Live relay socket proof (2026-11-12): a real WS handshake to
+  `wss://api.genlabs.dev/terminal/runner/<unknown-id>` completes the
+  HTTP upgrade and the server closes with `1008 Session not found` —
+  exactly the `handle_runner_ws` path in the deployed app. Sockets
+  live, pairing enforced.
+* Live dispatch proof: `terminal-session.yml` on main in
+  `GenLabsAI/opencode-action-harness` shows prior `workflow_dispatch`
+  runs, including a `success` run (2026-09-10, 2m6s) — the only
+  dispatcher of that workflow is the API's `_dispatch_terminal_workflow`.
+  Genlabsapi->GitHub-Actions->runner has executed in production.
 * The supplied Deca key 401s on every authed endpoint tested
   (`/terminal/session`, `/profile`, `/usage`) — it is in neither the
   `TrustKeys` nor `OpencodeApiKeys` tables, so no live session could
