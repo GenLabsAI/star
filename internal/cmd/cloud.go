@@ -158,7 +158,55 @@ var cloudACPCmd = &cobra.Command{
 	},
 }
 
+var cloudInferPrompt = ""
+var cloudInferModel = "deca-2.5-mini"
+
+var cloudInferCmd = &cobra.Command{
+	Use:   "infer",
+	Short: "Send a prompt through the live Deca Agent Jobs API and print the reply",
+	Long: `Prove the cloud round trip from Star itself.
+
+Enrolls a short-lived device key with POST /deca/v1/opencode/enroll,
+then sends the prompt to POST /deca/v1/chat/completions on the configured
+API base and prints the assistant text that comes back. The key stays in
+memory and is never printed.`,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		base := os.Getenv("DECA_AGENT_API_BASE_URL")
+		if base == "" {
+			return fmt.Errorf("DECA_AGENT_API_BASE_URL is required")
+		}
+		if cloudInferPrompt == "" {
+			return fmt.Errorf("Provide --prompt")
+		}
+		client := cloud.NewClient(base, os.Getenv("DECA_API_KEY"), "")
+		ctx, cancel := context.WithTimeout(cmd.Context(), 180*time.Second)
+		defer cancel()
+
+		signals := map[string]string{
+			"machine_id": "star-cloud-infer",
+			"host_id":    "star-cloud-infer",
+			"hostname":   "star-cloud-infer",
+			"cpu":        "star-cloud-infer",
+			"os":         "linux",
+		}
+		key, err := client.Enroll(ctx, signals)
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(os.Stderr, "enrolled device key (%d chars, not printed)\n", len(key))
+		reply, err := client.ChatCompletion(ctx, key, cloudInferModel, cloudInferPrompt)
+		if err != nil {
+			return err
+		}
+		fmt.Println(reply)
+		return nil
+	},
+}
+
 func init() {
+	cloudInferCmd.Flags().StringVar(&cloudInferPrompt, "prompt", "", "Prompt to send")
+	cloudInferCmd.Flags().StringVar(&cloudInferModel, "model", "deca-2.5-mini", "Deca model id")
+	cloudCmd.AddCommand(cloudInferCmd)
 	cloudACPCmd.Flags().StringVar(&cloudACPPrompt, "prompt", "", "Prompt to send the cloud agent")
 	cloudACPCmd.Flags().StringVar(&cloudACPModel, "model", "", "Model id (default mistralai/mistral-large-4-1t-a52b)")
 	cloudACPCmd.Flags().StringVar(&cloudACPBaseURL, "base-url", "", "Model base URL (default https://integrate.api.nvidia.com/v1)")

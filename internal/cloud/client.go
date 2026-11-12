@@ -49,7 +49,23 @@ func sessionIDFromEnv() string {
 	return strings.TrimSpace(os.Getenv("DECA_SESSION_ID"))
 }
 
+// do issues a request. apiKeyOverride, when non-empty, is used as the
+// Bearer credential (e.g. a freshly enrolled model key) instead of the
+// client's user token.
 func (c *Client) do(ctx context.Context, method, path string, worker bool, payload any) ([]byte, int, error) {
+	return c.doWith(ctx, method, path, worker, payload, "")
+}
+
+// doPublic issues a request with no user or worker credential.
+func (c *Client) doPublic(ctx context.Context, method, path string, payload any) ([]byte, int, error) {
+	return c.send(ctx, method, path, payload, "", false, true)
+}
+
+func (c *Client) doWith(ctx context.Context, method, path string, worker bool, payload any, apiKeyOverride string) ([]byte, int, error) {
+	return c.send(ctx, method, path, payload, apiKeyOverride, worker, false)
+}
+
+func (c *Client) send(ctx context.Context, method, path string, payload any, apiKeyOverride string, worker, public bool) ([]byte, int, error) {
 	var body io.Reader
 	if payload != nil {
 		data, err := json.Marshal(payload)
@@ -79,13 +95,17 @@ func (c *Client) do(ctx context.Context, method, path string, worker bool, paylo
 			return nil, 0, fmt.Errorf("Worker token is required but not set (DECA_AGENT_WORKER_TOKEN)")
 		}
 		req.Header.Set("X-Worker-Token", c.workerTok)
-	} else {
+	} else if !public {
+		token := c.userToken
+		if apiKeyOverride != "" {
+			token = apiKeyOverride
+		}
 		hasCookie := sessionIDFromEnv() != ""
-		if c.userToken == "" && !hasCookie {
+		if token == "" && !hasCookie {
 			return nil, 0, fmt.Errorf("API key is required but not set (DECA_API_KEY or DECA_SESSION_ID)")
 		}
-		if c.userToken != "" {
-			req.Header.Set("Authorization", "Bearer "+c.userToken)
+		if token != "" {
+			req.Header.Set("Authorization", "Bearer "+token)
 		}
 	}
 	resp, err := c.httpClient.Do(req)
@@ -353,6 +373,62 @@ func exitCodeOf(frame []byte) int {
 		return int(frame[1])
 	}
 	return 0
+}
+
+// Enroll mints a Deca opencode API key through the documented device
+// enrollment endpoint. The key is returned to the caller only; it is
+// never written to disk or logged.
+func (c *Client) Enroll(ctx context.Context, signals map[string]string) (string, error) {
+	// Enrollment is unauthenticated by design (device signal matching),
+	// so it must not require a user credential.
+	body, status, err := c.doPublic(ctx, http.MethodPost, "/deca/v1/opencode/enroll", map[string]any{"signals": signals})
+	if err != nil {
+		return "", err
+	}
+	if status != http.StatusOK {
+		return "", fmt.Errorf("Enrollment failed: HTTP %d: %s", status, truncate(string(body), 300))
+	}
+	var out struct {
+		APIKey string `json:"api_key"`
+	}
+	if err := json.Unmarshal(body, &out); err != nil {
+		return "", fmt.Errorf("Failed to decode enrollment response: %w", err)
+	}
+	if out.APIKey == "" {
+		return "", fmt.Errorf("Enrollment returned no key")
+	}
+	return out.APIKey, nil
+}
+
+// ChatCompletion sends one prompt to the Deca model gateway and returns
+// the assistant text.
+func (c *Client) ChatCompletion(ctx context.Context, apiKey, model, prompt string) (string, error) {
+	body, status, err := c.doWith(ctx, http.MethodPost, "/deca/v1/chat/completions", false, map[string]any{
+		"model":      model,
+		"messages":   []any{map[string]any{"role": "user", "content": prompt}},
+		"max_tokens": 256,
+		"stream":     false,
+	}, apiKey)
+	if err != nil {
+		return "", err
+	}
+	if status != http.StatusOK {
+		return "", fmt.Errorf("Completion failed: HTTP %d: %s", status, truncate(string(body), 300))
+	}
+	var out struct {
+		Choices []struct {
+			Message struct {
+				Content string `json:"content"`
+			} `json:"message"`
+		} `json:"choices"`
+	}
+	if err := json.Unmarshal(body, &out); err != nil {
+		return "", fmt.Errorf("Failed to decode completion: %w", err)
+	}
+	if len(out.Choices) == 0 {
+		return "", fmt.Errorf("Completion returned no choices")
+	}
+	return out.Choices[0].Message.Content, nil
 }
 
 // JobStatus fetches one job as the worker would (X-Worker-Token).
