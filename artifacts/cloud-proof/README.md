@@ -26,6 +26,27 @@ like a TV screen.
 * `../harness/` — read-only reference copy of public
   `GenLabsAI/opencode-action-harness` (not committed).
 
+## Push access checked (2026-11-12)
+
+The supplied GitHub key authenticates as `ccocks` and reports
+`permissions.push = true` on `GenLabsAI/opencode-action-harness`, but
+every write is denied server-side:
+
+* `git push` to harness `cloud-acp` -> `403 Permission to
+  GenLabsAI/opencode-action-harness.git denied to ccocks`
+* `gh repo fork GenLabsAI/opencode-action-harness` -> `403 Resource not
+  accessible by personal access token`
+* `gh repo view GenLabsAI/GenlabsAPI` -> `Could not resolve to a
+  Repository`; global repo search for `GenlabsAPI` returns nothing, so
+  the token cannot even see that repo. A `git ls-remote` reports
+  `Write access to repository not granted`.
+
+Prepared and verified locally instead: `acp-session.yml` (ACP workflow
+with relay pairing) + `acp_bridge.py` are committed here and apply
+cleanly to a harness checkout; `artifacts/cloud-proof/acp-session.yml`
+can be dropped into `.github/workflows/` on a branch once a token with
+`contents: write` on the org repos is available.
+
 ## ACP leg (passes): Star cloud session carrying model config
 
 `star cloud acp --prompt ... [--model ...] [--base-url ...]` reads the
