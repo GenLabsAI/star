@@ -52,7 +52,9 @@ func (c *Client) do(ctx context.Context, method, path string, worker bool, paylo
 	if err != nil {
 		return nil, 0, fmt.Errorf("Failed to build request: %w", err)
 	}
-	req.Header.Set("Content-Type", "application/json")
+	if payload != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
 	req.Header.Set("User-Agent", "star-cloud-probe")
 	if worker {
 		if c.workerTok == "" {

@@ -21,8 +21,11 @@ import urllib.error
 
 def req(method: str, url: str, headers: dict, payload=None):
     data = json.dumps(payload).encode() if payload is not None else None
-    r = urllib.request.Request(url, data=data, method=method,
-                               headers={"Content-Type": "application/json", **headers})
+    # NOTE: api.genlabs.dev 400s bodyless GETs that carry Content-Type,
+    # so only send it when there is a body.
+    if data is not None:
+        headers = {"Content-Type": "application/json", **headers}
+    r = urllib.request.Request(url, data=data, method=method, headers=headers)
     try:
         with urllib.request.urlopen(r, timeout=20) as resp:
             return resp.status, resp.read().decode()[:500]
