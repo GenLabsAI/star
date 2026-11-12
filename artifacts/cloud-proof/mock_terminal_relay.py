@@ -25,15 +25,18 @@ import aiohttp
 import aiohttp.web as web
 
 USER_KEY = __import__("os").environ.get("MOCK_USER_KEY", "user-secret")
+SESSION_ID = __import__("os").environ.get("MOCK_SESSION_ID", "test-session-id")
 
 sessions: dict[str, dict] = {}
 lock = asyncio.Lock()
 
 
 async def create_session(request: web.Request) -> web.Response:
-    auth = request.headers.get("Authorization", "")
-    if auth != f"Bearer {USER_KEY}":
-        return web.json_response({"error": "Not authenticated"}, status=401)
+    # Mirror prod: sessionid cookie first, then Bearer API key.
+    if request.cookies.get("sessionid") != SESSION_ID:
+        auth = request.headers.get("Authorization", "")
+        if auth != f"Bearer {USER_KEY}":
+            return web.json_response({"error": "Not authenticated"}, status=401)
     session_id = str(uuid.uuid4())
     async with lock:
         sessions[session_id] = {"browser": None, "runner": None, "scrollback": ""}

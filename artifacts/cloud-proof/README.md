@@ -75,11 +75,23 @@ to direct use.
   runs, including a `success` run (2026-09-10, 2m6s) — the only
   dispatcher of that workflow is the API's `_dispatch_terminal_workflow`.
   Genlabsapi->GitHub-Actions->runner has executed in production.
-* The supplied Deca key 401s on every authed endpoint tested
-  (`/terminal/session`, `/profile`, `/usage`) — it is in neither the
-  `TrustKeys` nor `OpencodeApiKeys` tables, so no live session could
-  be created with it. A working user key (`deca_oc_...` or TrustKey)
-  is the one remaining input for the live run:
-  `star cloud session` -> real GH Actions runner -> `star cloud attach`.
+* Auth correction: the supplied value is a web **sessionid**, not an
+  API key — it authenticates via the `sessionid` cookie (supported by
+  the Star client through `DECA_SESSION_ID`), which is how the live
+  sessions below were created. `Authorization: Bearer` with it 401s.
+* LIVE proof (2026-11-12 ~15:02 UTC, session `2d9146d7`): `star cloud
+  session` (cookie auth) returned a real session; genlabsapi dispatched
+  `terminal-session.yml` (GH run `43243464888`, success); the cloud
+  runner installed crush, wrote its config, and connected to the prod
+  relay (`terminal_runner: connected to relay` in the run logs); the
+  watcher captured crush's real PTY bytes back (`live-transcript.txt`:
+  crush v0.100.0 banner + provider picker). Full loop done: Star ->
+  API -> GitHub Actions -> crush -> relay -> watcher. All three live
+  sessions deleted afterwards (HTTP 200) to stop spend.
+* Known prod breakage found live: crush boots to first-run setup
+  ("choose a provider and model") because `terminal-session.yml`
+  writes config to `~/.config/crush/crush.json` while crush reads
+  `~/.crush/crush.json` (the path `runner.py` uses). Fix belongs in
+  the harness workflow, which this token cannot push to.
 * Bonus fix found by probing: prod 400s bodyless GETs carrying
   `Content-Type`; the Go client only sends it with a body now.

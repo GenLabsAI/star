@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -41,6 +42,13 @@ func NewClient(baseURL, userToken, workerToken string) *Client {
 	}
 }
 
+// sessionIDFromEnv reports the Deca web session id when Star holds one.
+// Wiring the real login that mints it is future work; for now it comes
+// from the environment like every other credential here.
+func sessionIDFromEnv() string {
+	return strings.TrimSpace(os.Getenv("DECA_SESSION_ID"))
+}
+
 func (c *Client) do(ctx context.Context, method, path string, worker bool, payload any) ([]byte, int, error) {
 	var body io.Reader
 	if payload != nil {
@@ -57,6 +65,14 @@ func (c *Client) do(ctx context.Context, method, path string, worker bool, paylo
 	if payload != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
+	// User auth is either a Bearer API key (DECA_API_KEY) or a Deca web
+	// session id (DECA_SESSION_ID) sent as the sessionid cookie — the
+	// same two paths prod's terminal routes accept.
+	if !worker {
+		if sid := sessionIDFromEnv(); sid != "" {
+			req.AddCookie(&http.Cookie{Name: "sessionid", Value: sid})
+		}
+	}
 	req.Header.Set("User-Agent", "star-cloud-probe")
 	if worker {
 		if c.workerTok == "" {
@@ -64,10 +80,13 @@ func (c *Client) do(ctx context.Context, method, path string, worker bool, paylo
 		}
 		req.Header.Set("X-Worker-Token", c.workerTok)
 	} else {
-		if c.userToken == "" {
-			return nil, 0, fmt.Errorf("API key is required but not set (DECA_API_KEY)")
+		hasCookie := sessionIDFromEnv() != ""
+		if c.userToken == "" && !hasCookie {
+			return nil, 0, fmt.Errorf("API key is required but not set (DECA_API_KEY or DECA_SESSION_ID)")
 		}
-		req.Header.Set("Authorization", "Bearer "+c.userToken)
+		if c.userToken != "" {
+			req.Header.Set("Authorization", "Bearer "+c.userToken)
+		}
 	}
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
