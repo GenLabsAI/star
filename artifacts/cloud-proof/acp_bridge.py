@@ -62,11 +62,23 @@ async def call_model(model: str, base_url: str, api_key: str, prompt: str) -> st
         return "CLOUD-ACP-OK (fallback: model unreachable)"
 
 
+MSG_DATA = 0x00
+MSG_EXIT = 0x02
+
+
+def to_json(raw) -> dict:
+    """Parse a relay frame: raw JSON text, or PTY-framed bytes."""
+    data = raw.encode() if isinstance(raw, str) else bytes(raw)
+    if data and data[0] <= 0x03:
+        data = data[1:]
+    return json.loads(data.decode())
+
+
 async def main(url: str):
     async with websockets.connect(url, max_size=4 * 1024 * 1024) as ws:
         print("bridge: connected to relay, waiting for config", flush=True)
         raw = await asyncio.wait_for(ws.recv(), timeout=120)
-        config = json.loads(raw if isinstance(raw, str) else raw.decode())
+        config = to_json(raw)
         secret = config.get("api_key")
         print(f"bridge: config: {json.dumps(redact(config, secret))}", flush=True)
         prompt = config.get("prompt", "")
@@ -83,7 +95,9 @@ async def main(url: str):
             print(f"bridge: <- {method} id={mid}", flush=True)
 
             async def send(payload):
-                await ws.send(json.dumps(payload))
+                # PTY-style framing (MSG_DATA prefix) like terminal_runner,
+                # so any relay viewer handles the bytes uniformly.
+                await ws.send(bytes([MSG_DATA]) + json.dumps(payload).encode())
                 logged = redact(payload, secret)
                 print(f"bridge: -> {json.dumps(logged)[:300]}", flush=True)
 
@@ -105,6 +119,7 @@ async def main(url: str):
                                                "update": {"sessionUpdate": "agent_message_chunk",
                                                           "content": {"type": "text", "text": part}}}})
                 await send({"jsonrpc": "2.0", "id": mid, "result": {"stopReason": "end_turn"}})
+                await ws.send(bytes([MSG_EXIT, 0]))
                 print("bridge: prompt complete, exiting", flush=True)
                 return
             else:

@@ -239,18 +239,28 @@ func (c *Client) RunACPSession(ctx context.Context, relayURL string, cfg ACPMode
 	}
 
 	read := func() (rpcMsg, error) {
-		_, data, err := conn.Read(ctx)
-		if err != nil {
-			return rpcMsg{}, err
+		for {
+			_, data, err := conn.Read(ctx)
+			if err != nil {
+				return rpcMsg{}, err
+			}
+			if len(data) == 0 {
+				continue
+			}
+			// PTY-style framing like the harness runner uses: 0x00 is
+			// data, 0x02 is the runner exiting.
+			if data[0] == 0x02 {
+				return rpcMsg{JSONRPC: "2.0", Method: "exit"}, nil
+			}
+			if data[0] <= 0x03 {
+				data = data[1:]
+			}
+			var msg rpcMsg
+			if err := json.Unmarshal(data, &msg); err != nil {
+				return rpcMsg{}, fmt.Errorf("Failed to decode ACP frame: %w", err)
+			}
+			return msg, nil
 		}
-		if len(data) > 0 && data[0] == 0x00 {
-			data = data[1:]
-		}
-		var msg rpcMsg
-		if err := json.Unmarshal(data, &msg); err != nil {
-			return rpcMsg{}, fmt.Errorf("Failed to decode ACP frame: %w", err)
-		}
-		return msg, nil
 	}
 
 	waitID := func(id int) (rpcMsg, error) {
@@ -299,6 +309,10 @@ func (c *Client) RunACPSession(ctx context.Context, relayURL string, cfg ACPMode
 		msg, err := read()
 		if err != nil {
 			return err
+		}
+		if msg.Method == "exit" {
+			fmt.Fprintln(out)
+			return nil
 		}
 		if msg.Method == "session/update" {
 			if text := agentChunkText(msg); text != "" {

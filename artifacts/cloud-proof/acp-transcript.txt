@@ -36,6 +36,7 @@ Frame exchange (browser=Star, runner=acp_bridge.py):
                         "update":{"sessionUpdate":"agent_message_chunk",
                                   "content":{"type":"text","text":"ACP-OK"}}}}
   runner  -> {"jsonrpc":"2.0","id":3,"result":{"stopReason":"end_turn"}}
+  runner  -> PTY-style exit frame (0x02, code 0); Star returns 0
 
 Assistant text out (Star stdout):
   CLOUD-ACP-OK
