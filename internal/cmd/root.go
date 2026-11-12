@@ -76,6 +76,7 @@ func init() {
 		schemaCmd,
 		loginCmd,
 		acpCmd,
+		cloudCmd,
 		statsCmd,
 		sessionCmd,
 		pluginCmd,
