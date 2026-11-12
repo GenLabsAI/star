@@ -26,6 +26,22 @@ like a TV screen.
 * `../harness/` — read-only reference copy of public
   `GenLabsAI/opencode-action-harness` (not committed).
 
+## ACP leg (passes): Star cloud session carrying model config
+
+`star cloud acp --prompt ... [--model ...] [--base-url ...]` reads the
+inference key from `NVIDIA_API_KEY` (env only), creates the session
+(sessionid cookie or Bearer, like prod), sends an `acp_init` config
+frame `{prompt, model, base_url, api_key}` over the relay, then runs
+`initialize` / `session/new` / `session/prompt` and prints the
+streamed `agent_message_chunk` text. The reference runner
+(`acp_bridge.py`, the GH-actions side) reads the config, calls the
+model, and answers with real ACP frames. Verified live against the
+mock relay with NVIDIA `mistralai/mistral-large-4-1t-a52b`: prompt in,
+`CLOUD-ACP-OK` out. Full exchange in `acp-transcript.txt` (key
+redacted; repo swept clean). Deca provider/config untouched — the
+default model flags and all pre-existing `star cloud` commands behave
+as before.
+
 ## Local end-to-end (passes)
 
 Uses the REAL star binary and the REAL harness `terminal_runner.py`:

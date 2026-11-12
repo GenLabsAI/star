@@ -1,0 +1,52 @@
+ACP CLOUD SESSION PROOF (local mock relay, real Star binary, real NVIDIA inference)
+============================================================================
+Date: 2026-11-12. Secrets env-only; swept clean (no nvapi-/sessionid values).
+
+Prompt in (star cloud acp --prompt):
+  "Reply with exactly: CLOUD-ACP-OK"
+  model=mistralai/mistral-large-4-1t-a52b
+  base_url=https://integrate.api.nvidia.com/v1
+  apikey=NVIDIA_API_KEY (env only, sent over relay, never logged)
+
+Auth: sessionid cookie (test-session-id), same path prod uses.
+
+Frame exchange (browser=Star, runner=acp_bridge.py):
+  browser -> {"type":"acp_init","prompt":"Reply with exactly: CLOUD-ACP-OK",
+              "model":"mistralai/mistral-large-4-1t-a52b",
+              "base_url":"https://integrate.api.nvidia.com/v1",
+              "api_key":"***REDACTED***"}
+  browser -> {"jsonrpc":"2.0","id":1,"method":"initialize",
+              "params":{"protocolVersion":1}}
+  runner  -> {"jsonrpc":"2.0","id":1,"result":{"protocolVersion":1,
+              "agentCapabilities":{},"agentInfo":{"name":"cloud-acp-bridge",
+              "version":"0.1.0"},"authMethods":[]}}
+  browser -> {"jsonrpc":"2.0","id":2,"method":"session/new",
+              "params":{"cwd":"/tmp","mcpServers":[]}}
+  runner  -> {"jsonrpc":"2.0","id":2,"result":{"sessionId":"sess-cloud-1"}}
+  browser -> {"jsonrpc":"2.0","id":3,"method":"session/prompt",
+              "params":{"sessionId":"sess-cloud-1",
+                        "prompt":[{"type":"text",
+                                   "text":"Reply with exactly: CLOUD-ACP-OK"}]}}
+  runner  -> {"jsonrpc":"2.0","method":"session/update",
+              "params":{"sessionId":"sess-cloud-1",
+                        "update":{"sessionUpdate":"agent_message_chunk",
+                                  "content":{"type":"text","text":"CLOUD-"}}}}
+  runner  -> {"jsonrpc":"2.0","method":"session/update",
+              "params":{"sessionId":"sess-cloud-1",
+                        "update":{"sessionUpdate":"agent_message_chunk",
+                                  "content":{"type":"text","text":"ACP-OK"}}}}
+  runner  -> {"jsonrpc":"2.0","id":3,"result":{"stopReason":"end_turn"}}
+
+Assistant text out (Star stdout):
+  CLOUD-ACP-OK
+
+Result: exit 0. Relay paired 5 runner + 4 browser messages. The two
+agent_message_chunk deltas reassemble to the model's exact reply.
+
+Mapping to prod (api.genlabs.dev): same session-create
+(POST /deca/v1/terminal/session, sessionid cookie), same WS URL shape
+wss://api.genlabs.dev/terminal/browser/<id> (viewer) and
+.../terminal/runner/<id> (cloud side). The only missing prod piece is a
+relay handler that reads the acp_init config frame and spawns an ACP
+agent instead of a PTY; frames above are exactly what it must speak.
+Deca provider/config on the runner is untouched by this change.

@@ -181,6 +181,159 @@ func (c *Client) WatchTerminal(ctx context.Context, relayURL string, out io.Writ
 	}
 }
 
+// ACPModelConfig carries the inference access point Star sends over the relay
+// so the cloud runner knows where to get inference from. The API key
+// travels only in memory and over the relay frame; it is never logged.
+type ACPModelConfig struct {
+	Prompt  string
+	Model   string
+	BaseURL string
+	APIKey  string
+}
+
+// rpcMsg is a minimal JSON-RPC 2.0 envelope for the ACP frames Star
+// exchanges with the cloud agent.
+type rpcMsg struct {
+	JSONRPC string `json:"jsonrpc"`
+	ID      any    `json:"id,omitempty"`
+	Method  string `json:"method,omitempty"`
+	Params  any    `json:"params,omitempty"`
+	Result  any    `json:"result,omitempty"`
+	Error   any    `json:"error,omitempty"`
+}
+
+// RunACPSession performs the cloud ACP leg over a relay browser URL:
+// it sends the model config frame, runs initialize/session-new/prompt,
+// and writes the agent's message text to out. It returns when the
+// prompt result arrives or ctx ends.
+func (c *Client) RunACPSession(ctx context.Context, relayURL string, cfg ACPModelConfig, out io.Writer) error {
+	conn, _, err := websocket.Dial(ctx, relayURL, nil)
+	if err != nil {
+		return fmt.Errorf("Failed to connect to relay: %w", err)
+	}
+	defer conn.Close(websocket.StatusNormalClosure, "done")
+
+	write := func(v any) error {
+		data, err := json.Marshal(v)
+		if err != nil {
+			return err
+		}
+		return conn.Write(ctx, websocket.MessageText, data)
+	}
+
+	// The config frame is relay-protocol, not ACP: it tells the cloud
+	// side which model endpoint and key to use for inference.
+	if err := write(map[string]any{
+		"type":     "acp_init",
+		"prompt":   cfg.Prompt,
+		"model":    cfg.Model,
+		"base_url": cfg.BaseURL,
+		"api_key":  cfg.APIKey,
+	}); err != nil {
+		return fmt.Errorf("Failed to send session config: %w", err)
+	}
+
+	if err := write(rpcMsg{JSONRPC: "2.0", ID: 1, Method: "initialize",
+		Params: map[string]any{"protocolVersion": 1}}); err != nil {
+		return err
+	}
+
+	read := func() (rpcMsg, error) {
+		_, data, err := conn.Read(ctx)
+		if err != nil {
+			return rpcMsg{}, err
+		}
+		if len(data) > 0 && data[0] == 0x00 {
+			data = data[1:]
+		}
+		var msg rpcMsg
+		if err := json.Unmarshal(data, &msg); err != nil {
+			return rpcMsg{}, fmt.Errorf("Failed to decode ACP frame: %w", err)
+		}
+		return msg, nil
+	}
+
+	waitID := func(id int) (rpcMsg, error) {
+		for {
+			msg, err := read()
+			if err != nil {
+				return msg, err
+			}
+			if msg.Method != "" {
+				if text := agentChunkText(msg); text != "" {
+					fmt.Fprint(out, text)
+				}
+				continue
+			}
+			if fmt.Sprint(msg.ID) == fmt.Sprint(id) {
+				return msg, nil
+			}
+		}
+	}
+
+	if _, err := waitID(1); err != nil {
+		return fmt.Errorf("ACP initialize failed: %w", err)
+	}
+	if err := write(rpcMsg{JSONRPC: "2.0", ID: 2, Method: "session/new",
+		Params: map[string]any{"cwd": "/tmp", "mcpServers": []any{}}}); err != nil {
+		return err
+	}
+	newResp, err := waitID(2)
+	if err != nil {
+		return fmt.Errorf("ACP session/new failed: %w", err)
+	}
+	sessionID := "cloud-1"
+	if m, ok := newResp.Result.(map[string]any); ok {
+		if s, ok := m["sessionId"].(string); ok && s != "" {
+			sessionID = s
+		}
+	}
+	if err := write(rpcMsg{JSONRPC: "2.0", ID: 3, Method: "session/prompt",
+		Params: map[string]any{
+			"sessionId": sessionID,
+			"prompt":    []any{map[string]any{"type": "text", "text": cfg.Prompt}},
+		}}); err != nil {
+		return err
+	}
+	for {
+		msg, err := read()
+		if err != nil {
+			return err
+		}
+		if msg.Method == "session/update" {
+			if text := agentChunkText(msg); text != "" {
+				fmt.Fprint(out, text)
+			}
+			continue
+		}
+		if msg.Method == "" && fmt.Sprint(msg.ID) == "3" {
+			fmt.Fprintln(out)
+			return nil
+		}
+	}
+}
+
+// agentChunkText extracts streamed agent text from a session/update frame.
+func agentChunkText(msg rpcMsg) string {
+	params, ok := msg.Params.(map[string]any)
+	if !ok {
+		return ""
+	}
+	update, ok := params["update"].(map[string]any)
+	if !ok {
+		return ""
+	}
+	if update["sessionUpdate"] != "agent_message_chunk" {
+		return ""
+	}
+	content, ok := update["content"].(map[string]any)
+	if !ok {
+		return ""
+	}
+	text, _ := content["text"].(string)
+	return text
+}
+
 func exitCodeOf(frame []byte) int {
 	if len(frame) > 1 {
 		return int(frame[1])
