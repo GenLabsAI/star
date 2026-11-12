@@ -1,57 +1,75 @@
-# Cloud proof: Star -> Agent Jobs API -> harness
+# Cloud proof: Star -> API -> harness runner -> back
 
-Goal: prove Star TUI talks to the Agent Jobs API in `genlabsapi` and
-`genlabsapi` talks to the harness (`opencode-action-harness`) runner,
-using the exact HTTP contract the GitHub Actions worker uses.
+Goal: prove a cloud agent loop where Star creates a session on the API,
+the harness runner executes in the cloud, and Star watches the stream
+like a TV screen.
 
 ## What exists now
 
-* `internal/cloud/client.go` — Go client for the Agent Jobs API.
-  User calls use `Authorization: Bearer`, worker calls use
-  `X-Worker-Token`, matching `../harness/runner.py`.
-* `internal/cmd/cloud.go` — `star cloud status` (user-auth reachability
-  check) and `star cloud job [id]` (worker-auth job fetch). Registered
-  on the root command. Credentials only via env:
+* `internal/cloud/client.go` — API client. User calls use
+  `Authorization: Bearer`; worker calls use `X-Worker-Token` (same
+  headers as the harness). `CreateTerminalSession` matches prod's
+  `POST /deca/v1/terminal/session`; `WatchTerminal` streams a relay
+  browser URL, stripping the harness PTY frame byte.
+* `internal/cmd/cloud.go` — `star cloud status|job|session|attach`,
+  registered on the root command. Credentials only via env:
   `DECA_AGENT_API_BASE_URL`, `DECA_API_KEY`,
   `DECA_AGENT_WORKER_TOKEN`, `DECA_AGENT_JOB_ID`.
-* `mock_agent_jobs.py` — local mock of the API implementing the
-  `runner.py` contract (`POST .../jobs/<id>/events`,
-  `PATCH .../jobs/<id>`, `GET .../jobs`, `GET .../jobs/<id>`).
-* `probe_agent_jobs.py` — user-side + worker-side probe. Works against
-  the mock or prod, driven entirely by env (no secrets in files).
-* `../harness/` — read-only reference copy of
-  `GenLabsAI/opencode-action-harness` (public) for contract checks.
+* `mock_agent_jobs.py` — mock of the harness `runner.py` jobs contract
+  (`/deca-agents/v1/jobs/...`). Used to verify Star + `runner.py`
+  helpers speak the same protocol.
+* `mock_terminal_relay.py` — mock of prod's
+  `terminal_relay/flask_relay.py` + session create: pairs
+  `/terminal/runner/<id>` with `/terminal/browser/<id>` and pumps
+  bytes both ways, like prod.
+* `probe_agent_jobs.py` — env-driven probe for mock or prod.
+* `../harness/` — read-only reference copy of public
+  `GenLabsAI/opencode-action-harness` (not committed).
 
-## Local proof (passes)
+## Local end-to-end (passes)
 
-```sh
-cd artifacts/cloud-proof
-python3 mock_agent_jobs.py 8931 &
-DECA_AGENT_API_BASE_URL=http://127.0.0.1:8931 DECA_API_KEY=user-secret \
-  DECA_AGENT_WORKER_TOKEN=worker-secret python3 probe_agent_jobs.py
-```
-
-Also verified: the real `runner.py` helpers (`post_json`,
-`flush_events`, `patch_status`) against the mock, and
-`go vet ./internal/cloud/ ./internal/cmd/` clean.
-
-## Prod proof (needs you)
-
-In a terminal with this repo checked out:
+Uses the REAL star binary and the REAL harness `terminal_runner.py`:
 
 ```sh
-export PATH="$HOME/.koyeb/bin:$PATH"
-koyeb login            # paste a token from https://app.koyeb.com/user/settings/api
-koyeb apps list        # find the genlabsapi app -> prod API base URL
-
-export DECA_AGENT_API_BASE_URL="https://<genlabsapi-host>"
-export DECA_API_KEY="<your deca key>"            # never commit this
-export DECA_AGENT_WORKER_TOKEN="<worker token>"  # only for worker-side check
-export DECA_AGENT_JOB_ID="<job id>"              # only for worker-side check
-python3 artifacts/cloud-proof/probe_agent_jobs.py
+python3 mock_terminal_relay.py 8939 &
+export DECA_AGENT_API_BASE_URL=http://127.0.0.1:8939 DECA_API_KEY=user-secret
+OUT=$(star cloud session)   # -> session_id + ws://.../terminal/browser/<id>
+star cloud attach <relay-url> &   # the TV screen
+python3 ../harness/terminal_runner.py \
+  --relay-url ws://127.0.0.1:8939/terminal/runner/<id> \
+  --command "printf 'CLOUD-AGENT-READY\n'; echo hello-from-cloud" \
+  --session-token t --api-base-url http://127.0.0.1:8939 \
+  --deca-api-key user-secret --session-id <id>
 ```
 
-Still needed: `gh auth login` (to clone private `genlabsapi` and find
-the real `/deca-agents/v1/jobs` handlers), then replace the guessed
-user-side paths in `client.go:Pong` with the real ones and re-run the
-probe against prod.
+Viewer output:
+
+```
+CLOUD-AGENT-READY
+hello-from-cloud
+
+[agent exited: code 0]
+```
+
+`go vet ./internal/cloud/ ./internal/cmd/` and `gofmt` clean.
+`go.mod` promotes `github.com/coder/websocket` (already a dependency)
+to direct use.
+
+## Prod status (api.genlabs.dev, verified live)
+
+* Reachable; `/deca/v1/models` 200; service `genlabsapi` HEALTHY.
+* `POST /deca/v1/terminal/session` route EXISTS (returns 401 JSON, not
+  404) and dispatches `terminal-session.yml` in
+  `GenLabsAI/opencode-action-harness` on success — this is the live
+  Star->API->opencode path.
+* Relay WS routes `/terminal/runner/<id>` + `/terminal/browser/<id>`
+  are registered in the deployed app.
+* `/deca-agents/v1/jobs/*` does NOT exist in prod (clean 404s).
+* The supplied Deca key 401s on every authed endpoint tested
+  (`/terminal/session`, `/profile`, `/usage`) — it is in neither the
+  `TrustKeys` nor `OpencodeApiKeys` tables, so no live session could
+  be created with it. A working user key (`deca_oc_...` or TrustKey)
+  is the one remaining input for the live run:
+  `star cloud session` -> real GH Actions runner -> `star cloud attach`.
+* Bonus fix found by probing: prod 400s bodyless GETs carrying
+  `Content-Type`; the Go client only sends it with a body now.

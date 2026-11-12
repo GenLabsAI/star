@@ -72,7 +72,44 @@ var cloudJobCmd = &cobra.Command{
 	},
 }
 
+var cloudSessionCmd = &cobra.Command{
+	Use:   "session",
+	Short: "Create a cloud terminal session (prod relay protocol)",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		base := os.Getenv("DECA_AGENT_API_BASE_URL")
+		if base == "" {
+			return fmt.Errorf("DECA_AGENT_API_BASE_URL is required")
+		}
+		client := cloud.NewClient(base, os.Getenv("DECA_API_KEY"), os.Getenv("DECA_AGENT_WORKER_TOKEN"))
+		ctx, cancel := context.WithTimeout(cmd.Context(), 60*time.Second)
+		defer cancel()
+		sessionID, relayURL, err := client.CreateTerminalSession(ctx)
+		if err != nil {
+			return err
+		}
+		fmt.Println(sessionID)
+		fmt.Println(relayURL)
+		return nil
+	},
+}
+
+var cloudAttachCmd = &cobra.Command{
+	Use:   "attach <relay-url>",
+	Short: "Watch a cloud terminal session stream (TV screen)",
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		base := os.Getenv("DECA_AGENT_API_BASE_URL")
+		if base == "" {
+			return fmt.Errorf("DECA_AGENT_API_BASE_URL is required")
+		}
+		client := cloud.NewClient(base, os.Getenv("DECA_API_KEY"), os.Getenv("DECA_AGENT_WORKER_TOKEN"))
+		return client.WatchTerminal(cmd.Context(), args[0], os.Stdout)
+	},
+}
+
 func init() {
 	cloudCmd.AddCommand(cloudPingCmd)
 	cloudCmd.AddCommand(cloudJobCmd)
+	cloudCmd.AddCommand(cloudSessionCmd)
+	cloudCmd.AddCommand(cloudAttachCmd)
 }

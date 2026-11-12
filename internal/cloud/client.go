@@ -17,6 +17,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/coder/websocket"
 )
 
 // Client talks to the Agent Jobs API rooted at baseURL, e.g.
@@ -94,6 +96,77 @@ func (c *Client) Ping(ctx context.Context) (string, error) {
 		}
 	}
 	return "", fmt.Errorf("API base did not answer on known paths")
+}
+
+// TerminalSession mirrors the prod terminal relay session create:
+// POST /deca/v1/terminal/session with the user's Bearer key returns
+// the session id plus the browser WS URL to watch it on.
+func (c *Client) CreateTerminalSession(ctx context.Context) (sessionID, relayURL string, err error) {
+	body, status, err := c.do(ctx, http.MethodPost, "/deca/v1/terminal/session", false, map[string]any{})
+	if err != nil {
+		return "", "", err
+	}
+	if status != http.StatusOK {
+		return "", "", fmt.Errorf("Session create failed: HTTP %d: %s", status, truncate(string(body), 300))
+	}
+	var out struct {
+		SessionID string `json:"session_id"`
+		RelayURL  string `json:"relay_url"`
+	}
+	if err := json.Unmarshal(body, &out); err != nil {
+		return "", "", fmt.Errorf("Failed to decode session response: %w", err)
+	}
+	if out.SessionID == "" || out.RelayURL == "" {
+		return "", "", fmt.Errorf("Session create returned no session: %s", truncate(string(body), 300))
+	}
+	return out.SessionID, out.RelayURL, nil
+}
+
+// WatchTerminal attaches to a terminal relay browser URL and copies the
+// agent's PTY bytes to out, like watching the prod relay's TV screen.
+// The runner frames PTY output as a leading type byte (0x00 = data,
+// 0x02 = exit, 0x03 = ping, mirroring the harness protocol); the type
+// byte is stripped before writing. It returns when the relay closes the
+// stream or ctx ends.
+func (c *Client) WatchTerminal(ctx context.Context, relayURL string, out io.Writer) error {
+	conn, _, err := websocket.Dial(ctx, relayURL, nil)
+	if err != nil {
+		return fmt.Errorf("Failed to connect to relay: %w", err)
+	}
+	defer conn.Close(websocket.StatusNormalClosure, "done")
+	for {
+		_, data, err := conn.Read(ctx)
+		if err != nil {
+			if websocket.CloseStatus(err) != -1 {
+				return nil
+			}
+			return fmt.Errorf("Relay read failed: %w", err)
+		}
+		if len(data) == 0 {
+			continue
+		}
+		payload := data
+		if data[0] <= 0x03 {
+			if data[0] == 0x02 {
+				fmt.Fprintf(out, "\n[agent exited: code %d]\n", exitCodeOf(data))
+				return nil
+			}
+			if data[0] == 0x03 {
+				continue
+			}
+			payload = data[1:]
+		}
+		if _, err := out.Write(payload); err != nil {
+			return err
+		}
+	}
+}
+
+func exitCodeOf(frame []byte) int {
+	if len(frame) > 1 {
+		return int(frame[1])
+	}
+	return 0
 }
 
 // JobStatus fetches one job as the worker would (X-Worker-Token).
