@@ -17,6 +17,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/coder/websocket"
@@ -259,11 +260,35 @@ func (c *Client) RunACPSession(ctx context.Context, relayURL string, cfg ACPMode
 	}
 	defer conn.Close(websocket.StatusNormalClosure, "done")
 
+	// The relay kills a direction after ~1s with no frames (see the
+	// _pump idle handling server-side), so keep this direction alive
+	// with bare ping bytes while the model thinks. The runner ignores
+	// non-JSON frames. Stops when the session returns.
+	var wmu sync.Mutex
+	done := make(chan struct{})
+	defer close(done)
+	go func() {
+		t := time.NewTicker(500 * time.Millisecond)
+		defer t.Stop()
+		for {
+			select {
+			case <-done:
+				return
+			case <-t.C:
+				wmu.Lock()
+				_ = conn.Write(ctx, websocket.MessageBinary, []byte{0x03})
+				wmu.Unlock()
+			}
+		}
+	}()
+
 	write := func(v any) error {
 		data, err := json.Marshal(v)
 		if err != nil {
 			return err
 		}
+		wmu.Lock()
+		defer wmu.Unlock()
 		return conn.Write(ctx, websocket.MessageText, data)
 	}
 
@@ -300,6 +325,9 @@ func (c *Client) RunACPSession(ctx context.Context, relayURL string, cfg ACPMode
 			}
 			if data[0] <= 0x03 {
 				data = data[1:]
+			}
+			if len(data) == 0 {
+				continue
 			}
 			var msg rpcMsg
 			if err := json.Unmarshal(data, &msg); err != nil {
