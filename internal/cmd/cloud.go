@@ -72,9 +72,11 @@ var cloudJobCmd = &cobra.Command{
 	},
 }
 
+var cloudSessionACP = false
+
 var cloudSessionCmd = &cobra.Command{
 	Use:   "session",
-	Short: "Create a cloud terminal session (prod relay protocol)",
+	Short: "Create a cloud session (terminal PTY, or --acp for the ACP agent route)",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		base := os.Getenv("DECA_AGENT_API_BASE_URL")
 		if base == "" {
@@ -83,7 +85,13 @@ var cloudSessionCmd = &cobra.Command{
 		client := cloud.NewClient(base, os.Getenv("DECA_API_KEY"), os.Getenv("DECA_AGENT_WORKER_TOKEN"))
 		ctx, cancel := context.WithTimeout(cmd.Context(), 60*time.Second)
 		defer cancel()
-		sessionID, relayURL, err := client.CreateTerminalSession(ctx)
+		sessionID, relayURL := "", ""
+		var err error
+		if cloudSessionACP {
+			sessionID, relayURL, err = client.CreateACPSession(ctx)
+		} else {
+			sessionID, relayURL, err = client.CreateTerminalSession(ctx)
+		}
 		if err != nil {
 			return err
 		}
@@ -204,6 +212,7 @@ memory and is never printed.`,
 }
 
 func init() {
+	cloudSessionCmd.Flags().BoolVar(&cloudSessionACP, "acp", false, "Use the ACP agent session route instead of the terminal PTY")
 	cloudInferCmd.Flags().StringVar(&cloudInferPrompt, "prompt", "", "Prompt to send")
 	cloudInferCmd.Flags().StringVar(&cloudInferModel, "model", "deca-2.5-mini", "Deca model id")
 	cloudCmd.AddCommand(cloudInferCmd)

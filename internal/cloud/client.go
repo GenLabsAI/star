@@ -167,6 +167,32 @@ func (c *Client) CreateTerminalSession(ctx context.Context) (sessionID, relayURL
 // 0x02 = exit, 0x03 = ping, mirroring the harness protocol); the type
 // byte is stripped before writing. It returns when the relay closes the
 // stream or ctx ends.
+// CreateACPSession creates a cloud ACP agent session. It hits the ACP
+// session route (POST /deca/v1/cloud/acp/session), which mirrors the
+// terminal session flow but dispatches the ACP bridge workflow instead of
+// the interactive PTY. On servers that predate the route it returns the
+// 404 body as an error.
+func (c *Client) CreateACPSession(ctx context.Context) (sessionID, relayURL string, err error) {
+	body, status, err := c.do(ctx, http.MethodPost, "/deca/v1/cloud/acp/session", false, map[string]any{})
+	if err != nil {
+		return "", "", err
+	}
+	if status != http.StatusOK {
+		return "", "", fmt.Errorf("ACP session create failed: HTTP %d: %s", status, truncate(string(body), 300))
+	}
+	var out struct {
+		SessionID string `json:"session_id"`
+		RelayURL  string `json:"relay_url"`
+	}
+	if err := json.Unmarshal(body, &out); err != nil {
+		return "", "", fmt.Errorf("Failed to decode ACP session response: %w", err)
+	}
+	if out.SessionID == "" || out.RelayURL == "" {
+		return "", "", fmt.Errorf("ACP session create returned no session: %s", truncate(string(body), 300))
+	}
+	return out.SessionID, out.RelayURL, nil
+}
+
 func (c *Client) WatchTerminal(ctx context.Context, relayURL string, out io.Writer) error {
 	conn, _, err := websocket.Dial(ctx, relayURL, nil)
 	if err != nil {
