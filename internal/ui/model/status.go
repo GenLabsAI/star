@@ -40,6 +40,7 @@ type Status struct {
 	inputMode uiInputMode
 	yolo      bool
 	yeehaw    bool
+	cloud     bool
 }
 
 // NewStatus creates a new status bar and help model.
@@ -80,6 +81,12 @@ func (s *Status) SetMode(mode uiInputMode, yolo bool) {
 	s.yolo = yolo
 }
 
+// SetCloudMode reports whether the current session's prompts run on a
+// cloud machine; when true the status bar shows a CLOUD badge.
+func (s *Status) SetCloudMode(cloud bool) {
+	s.cloud = cloud
+}
+
 // SetYeehaw sets the yeehaw state used for the mode badge. It is orthogonal
 // to the input mode and YOLO state.
 func (s *Status) SetYeehaw(yeehaw bool) {
@@ -101,6 +108,9 @@ func (s *Status) modeBadge() string {
 	}
 	if s.yolo {
 		return t.Status.ModeBadgeYolo.String()
+	}
+	if s.cloud {
+		return t.Status.ModeBadgeCloud.String()
 	}
 	return ""
 }

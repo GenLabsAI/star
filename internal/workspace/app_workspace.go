@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"sync"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -33,6 +34,9 @@ import (
 type AppWorkspace struct {
 	app   *app.App
 	store *config.ConfigStore
+	// cloudMu guards cloudRuns: at most one cloud turn per session.
+	cloudMu   sync.Mutex
+	cloudRuns map[string]context.CancelFunc
 }
 
 // NewAppWorkspace creates a new AppWorkspace wrapping the given app
@@ -191,6 +195,12 @@ func (w *AppWorkspace) AgentRunShellCommand(ctx context.Context, sessionID, comm
 }
 
 func (w *AppWorkspace) AgentCancel(sessionID string) {
+	w.cloudMu.Lock()
+	cancel, ok := w.cloudRuns[sessionID]
+	w.cloudMu.Unlock()
+	if ok && cancel != nil {
+		cancel()
+	}
 	if w.app.AgentCoordinator != nil {
 		w.app.AgentCoordinator.Cancel(sessionID)
 	}
@@ -203,6 +213,9 @@ func (w *AppWorkspace) AgentWakeupCancel(sessionID string) {
 }
 
 func (w *AppWorkspace) AgentIsBusy() bool {
+	if w.AgentIsCloudBusy() {
+		return true
+	}
 	if w.app.AgentCoordinator == nil {
 		return false
 	}
@@ -210,6 +223,9 @@ func (w *AppWorkspace) AgentIsBusy() bool {
 }
 
 func (w *AppWorkspace) AgentIsSessionBusy(sessionID string) bool {
+	if w.AgentIsCloudSessionBusy(sessionID) {
+		return true
+	}
 	if w.app.AgentCoordinator == nil {
 		return false
 	}

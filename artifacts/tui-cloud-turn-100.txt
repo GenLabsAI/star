@@ -1,0 +1,29 @@
+
+  ╱╱╱ STAR ╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱ /tmp/crush-test • ctrl+d open 
+
+ │ Run a quick check on the cloud machine and tell me what you see.                               
+
+   I'm on the cloud machine. Let me look around before answering.                                 
+
+ ▌ ✓ Ran 1 command, Read 1 file (double-click to expand)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+ ┃                                                                                                 
+ ┃                                                                                                 
+ ┃                                                                                                 
+
+  CLOUD   tab focus editor • shift+tab mode • ctrl+p commands • ctrl+l models • ↑↓ scroll …

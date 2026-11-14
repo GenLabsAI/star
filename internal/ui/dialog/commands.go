@@ -453,6 +453,8 @@ func (c *Commands) defaultCommands() []*CommandItem {
 		NewCommandItem(c.com.Styles, "switch_session", "Sessions", "ctrl+s", ActionOpenDialog{SessionsID}),
 		NewCommandItem(c.com.Styles, "search", "Search", "ctrl+shift+f", ActionOpenDialog{SearchID}),
 		NewCommandItem(c.com.Styles, "switch_model", "Switch Model", "ctrl+l", ActionOpenDialog{ModelsID}),
+		NewCommandItem(c.com.Styles, "cloud", "Cloud Mode", "", ActionToggleCloudMode{}).
+			WithDescription("Run prompts on a cloud machine"),
 	}
 
 	// Only show session-scoped commands if there's an active session.

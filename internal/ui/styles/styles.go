@@ -607,6 +607,7 @@ type Styles struct {
 		ModeBadgePlan   lipgloss.Style
 		ModeBadgeYolo   lipgloss.Style
 		ModeBadgeYeehaw lipgloss.Style
+		ModeBadgeCloud  lipgloss.Style
 
 		// Full-width banners shown when switching modes.
 		ModeBannerPlan      lipgloss.Style

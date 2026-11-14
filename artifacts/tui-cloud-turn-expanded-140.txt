@@ -1,0 +1,44 @@
+
+ │ Run a quick check on the cloud machine and tell me what you see.                                         ╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱
+                                                                                                            ╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱
+   I'm on the cloud machine. Let me look around before answering.                                           de el ╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱
+                                                                                                            ╭──╮╶─┬─╴╭──╮ ╭──╮ ╱╱╱╱╱╱╱╱╱╱
+ ▌ ✓ Ran 1 command, Read 1 file (double-click to collapse)                                                  ╰──╮  │  ├──┤ ├─┬╯ ╱╱╱╱╱╱╱╱╱╱
+ ▌                                                                                                          ╰──╯  ╵  ╵  ╵ ╵ ╰╴ ╱╱╱╱╱╱╱╱╱╱
+ ▌ ✓ Bash uname -a && pwd && ls                                                                             ╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱
+ ▌
+ ▌    Linux cloud-runner 6.8.0 #1 SMP x86_64 GNU/Linux                                                
+ ▌    /home/runner/work/star                                                                          
+ ▌    NOTES.md                                                                                              /tmp/crush-test
+ ▌    src                                                                                             
+ ▌                                                                                                          ◇
+ ▌ ✓ View /tmp/cloud-demo/NOTES.md
+ ▌                                                                                                          Modified Files ──────────────
+ ▌    1        1  # Cloud workspace                                                                     
+ ▌    2        2  This machine is not your laptop.                                                          None
+ ▌    3        3  Prompts run here; the TUI streams the results back.                                   
+                                                                                                            LSPs ────────────────────────
+
+                                                                                                            None
+
+                                                                                                            MCPs ────────────────────────
+
+                                                                                                            None
+
+                                                                                                            Skills ──────────────────────
+
+                                                                                                            ● crush-config
+                                                                                                            ● crush-hooks
+                                                                                                            ● jq
+
+
+
+
+
+
+
+ ┃                                                                                                         
+ ┃                                                                                                         
+ ┃                                                                                                         
+
+  CLOUD   tab focus editor • shift+tab mode • ctrl+p commands • ctrl+l models • ctrl+b toggle sidebar • ↑↓ scroll …
