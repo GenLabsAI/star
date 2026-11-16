@@ -46,8 +46,15 @@ async def models(request: web.Request) -> web.Response:
 async def chat_completions(request: web.Request) -> web.Response:
     """Scripted model: first turn asks for one bash call, second answers."""
     body = await request.json()
+    # Demo pacing only: sleep before answering so a recorded turn shows
+    # the spinner and tool states. Default 0 (no behavior change).
+    await asyncio.sleep(float(os.environ.get("MOCK_LATENCY_S", "0")))
     messages = body.get("messages") or []
-    saw_tool_result = any(m.get("role") == "tool" for m in messages)
+    # Only tool results AFTER the latest user message count: with a
+    # persistent (resumed) conversation, earlier turns already have
+    # theirs, and each new prompt still earns its own tool call first.
+    last_user = max((i for i, m in enumerate(messages) if m.get("role") == "user"), default=-1)
+    saw_tool_result = any(m.get("role") == "tool" for m in messages[last_user + 1:])
     if not saw_tool_result:
         message = {
             "role": "assistant",
@@ -69,12 +76,17 @@ async def chat_completions(request: web.Request) -> web.Response:
         for m in messages:
             if m.get("role") == "tool":
                 tool_output = m.get("content") or ""
+        # History counters let resume tests prove the bridge carried the
+        # full conversation (not just the latest prompt) to the model.
+        n_prompts = sum(1 for m in messages if m.get("role") == "user")
+        n_tools = sum(1 for m in messages if m.get("role") == "tool")
         message = {
             "role": "assistant",
             "content": "This is a cloud machine, not your laptop. `uname` says "
                        f"{tool_output.splitlines()[0] if tool_output else 'unknown'}, "
                        "and the working directory is empty apart from the files below. "
-                       "Nothing was run locally.",
+                       "Nothing was run locally. "
+                       f"(history: {n_prompts} prompts, {n_tools} tool results)",
         }
     return web.json_response({"choices": [{"message": message, "index": 0}]})
 

@@ -173,25 +173,52 @@ func (c *Client) CreateTerminalSession(ctx context.Context) (sessionID, relayURL
 // terminal session flow but dispatches the ACP bridge workflow instead of
 // the interactive PTY. On servers that predate the route it returns the
 // 404 body as an error.
-func (c *Client) CreateACPSession(ctx context.Context) (sessionID, relayURL string, err error) {
-	body, status, err := c.do(ctx, http.MethodPost, "/deca/v1/cloud/acp/session", false, map[string]any{})
+//
+// chatSessionID is Star's stable chat session id — the same chat id the
+// jobs API carries as chat_session_id on the classic runner path. The
+// server forwards it as the workflow's state_key so the runner's stashed
+// state is keyed by chat, not by turn; empty preserves the old anonymous
+// call for servers and tools that do not track chats.
+func (c *Client) CreateACPSession(ctx context.Context, chatSessionID string) (sessionID, relayURL string, reused bool, err error) {
+	payload := map[string]any{}
+	if chatSessionID != "" {
+		payload["chat_session_id"] = chatSessionID
+	}
+	body, status, err := c.do(ctx, http.MethodPost, "/deca/v1/cloud/acp/session", false, payload)
 	if err != nil {
-		return "", "", err
+		return "", "", false, err
 	}
 	if status != http.StatusOK {
-		return "", "", fmt.Errorf("ACP session create failed: HTTP %d: %s", status, truncate(string(body), 300))
+		return "", "", false, fmt.Errorf("ACP session create failed: HTTP %d: %s", status, truncate(string(body), 300))
 	}
 	var out struct {
 		SessionID string `json:"session_id"`
 		RelayURL  string `json:"relay_url"`
+		Reused    bool   `json:"reused"`
 	}
 	if err := json.Unmarshal(body, &out); err != nil {
-		return "", "", fmt.Errorf("Failed to decode ACP session response: %w", err)
+		return "", "", false, fmt.Errorf("Failed to decode ACP session response: %w", err)
 	}
 	if out.SessionID == "" || out.RelayURL == "" {
-		return "", "", fmt.Errorf("ACP session create returned no session: %s", truncate(string(body), 300))
+		return "", "", false, fmt.Errorf("ACP session create returned no session: %s", truncate(string(body), 300))
 	}
-	return out.SessionID, out.RelayURL, nil
+	return out.SessionID, out.RelayURL, out.Reused, nil
+}
+
+// DeleteSession terminates a cloud terminal/ACP relay session, which also
+// cancels its GitHub Actions run. A missing session (404) counts as done.
+func (c *Client) DeleteSession(ctx context.Context, cloudSessionID string) error {
+	body, status, err := c.do(ctx, http.MethodDelete, "/deca/v1/terminal/session/"+cloudSessionID, false, nil)
+	if err != nil {
+		return err
+	}
+	if status == http.StatusNotFound {
+		return nil
+	}
+	if status != http.StatusOK {
+		return fmt.Errorf("Session delete failed: HTTP %d: %s", status, truncate(string(body), 200))
+	}
+	return nil
 }
 
 func (c *Client) WatchTerminal(ctx context.Context, relayURL string, out io.Writer) error {

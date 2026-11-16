@@ -57,7 +57,7 @@ func (m *UI) markCloudActive(sessionID string) {
 	if m.cloudActive == nil {
 		m.cloudActive = make(map[string]bool)
 	}
-	m.markCloudActive(sessionID)
+	m.cloudActive[sessionID] = true
 }
 
 // cloudModeFor reports whether cloud mode is enabled for the session.

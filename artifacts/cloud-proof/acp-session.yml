@@ -11,7 +11,7 @@
 name: "Deca ACP Session"
 
 permissions:
-  contents: read
+  contents: write
 
 on:
   workflow_dispatch:
@@ -26,6 +26,18 @@ on:
         required: false
         description: "One-time runner auth token (reserved, relay does not check it yet)"
         default: ""
+      state_key:
+        required: false
+        description: "Stable key for the agent state stash (chat session id from the dispatcher); defaults to the per-turn relay session_id"
+        default: ""
+      deca_api_key:
+        required: false
+        description: "Scoped Deca API key (reserved; the ACP bridge takes model config over the relay instead)"
+        default: ""
+      api_base_url:
+        required: false
+        description: "Deca API base URL (reserved)"
+        default: ""
 
 jobs:
   run-acp:
@@ -33,9 +45,11 @@ jobs:
     concurrency:
       group: deca-acp-${{ github.event.inputs.session_id }}
       cancel-in-progress: true
-    timeout-minutes: 30
+    # 20 min idle hold plus work headroom; still far under GitHub's 6h
+    # per-job ceiling, which never binds while this timeout is smaller.
+    timeout-minutes: 120
     permissions:
-      contents: read
+      contents: write
     steps:
       - name: Checkout harness
         uses: actions/checkout@v4
@@ -48,6 +62,56 @@ jobs:
       - name: Install bridge dependencies
         run: pip install websockets requests
 
+      - name: Restore agent state
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DECA_AGENT_STATE_PASSWORD: ${{ secrets.DECA_AGENT_STATE_PASSWORD }}
+        run: |
+          STATE_KEY="${{ inputs.state_key }}"
+          if [ -z "$STATE_KEY" ]; then STATE_KEY="${{ inputs.session_id }}"; fi
+          ID=$(printf '%s' "$STATE_KEY" | sha256sum | cut -c1-32)
+          mkdir -p /tmp/cloud-agent-state
+          if [ -n "$DECA_AGENT_STATE_PASSWORD" ] && gh release download "agent-state-$ID" \
+              --pattern agent-state.json.enc --dir /tmp/cloud-agent-state --clobber 2>/dev/null; then
+            openssl enc -d -aes-256-cbc -pbkdf2 -salt \
+              -in /tmp/cloud-agent-state/agent-state.json.enc \
+              -out "/tmp/cloud-agent-state/agent-state-$ID.json" \
+              -pass env:DECA_AGENT_STATE_PASSWORD
+            echo "Restored agent state for $ID"
+          else
+            echo "No saved agent state (or no password); starting fresh."
+          fi
+
       - name: Run ACP bridge
+        env:
+          ACP_IDLE_S: "1200"
+          ACP_IDLE_KEEPALIVE_S: "15"
+          ACP_STATE_DIR: /tmp/cloud-agent-state
+          GH_TOKEN: ${{ github.token }}
+          DECA_AGENT_STATE_PASSWORD: ${{ secrets.DECA_AGENT_STATE_PASSWORD }}
         run: |
           python acp_bridge.py "${{ github.event.inputs.relay_url }}"
+
+      - name: Save agent state
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DECA_AGENT_STATE_PASSWORD: ${{ secrets.DECA_AGENT_STATE_PASSWORD }}
+        run: |
+          STATE_KEY="${{ inputs.state_key }}"
+          if [ -z "$STATE_KEY" ]; then STATE_KEY="${{ inputs.session_id }}"; fi
+          ID=$(printf '%s' "$STATE_KEY" | sha256sum | cut -c1-32)
+          STATE_FILE="/tmp/cloud-agent-state/agent-state-$ID.json"
+          if [ -z "$DECA_AGENT_STATE_PASSWORD" ]; then
+            echo "No state password configured; skipping stash."
+            exit 0
+          fi
+          if [ ! -f "$STATE_FILE" ]; then
+            echo "No state file written; nothing to stash."
+            exit 0
+          fi
+          openssl enc -aes-256-cbc -pbkdf2 -salt -in "$STATE_FILE" \
+            -out /tmp/agent-state.json.enc -pass env:DECA_AGENT_STATE_PASSWORD
+          gh release delete "agent-state-$ID" --yes 2>/dev/null || true
+          gh release create "agent-state-$ID" /tmp/agent-state.json.enc \
+            --title "agent-state-$ID" --notes "Encrypted Deca ACP agent state" --latest=false

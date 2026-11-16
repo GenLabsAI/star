@@ -24,6 +24,17 @@ func (w *AppWorkspace) AgentRunCloud(ctx context.Context, sessionID, prompt stri
 	if err != nil {
 		return err
 	}
+	// The selected session model decides what the cloud runner calls:
+	// its provider's base URL and API key travel in the session config
+	// so picking ML4 (or deca) in the picker just works. DECA_* env
+	// stays as the headless fallback when the provider has no usable
+	// key of its own.
+	if mid, baseURL, apiKey, ok := w.cloudModelCredentials(model); ok {
+		opts.Model, opts.ModelBaseURL, opts.ModelAPIKey = mid, baseURL, apiKey
+	}
+	if opts.NeedsModel() {
+		return fmt.Errorf("Cloud mode needs DECA_MODEL, DECA_MODEL_BASE_URL and DECA_MODEL_API_KEY, or a selected model whose provider has a base URL and API key")
+	}
 	client := cloud.NewClient(opts.BaseURL, opts.UserToken, os.Getenv("DECA_AGENT_WORKER_TOKEN"))
 
 	runCtx, cancel := context.WithCancel(context.Background())
@@ -33,6 +44,42 @@ func (w *AppWorkspace) AgentRunCloud(ctx context.Context, sessionID, prompt stri
 		_ = client.RunCloudSession(runCtx, w.app.Messages, w.app.RunCompletions(), sessionID, prompt, attachments, opts)
 	}()
 	return nil
+}
+
+// cloudModelCredentials resolves the selected session model's inference
+// credentials (model id, provider base URL, API key) for the cloud
+// runner. Templates like $NVIDIA_API_KEY resolve through the
+// workspace resolver; OAuth-only or keyless providers report false so
+// the caller falls back to DECA_* env.
+func (w *AppWorkspace) cloudModelCredentials(model AgentModel) (modelID, baseURL, apiKey string, ok bool) {
+	providerID := string(model.ModelCfg.Provider)
+	modelID = model.ModelCfg.Model
+	if providerID == "" || modelID == "" {
+		return "", "", "", false
+	}
+	cfg := w.Config()
+	if cfg == nil || cfg.Providers == nil {
+		return "", "", "", false
+	}
+	pc, found := cfg.Providers.Get(providerID)
+	if !found || pc.Disable {
+		return "", "", "", false
+	}
+	resolver := w.Resolver()
+	if resolver == nil {
+		return "", "", "", false
+	}
+	// Unset $VAR templates expand to empty, so a missing credential
+	// simply reports false and the caller falls back to DECA_* env.
+	key, err := resolver.ResolveValue(pc.APIKey)
+	if err != nil || key == "" {
+		return "", "", "", false
+	}
+	base, err := resolver.ResolveValue(pc.BaseURL)
+	if err != nil || base == "" {
+		return "", "", "", false
+	}
+	return modelID, base, key, true
 }
 
 // AgentIsCloudSessionBusy reports whether a cloud turn is running for

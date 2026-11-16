@@ -29,6 +29,15 @@ import (
 // promptResultID is the JSON-RPC id the runner uses for session/prompt.
 const promptResultID = 3
 
+// initTimeout bounds the wait for the runner's initialize reply. A
+// healthy runner answers instantly (no model call); silence means its
+// socket is dead even if the server believed it live.
+const initTimeout = 45 * time.Second
+
+// errInitTimeout marks a runner that never answered initialize, so
+// the caller can cancel it and recreate the session once.
+var errInitTimeout = errors.New("Cloud runner did not answer initialize")
+
 // errRunnerNotReady means no readiness frame arrived in time; the caller
 // proceeds anyway so a runner without the handshake still works.
 var errRunnerNotReady = errors.New("cloud runner did not announce readiness")
@@ -50,11 +59,18 @@ type RunOptions struct {
 	Model        string
 	ModelBaseURL string
 	ModelAPIKey  string
+	// GitToken is an optional push credential for the cloud runner
+	// (DECA_GIT_TOKEN). It travels Star -> relay -> runner over WSS
+	// and is never written to files or logs.
+	GitToken string
 }
 
-// RunOptionsFromEnv builds RunOptions from the environment. It returns
-// an error naming the missing variable when the cloud path is not
-// configured.
+// RunOptionsFromEnv builds RunOptions from the environment. The model
+// trio (DECA_MODEL, DECA_MODEL_BASE_URL, DECA_MODEL_API_KEY) is the
+// headless fallback: callers with a selected session model (the TUI)
+// fill any gaps from the selected provider's credentials first, so the
+// model picker decides what the cloud runner calls. Only the relay
+// base URL and user credential are required here.
 func RunOptionsFromEnv(displayModel, displayProvider string) (RunOptions, error) {
 	opts := RunOptions{
 		BaseURL:         strings.TrimSpace(os.Getenv("DECA_AGENT_API_BASE_URL")),
@@ -64,6 +80,7 @@ func RunOptionsFromEnv(displayModel, displayProvider string) (RunOptions, error)
 		Model:           strings.TrimSpace(os.Getenv("DECA_MODEL")),
 		ModelBaseURL:    strings.TrimSpace(os.Getenv("DECA_MODEL_BASE_URL")),
 		ModelAPIKey:     os.Getenv("DECA_MODEL_API_KEY"),
+		GitToken:        os.Getenv("DECA_GIT_TOKEN"),
 	}
 	if opts.BaseURL == "" {
 		return opts, fmt.Errorf("Cloud mode needs DECA_AGENT_API_BASE_URL (see `star cloud status`)")
@@ -71,10 +88,14 @@ func RunOptionsFromEnv(displayModel, displayProvider string) (RunOptions, error)
 	if opts.UserToken == "" && strings.TrimSpace(os.Getenv("DECA_SESSION_ID")) == "" {
 		return opts, fmt.Errorf("Cloud mode needs DECA_API_KEY or DECA_SESSION_ID")
 	}
-	if opts.Model == "" || opts.ModelBaseURL == "" || opts.ModelAPIKey == "" {
-		return opts, fmt.Errorf("Cloud mode needs DECA_MODEL, DECA_MODEL_BASE_URL and DECA_MODEL_API_KEY for cloud inference")
-	}
 	return opts, nil
+}
+
+// NeedsModel reports whether the model trio is incomplete: the caller
+// must fill it (e.g. from the selected session model) before starting
+// a cloud turn.
+func (o RunOptions) NeedsModel() bool {
+	return o.Model == "" || o.ModelBaseURL == "" || o.ModelAPIKey == ""
 }
 
 // RunCloudSession runs one cloud turn for a Star session: it stores the
@@ -96,7 +117,10 @@ func (c *Client) RunCloudSession(ctx context.Context, msgs message.Service, runC
 		return fmt.Errorf("Failed to store prompt: %w", err)
 	}
 
-	cloudSessionID, relayURL, err := c.CreateACPSession(ctx)
+	// Star's own chat session id travels as the cloud chat id (the same
+	// chat_session_id the jobs API uses on the classic runner path), so
+	// the runner's stashed state is keyed by chat, not by turn.
+	cloudSessionID, relayURL, reused, err := c.CreateACPSession(ctx, starSessionID)
 	if err != nil {
 		return err
 	}
@@ -104,6 +128,20 @@ func (c *Client) RunCloudSession(ctx context.Context, msgs message.Service, runC
 
 	turn := &cloudTurn{msgs: msgs, sessionID: starSessionID, opts: opts}
 	turnErr := c.relayTurn(ctx, turn, relayURL, prompt)
+	if errors.Is(turnErr, errInitTimeout) && reused {
+		// The server believed a runner was live, but it never answered:
+		// its socket is a corpse. Cancel it so it cannot attract more
+		// turns, then run once more on a fresh job — which restores the
+		// chat stash, so no history is lost.
+		slog.Warn("Cloud reused runner did not answer; replacing it", "cloudSession", cloudSessionID)
+		_ = c.DeleteSession(ctx, cloudSessionID)
+		if cloudSessionID, relayURL, reused, err = c.CreateACPSession(ctx, starSessionID); err != nil {
+			turnErr = err
+		} else {
+			slog.Info("Cloud session recreated", "cloudSession", cloudSessionID, "reused", reused)
+			turnErr = c.relayTurn(ctx, turn, relayURL, prompt)
+		}
+	}
 
 	finalizeCtx := context.Background()
 	switch {
@@ -281,10 +319,14 @@ func (c *Client) relayTurn(ctx context.Context, turn *cloudTurn, relayURL, promp
 	}
 
 	if err := write(map[string]any{
-		"type":     "acp_init",
-		"model":    turn.opts.Model,
-		"base_url": turn.opts.ModelBaseURL,
-		"api_key":  turn.opts.ModelAPIKey,
+		"type":      "acp_init",
+		"model":     turn.opts.Model,
+		"base_url":  turn.opts.ModelBaseURL,
+		"api_key":   turn.opts.ModelAPIKey,
+		"git_token": turn.opts.GitToken,
+		// Same id as the chat_session_id above: the bridge persists and
+		// resumes its conversation under this key.
+		"resume_key": turn.sessionID,
 	}); err != nil {
 		return fmt.Errorf("Failed to send cloud session config: %w", err)
 	}
@@ -294,38 +336,51 @@ func (c *Client) relayTurn(ctx context.Context, turn *cloudTurn, relayURL, promp
 	}
 
 	// waitID skips notifications, translating session/update frames
-	// into the message store as they stream past.
-	waitID := func(id int) (rpcMsg, error) {
+	// into the message store as they stream past. A non-negative
+	// timeout bounds the wait: a runner that never answers is a
+	// corpse, and the caller replaces it instead of hanging forever.
+	waitID := func(id int, timeout time.Duration) (rpcMsg, error) {
+		var timeoutCh <-chan time.Time
+		if timeout >= 0 {
+			t := time.NewTimer(timeout)
+			defer t.Stop()
+			timeoutCh = t.C
+		}
 		for {
-			msg, err := next(-1)
-			if err != nil {
-				return msg, err
-			}
-			if msg.Method != "" {
-				if msg.Method == "exit" {
-					return msg, fmt.Errorf("Cloud runner exited before responding")
-				}
-				if msg.Method == "session/update" {
-					if uerr := turn.apply(msg); uerr != nil {
-						slog.Error("Failed to apply cloud update", "error", uerr)
+			select {
+			case msg := <-frames:
+				if msg.Method != "" {
+					if msg.Method == "exit" {
+						return msg, fmt.Errorf("Cloud runner exited before responding")
 					}
+					if msg.Method == "session/update" {
+						if uerr := turn.apply(msg); uerr != nil {
+							slog.Error("Failed to apply cloud update", "error", uerr)
+						}
+					}
+					continue
 				}
-				continue
-			}
-			if fmt.Sprint(msg.ID) == fmt.Sprint(id) {
-				return msg, nil
+				if fmt.Sprint(msg.ID) == fmt.Sprint(id) {
+					return msg, nil
+				}
+			case err := <-readErr:
+				return rpcMsg{}, err
+			case <-timeoutCh:
+				return rpcMsg{}, errInitTimeout
+			case <-ctx.Done():
+				return rpcMsg{}, ctx.Err()
 			}
 		}
 	}
 
-	if _, err := waitID(1); err != nil {
+	if _, err := waitID(1, initTimeout); err != nil {
 		return fmt.Errorf("Cloud ACP initialize failed: %w", err)
 	}
 	if err := write(rpcMsg{JSONRPC: "2.0", ID: 2, Method: "session/new",
 		Params: map[string]any{"cwd": "/tmp", "mcpServers": []any{}}}); err != nil {
 		return err
 	}
-	newResp, err := waitID(2)
+	newResp, err := waitID(2, -1)
 	if err != nil {
 		return fmt.Errorf("Cloud ACP session/new failed: %w", err)
 	}

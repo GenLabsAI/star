@@ -100,19 +100,23 @@ func (s *Status) modeBadge() string {
 	// Mirror the editor prompt precedence: planning wins over YOLO, which
 	// can be carried into plan mode. Yeehaw is its own badge so an
 	// unattended run is visually obvious when you return.
+	// Cloud mode composes with every other badge: a yolo cloud run shows
+	// both, so the remote-execution state is never hidden by the
+	// autonomy state.
+	cloud := ""
+	if s.cloud {
+		cloud = t.Status.ModeBadgeCloud.String()
+	}
 	if s.inputMode == uiInputModePlan {
-		return t.Status.ModeBadgePlan.String()
+		return t.Status.ModeBadgePlan.String() + cloud
 	}
 	if s.yeehaw {
-		return t.Status.ModeBadgeYeehaw.String()
+		return t.Status.ModeBadgeYeehaw.String() + cloud
 	}
 	if s.yolo {
-		return t.Status.ModeBadgeYolo.String()
+		return t.Status.ModeBadgeYolo.String() + cloud
 	}
-	if s.cloud {
-		return t.Status.ModeBadgeCloud.String()
-	}
-	return ""
+	return cloud
 }
 
 // SetWidth sets the width of the status bar and help view.

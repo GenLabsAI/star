@@ -88,7 +88,7 @@ var cloudSessionCmd = &cobra.Command{
 		sessionID, relayURL := "", ""
 		var err error
 		if cloudSessionACP {
-			sessionID, relayURL, err = client.CreateACPSession(ctx)
+			sessionID, relayURL, _, err = client.CreateACPSession(ctx, "")
 		} else {
 			sessionID, relayURL, err = client.CreateTerminalSession(ctx)
 		}
