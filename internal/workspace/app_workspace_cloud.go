@@ -35,6 +35,10 @@ func (w *AppWorkspace) AgentRunCloud(ctx context.Context, sessionID, prompt stri
 	if opts.NeedsModel() {
 		return fmt.Errorf("Cloud mode needs DECA_MODEL, DECA_MODEL_BASE_URL and DECA_MODEL_API_KEY, or a selected model whose provider has a base URL and API key")
 	}
+	// Orb lifecycle hooks travel with the turn: .agents/setup runs once
+	// on a fresh orb, .agents/resume runs on every wake-up. They execute
+	// on the ephemeral runner, never locally.
+	opts.SetupScript, opts.SetupHash, opts.ResumeScript = cloud.AgentHookScripts(w.WorkingDir())
 	client := cloud.NewClient(opts.BaseURL, opts.UserToken, os.Getenv("DECA_AGENT_WORKER_TOKEN"))
 
 	runCtx, cancel := context.WithCancel(context.Background())

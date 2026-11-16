@@ -10,11 +10,14 @@ package cloud
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -63,6 +66,14 @@ type RunOptions struct {
 	// (DECA_GIT_TOKEN). It travels Star -> relay -> runner over WSS
 	// and is never written to files or logs.
 	GitToken string
+	// SetupScript and ResumeScript are the project's orb lifecycle
+	// hooks (.agents/setup runs once on fresh orbs, .agents/resume
+	// runs on every wake-up). They travel in the session config frame
+	// and run on the ephemeral runner, never locally. SetupHash keys
+	// the snapshot cache so unchanged environments restore fast.
+	SetupScript  string
+	SetupHash    string
+	ResumeScript string
 }
 
 // RunOptionsFromEnv builds RunOptions from the environment. The model
@@ -96,6 +107,38 @@ func RunOptionsFromEnv(displayModel, displayProvider string) (RunOptions, error)
 // a cloud turn.
 func (o RunOptions) NeedsModel() bool {
 	return o.Model == "" || o.ModelBaseURL == "" || o.ModelAPIKey == ""
+}
+
+// hookFileLimit caps how much of a lifecycle hook script travels to
+// the runner inside the session config frame.
+const hookFileLimit = 64 << 10
+
+// AgentHookScripts reads the orb lifecycle hooks for a project: the
+// .agents/setup script (fresh orbs) and the .agents/resume script
+// (every wake-up). Missing files mean no hooks. The setup hash lets
+// the runner skip straight to a matching snapshot when the
+// environment has not changed.
+func AgentHookScripts(projectDir string) (setup, setupHash, resume string) {
+	read := func(name string) string {
+		if projectDir == "" {
+			return ""
+		}
+		data, err := os.ReadFile(filepath.Join(projectDir, ".agents", name))
+		if err != nil || len(data) == 0 {
+			return ""
+		}
+		if len(data) > hookFileLimit {
+			data = data[:hookFileLimit]
+		}
+		return string(data)
+	}
+	setup = read("setup")
+	if setup != "" {
+		sum := sha256.Sum256([]byte(setup))
+		setupHash = hex.EncodeToString(sum[:])
+	}
+	resume = read("resume")
+	return setup, setupHash, resume
 }
 
 // RunCloudSession runs one cloud turn for a Star session: it stores the
@@ -326,7 +369,10 @@ func (c *Client) relayTurn(ctx context.Context, turn *cloudTurn, relayURL, promp
 		"git_token": turn.opts.GitToken,
 		// Same id as the chat_session_id above: the bridge persists and
 		// resumes its conversation under this key.
-		"resume_key": turn.sessionID,
+		"resume_key":    turn.sessionID,
+		"setup_script":  turn.opts.SetupScript,
+		"setup_hash":    turn.opts.SetupHash,
+		"resume_script": turn.opts.ResumeScript,
 	}); err != nil {
 		return fmt.Errorf("Failed to send cloud session config: %w", err)
 	}

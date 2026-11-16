@@ -42,6 +42,7 @@ import shutil
 import socket
 import subprocess
 import sys
+import tarfile
 import tempfile
 import time
 
@@ -74,6 +75,23 @@ HEARTBEAT_FRESH_S = 240
 # model key and git token arrive fresh in every acp_init frame.
 ACP_STATE_DIR = os.environ.get("ACP_STATE_DIR") or os.path.join(
     os.path.expanduser("~"), ".cloud-agent")
+# Agent workspace: the orb's dedicated filesystem. Lifecycle hooks and
+# tools run here; the directory (plus ACP_SNAPSHOT_PATHS) is snapshotted
+# per chat so files survive across jobs like the conversation does.
+ACP_WORKSPACE = os.environ.get("ACP_WORKSPACE") or os.path.join(
+    tempfile.gettempdir(), "agent-workspace")
+# Hook timeouts: setup may install toolchains, resume must stay quick so
+# every wake-up stays snappy.
+ACP_SETUP_TIMEOUT_S = float(os.environ.get("ACP_SETUP_TIMEOUT_S", "600"))
+ACP_RESUME_TIMEOUT_S = float(os.environ.get("ACP_RESUME_TIMEOUT_S", "120"))
+# Extra absolute paths folded into the workspace snapshot, colon
+# separated (e.g. language runtimes installed outside the workspace).
+ACP_SNAPSHOT_PATHS = os.environ.get("ACP_SNAPSHOT_PATHS", "")
+# Upper bound for the compressed snapshot upload; oversized
+# environments skip the cache and re-run setup instead.
+SNAP_MAX_BYTES = int(os.environ.get("SNAP_MAX_BYTES", str(500 * 1024 * 1024)))
+# How much hook output reaches the transcript (tail-truncated).
+HOOK_TAIL_CHARS = 4000
 # State file version, bumped when the schema changes.
 STATE_VERSION = 1
 
@@ -408,10 +426,12 @@ def load_conversation(state_dir: str, resume_key: str) -> dict | None:
 
 
 def save_conversation(state_dir: str, resume_key: str, agent_session: str,
-                      model: str, base_url: str, cwd: str, messages: list) -> None:
+                      model: str, base_url: str, cwd: str, messages: list,
+                      setup_hash: str | None = None) -> None:
     """Persist the conversation so a later job resumes with full history.
     Secrets are never written: api_key/git_token arrive fresh in each
-    acp_init frame. The write is atomic (tmp + replace)."""
+    acp_init frame. The write is atomic (tmp + replace). The setup hash
+    records which environment the state was prepared with."""
     if not resume_key:
         return
     try:
@@ -421,7 +441,8 @@ def save_conversation(state_dir: str, resume_key: str, agent_session: str,
             json.dump({"version": STATE_VERSION, "resume_key": resume_key,
                        "agent_session": agent_session, "model": model,
                        "base_url": base_url, "cwd": cwd,
-                       "messages": messages, "updated_at": time.time()}, fh)
+                       "messages": messages, "setup_hash": setup_hash,
+                       "updated_at": time.time()}, fh)
         os.replace(path + ".tmp", path)
     except OSError as exc:
         print(f"bridge: state save failed: {exc}", flush=True)
@@ -472,8 +493,144 @@ def upload_stash(state_dir: str, resume_key: str) -> None:
             pass
 
 
+def run_hook_script(kind: str, script: str, timeout_s: float,
+                    extra_env: dict | None = None) -> tuple[str, bool]:
+    """Run a .agents/setup|resume hook in the workspace. Returns the
+    (tail-truncated) output and success. Never raises: a missing shell
+    or a timeout reports failure instead of killing the turn."""
+    if not script:
+        return "", True
+    if not shutil.which("bash"):
+        return "no bash on runner", False
+    hook_path = os.path.join(ACP_WORKSPACE, f".agents-run-{kind}.sh")
+    try:
+        with open(hook_path, "w") as fh:
+            fh.write(script)
+    except OSError as exc:
+        return f"cannot write hook: {exc}", False
+    env = dict(os.environ)
+    if extra_env:
+        env.update(extra_env)
+    try:
+        proc = subprocess.run(["bash", hook_path], cwd=ACP_WORKSPACE,
+                              env=env, capture_output=True, text=True,
+                              timeout=timeout_s)
+        out = (proc.stdout or "") + (proc.stderr or "")
+        return out[-HOOK_TAIL_CHARS:], proc.returncode == 0
+    except subprocess.TimeoutExpired:
+        return "hook timed out", False
+    except Exception as exc:
+        return f"hook failed: {type(exc).__name__}", False
+
+
+def snapshot_tag(resume_key: str) -> str:
+    """Release tag for a chat's workspace snapshot."""
+    return "agent-snap-" + hashlib.sha256(resume_key.encode()).hexdigest()[:32]
+
+
+def write_snapshot(tgz_path: str) -> bool:
+    """Tar the workspace plus declared extra paths. Size-guarded;
+    False skips (never raises)."""
+    try:
+        if not os.path.isdir(ACP_WORKSPACE):
+            return False
+        with tarfile.open(tgz_path, "w:gz") as tf:
+            for entry in sorted(os.listdir(ACP_WORKSPACE)):
+                tf.add(os.path.join(ACP_WORKSPACE, entry), arcname=entry)
+            for p in ACP_SNAPSHOT_PATHS.split(":"):
+                if p and os.path.exists(p):
+                    tf.add(p, arcname="__ext/" + p.lstrip("/"))
+        return os.path.isfile(tgz_path) and os.path.getsize(tgz_path) <= SNAP_MAX_BYTES
+    except Exception as exc:
+        print(f"bridge: snapshot write skipped: {type(exc).__name__}", flush=True)
+        return False
+
+
+def extract_snapshot(tgz_path: str) -> bool:
+    """Restore a snapshot tarball. Refuses path traversal; never raises."""
+    try:
+        with tarfile.open(tgz_path, "r:gz") as tf:
+            members = tf.getmembers()
+            for m in members:
+                if m.name.startswith("/") or ".." in m.name.split("/"):
+                    print("bridge: snapshot member rejected", flush=True)
+                    return False
+        os.makedirs(ACP_WORKSPACE, exist_ok=True)
+        with tarfile.open(tgz_path, "r:gz") as tf:
+            for m in tf.getmembers():
+                if m.name.startswith("__ext/"):
+                    m.name = "/" + m.name[len("__ext/"):]
+                    tf.extract(m, path="/")
+                else:
+                    tf.extract(m, path=ACP_WORKSPACE)
+        return True
+    except Exception as exc:
+        print(f"bridge: snapshot restore skipped: {type(exc).__name__}", flush=True)
+        return False
+
+
+def release_upsert(tag: str, plain_path: str, enc_name: str, title: str) -> bool:
+    """Encrypt a file and upsert it as a chat-keyed release asset.
+    Same trust as the state stash (repo token + password from the job
+    env, secrets never logged). False skips quietly, never raises."""
+    if not shutil.which("gh"):
+        return False
+    if not os.environ.get("GH_TOKEN") or not os.environ.get("DECA_AGENT_STATE_PASSWORD"):
+        return False
+    if not os.path.isfile(plain_path):
+        return False
+    enc = os.path.join(tempfile.gettempdir(), enc_name)
+    try:
+        subprocess.run(["openssl", "enc", "-aes-256-cbc", "-pbkdf2", "-salt",
+                        "-in", plain_path, "-out", enc,
+                        "-pass", "env:DECA_AGENT_STATE_PASSWORD"],
+                       check=True, capture_output=True, timeout=180)
+        subprocess.run(["gh", "release", "delete", tag, "--yes"],
+                       capture_output=True, timeout=60)
+        subprocess.run(["gh", "release", "create", tag, enc,
+                        "--title", tag, "--notes", title, "--latest=false"],
+                       check=True, capture_output=True, timeout=300)
+        return True
+    except Exception as exc:
+        print(f"bridge: release upsert skipped ({enc_name}): {type(exc).__name__}", flush=True)
+        return False
+    finally:
+        try:
+            os.remove(enc)
+        except OSError:
+            pass
+
+
+def download_snapshot(tag: str, dest_dir: str) -> str | None:
+    """Download + decrypt the workspace snapshot asset. Returns the tgz
+    path, or None when absent/unavailable. Never raises."""
+    if not shutil.which("gh") or not os.environ.get("GH_TOKEN"):
+        return None
+    if not os.environ.get("DECA_AGENT_STATE_PASSWORD"):
+        return None
+    try:
+        os.makedirs(dest_dir, exist_ok=True)
+        r = subprocess.run(["gh", "release", "download", tag,
+                            "--pattern", "agent-workspace.tgz.enc",
+                            "--dir", dest_dir, "--clobber"],
+                           capture_output=True, timeout=180)
+        if r.returncode != 0:
+            return None
+        enc = os.path.join(dest_dir, "agent-workspace.tgz.enc")
+        tgz = os.path.join(dest_dir, "agent-workspace.tgz")
+        subprocess.run(["openssl", "enc", "-d", "-aes-256-cbc", "-pbkdf2", "-salt",
+                        "-in", enc, "-out", tgz,
+                        "-pass", "env:DECA_AGENT_STATE_PASSWORD"],
+                       check=True, capture_output=True, timeout=180)
+        return tgz if os.path.isfile(tgz) else None
+    except Exception as exc:
+        print(f"bridge: snapshot download skipped: {type(exc).__name__}", flush=True)
+        return None
+
+
 async def main(url: str):
-    cwd = os.environ.get("ACP_CWD") or os.getcwd()
+    os.makedirs(ACP_WORKSPACE, exist_ok=True)
+    cwd = os.environ.get("ACP_CWD") or ACP_WORKSPACE
     # ping_interval=None: the relay path does not answer protocol pings,
     # and the library would otherwise self-close a healthy session after
     # ~40s of receive silence with 1011. Liveness is carried by the
@@ -516,6 +673,11 @@ async def main(url: str):
         # session. The dispatcher (and Star, eventually) passes the same
         # key every turn; without one each job starts fresh.
         resume_key = (config.get("resume_key") or "").strip()
+        # Orb lifecycle hooks from the project's .agents/ directory.
+        # setup runs once per fresh environment, resume on every wake-up.
+        setup_script = config.get("setup_script") or ""
+        setup_hash = (config.get("setup_hash") or "").strip()
+        resume_script = config.get("resume_script") or ""
         # Push credential for the agent's bash tool: a GIT_ASKPASS helper
         # backed by a 0600 file, so the token never appears in commands,
         # remotes, or logs.
@@ -546,6 +708,7 @@ async def main(url: str):
 
         agent_session = "sess-cloud-1"
         conversation: list = []
+        applied_setup_hash: str | None = None
         api_base = api_base_of(url)
         relay_sid = relay_sid_of(url)
         last_hb = 0.0
@@ -554,6 +717,7 @@ async def main(url: str):
             if saved is not None:
                 conversation = saved.get("messages") or []
                 agent_session = saved.get("agent_session") or agent_session
+                applied_setup_hash = saved.get("setup_hash")
                 print(f"bridge: resumed {len(conversation)} messages "
                       f"(session {agent_session})", flush=True)
             else:
@@ -580,7 +744,55 @@ async def main(url: str):
 
         def save():
             save_conversation(ACP_STATE_DIR, resume_key, agent_session,
-                              model, base_url, cwd, conversation)
+                              model, base_url, cwd, conversation,
+                              setup_hash=applied_setup_hash)
+
+        def snapshot_now(reason: str):
+            if not resume_key:
+                return
+            tgz = os.path.join(ACP_STATE_DIR, "agent-workspace.tgz")
+            if not write_snapshot(tgz):
+                return
+            if release_upsert(snapshot_tag(resume_key), tgz,
+                              "agent-workspace.tgz.enc",
+                              "Encrypted Deca ACP workspace snapshot"):
+                print(f"bridge: workspace snapshot stashed ({reason})", flush=True)
+            try:
+                os.remove(tgz)
+            except OSError:
+                pass
+
+        # Fresh-start environment: restore the workspace snapshot, then
+        # run .agents/setup unless the restored state proves this exact
+        # environment was already prepared. A fresh disk with no snapshot
+        # always runs setup; only a matching snapshot skips it.
+        if setup_script:
+            snap = download_snapshot(snapshot_tag(resume_key), ACP_STATE_DIR) if resume_key else None
+            snap_ok = bool(snap and extract_snapshot(snap))
+            if snap_ok and applied_setup_hash == setup_hash:
+                await update({"sessionUpdate": "agent_message_chunk",
+                              "content": {"type": "text",
+                                        "text": f"\n[orb] workspace snapshot restored "
+                                                f"(setup {setup_hash[:8]}); setup skipped.\n"}})
+                print(f"bridge: snapshot restored, setup {setup_hash[:8]} up to date", flush=True)
+            else:
+                out, ok = run_hook_script("setup", setup_script,
+                                          ACP_SETUP_TIMEOUT_S, tool_env)
+                await update({"sessionUpdate": "agent_message_chunk",
+                              "content": {"type": "text",
+                                        "text": f"\n[orb] setup {'done' if ok else 'FAILED'}:\n{out}\n"}})
+                print(f"bridge: setup {'done' if ok else 'FAILED'}", flush=True)
+                if ok:
+                    applied_setup_hash = setup_hash
+                    save()
+                    snapshot_now("setup")
+        elif resume_key:
+            snap = download_snapshot(snapshot_tag(resume_key), ACP_STATE_DIR)
+            if snap and extract_snapshot(snap):
+                await update({"sessionUpdate": "agent_message_chunk",
+                              "content": {"type": "text",
+                                        "text": "\n[orb] workspace snapshot restored (no setup script).\n"}})
+                print("bridge: workspace snapshot restored", flush=True)
 
         # One read loop with an idle deadline: ACP_IDLE_S without a prompt
         # snapshots and exits; idle keepalives hold the relay direction
@@ -595,6 +807,7 @@ async def main(url: str):
                 print("bridge: idle expired, saving state and exiting", flush=True)
                 save()
                 upload_stash(ACP_STATE_DIR, resume_key)
+                snapshot_now("idle expiry")
                 try:
                     await ws.send(bytes([MSG_EXIT, 0]))
                 except Exception:
@@ -619,6 +832,7 @@ async def main(url: str):
                 print("bridge: relay closed, saving state and exiting", flush=True)
                 save()
                 upload_stash(ACP_STATE_DIR, resume_key)
+                snapshot_now("relay closed")
                 return
             try:
                 msg = json.loads(raw if isinstance(raw, str) else raw.decode())
@@ -646,6 +860,21 @@ async def main(url: str):
                 await send({"jsonrpc": "2.0", "id": mid, "result": {"sessionId": agent_session}})
             elif method == "session/prompt":
                 prompt = prompt_text(msg.get("params") or {})
+                # .agents/resume runs on every wake-up: re-auth, refresh
+                # connections, verify health. Success is a one-line
+                # status; failures ride into the prompt so the agent (and
+                # history) sees exactly what is broken.
+                if resume_script:
+                    rout, rok = run_hook_script("resume", resume_script,
+                                               ACP_RESUME_TIMEOUT_S, tool_env)
+                    await update({"sessionUpdate": "agent_message_chunk",
+                                  "content": {"type": "text",
+                                            "text": f"\n[orb] resume check {'ok' if rok else 'FAILED'}\n"}})
+                    print(f"bridge: resume check {'ok' if rok else 'FAILED'}", flush=True)
+                    if not rok:
+                        prompt = ("[environment resume check FAILED - "
+                                  "fix or work around this first]:\n"
+                                  f"{rout}\n---\n" + prompt)
                 # Conversation persists across prompts on this connection
                 # (and across jobs via save/load): the system prompt leads
                 # once, then every turn appends user/assistant/tool entries.
@@ -728,6 +957,7 @@ async def main(url: str):
                 # would tear down the relay session a follow-up needs.
                 save()
                 upload_stash(ACP_STATE_DIR, resume_key)
+                snapshot_now("turn complete")
                 idle_deadline = time.monotonic() + ACP_IDLE_S
                 print(f"bridge: prompt complete, idle up to {ACP_IDLE_S:g}s for follow-up", flush=True)
             else:

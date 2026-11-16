@@ -1,0 +1,3 @@
+mkdir -p "$PWD/.agents-probe"
+echo "SETUP_TOKEN_5 $(date -u +%FT%TZ)" > "$PWD/.agents-probe/setup.txt"
+echo "setup complete"
