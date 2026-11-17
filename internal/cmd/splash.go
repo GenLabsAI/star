@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"log/slog"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/crush/internal/event"
@@ -145,6 +146,14 @@ func (m *splashModel) initialize() splashReadyMsg {
 			return splashReadyMsg{err: err}
 		}
 		sessionID = sess.ID
+	}
+
+	// Long-lived TUI hosts the durable wakeup timers; one-shot
+	// commands must never arm them (see ArmWakeupTimers).
+	if appWs, ok := ws.(*workspace.AppWorkspace); ok {
+		if err := appWs.ArmWakeupTimers(m.cmd.Context()); err != nil {
+			slog.Warn("Failed to arm saved wakeups", "error", err)
+		}
 	}
 
 	event.AppInitialized()

@@ -954,6 +954,16 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if cmd := m.handlePlanHandoff(msg.Payload); cmd != nil {
 			cmds = append(cmds, cmd)
 		}
+	case pubsub.Event[pubsub.WakeupScheduledEvent]:
+		if cmd := m.handleWakeupScheduled(msg.Payload); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+	case pubsub.Event[pubsub.WakeupEvent]:
+		// The dispatcher executes the wakeup itself; the toast just
+		// retires so the fresh turn is not hidden behind it.
+		m.closeWakeupToast()
+	case pubsub.Event[pubsub.WakeupCanceledEvent]:
+		m.closeWakeupToast()
 	case busyStateMsg:
 		cmds = append(cmds, m.applyBusyState(msg)...)
 	case promptQueueMsg:
@@ -2399,6 +2409,10 @@ func (m *UI) handleDialogMsg(msg tea.Msg) tea.Cmd {
 		m.dialog.CloseDialog(dialog.NotificationsID)
 	case dialog.ActionToggleCloudMode:
 		cmds = append(cmds, m.toggleCloudMode(""))
+	case dialog.ActionCancelWakeup:
+		m.closeWakeupToast()
+		m.com.Workspace.AgentWakeupCancel(msg.SessionID)
+		cmds = append(cmds, util.ReportInfo("Wakeup cancelled"))
 		m.dialog.CloseDialog(dialog.CommandsID)
 	case dialog.ActionNewSession:
 		if m.isAgentBusy() {

@@ -73,8 +73,9 @@ func TestWakeupScheduler(t *testing.T) {
 
 	s := NewWakeupScheduler(pubWakeup, pubWakeupScheduled, pubWakeupCanceled)
 
-	// Test Schedule
-	delay := 50 * time.Millisecond
+	// Test Schedule. Generous timings: under parallel load a 50ms
+	// timer can fire late and flake the assertions below.
+	delay := 200 * time.Millisecond
 	s.Schedule("sess1", delay, "reason1", "prompt1")
 
 	// Verify WakeupScheduledEvent was published

@@ -1,0 +1,4 @@
+# Orb sessions with far-future or event wakeups, one chat_session_id per
+# line. Star appends a line when an agent arms such a schedule for a
+# cloud session; the wakeup-sweep workflow reaps each listed session
+# every 15 minutes. Lines starting with # and blank lines are ignored.

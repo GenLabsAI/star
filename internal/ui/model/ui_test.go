@@ -135,6 +135,7 @@ type testWorkspace struct {
 	runHidden         []bool
 	compactCalls      []bool
 	forkCalls         [][2]string
+	wakeupCancelCalls []string
 }
 
 func (w *testWorkspace) Config() *config.Config {
@@ -191,6 +192,10 @@ func (w *testWorkspace) AgentReadyErr() error {
 		return workspace.ErrAgentNotInitialized
 	}
 	return nil
+}
+
+func (w *testWorkspace) AgentWakeupCancel(sessionID string) {
+	w.wakeupCancelCalls = append(w.wakeupCancelCalls, sessionID)
 }
 
 func (w *testWorkspace) AgentRun(ctx context.Context, _ string, prompt string, _ ...message.Attachment) error {

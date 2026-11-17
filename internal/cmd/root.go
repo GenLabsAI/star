@@ -80,6 +80,7 @@ func init() {
 		statsCmd,
 		sessionCmd,
 		pluginCmd,
+		wakeupCmd,
 	)
 }
 
@@ -373,6 +374,9 @@ func setupLocalWorkspace(cmd *cobra.Command) (workspace.Workspace, func(), error
 	}
 
 	ws := workspace.NewAppWorkspace(appInstance, store)
+	// Fired wakeup schedules execute through the workspace (local or
+	// cloud) in every host: TUI, server-backed runs, and headless CLIs.
+	ws.StartWakeupDispatch()
 	cleanup := func() { appInstance.Shutdown() }
 	return ws, cleanup, nil
 }
