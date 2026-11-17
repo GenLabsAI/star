@@ -30,6 +30,11 @@ star env
 star env --json
   `,
 	RunE: func(cmd *cobra.Command, args []string) error {
+		// Cobra's Print/Println default to stderr. The manifest is the
+		// command's product, so it belongs on stdout where pipes and
+		// agents look for it.
+		cmd.SetOut(cmd.OutOrStdout())
+
 		jsonOutput, _ := cmd.Flags().GetBool("json")
 
 		dir, err := envWorkspaceDir(cmd)

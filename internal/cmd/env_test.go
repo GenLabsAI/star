@@ -10,21 +10,24 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func newEnvTestCommand(t *testing.T) (*cobra.Command, *bytes.Buffer) {
+func newEnvTestCommand(t *testing.T) (*cobra.Command, *bytes.Buffer, *bytes.Buffer) {
 	t.Helper()
-	var buf bytes.Buffer
+	var out, errOut bytes.Buffer
 	cmd := &cobra.Command{}
-	cmd.SetOut(&buf)
-	cmd.SetErr(&buf)
+	cmd.SetOut(&out)
+	cmd.SetErr(&errOut)
 	cmd.Flags().Bool("json", false, "")
-	return cmd, &buf
+	return cmd, &out, &errOut
 }
 
 func TestEnvJSONOutput(t *testing.T) {
-	cmd, buf := newEnvTestCommand(t)
+	cmd, buf, errOut := newEnvTestCommand(t)
 	require.NoError(t, cmd.Flags().Set("json", "true"))
 
 	require.NoError(t, envCmd.RunE(cmd, nil))
+
+	// The manifest is what a pipe reads, so nothing may land on stderr.
+	require.Empty(t, errOut.String())
 
 	var manifest envreport.Manifest
 	require.NoError(t, json.Unmarshal(buf.Bytes(), &manifest))
@@ -35,7 +38,7 @@ func TestEnvJSONOutput(t *testing.T) {
 }
 
 func TestEnvHumanOutput(t *testing.T) {
-	cmd, buf := newEnvTestCommand(t)
+	cmd, buf, _ := newEnvTestCommand(t)
 
 	printEnvManifest(cmd, envreport.Manifest{
 		Workspace: envreport.Workspace{Dir: "/work", ConfigDir: "/work/cfg", StateDir: "/work/state"},
@@ -63,7 +66,7 @@ func TestEnvHumanOutput(t *testing.T) {
 }
 
 func TestEnvHumanOutputWithoutRepository(t *testing.T) {
-	cmd, buf := newEnvTestCommand(t)
+	cmd, buf, _ := newEnvTestCommand(t)
 
 	printEnvManifest(cmd, envreport.Manifest{Workspace: envreport.Workspace{Dir: "/work"}})
 
