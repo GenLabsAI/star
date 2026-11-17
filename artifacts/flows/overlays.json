@@ -1,0 +1,47 @@
+{
+  "output": "tui-overlays-flow",
+  "width": 1000,
+  "duration_ms": 2200,
+  "frames": [
+    {
+      "image": "tui-overlay-modal-open-140.png",
+      "caption": "Fork From modal painted over the chat."
+    },
+    {
+      "image": "tui-overlay-modal-closed-140.png",
+      "caption": "Closed: every modal cell is gone, chat is whole."
+    },
+    {
+      "image": "tui-overlay-questions-open-140.png",
+      "caption": "Questions form takes over the editor."
+    },
+    {
+      "image": "tui-overlay-questions-closed-140.png",
+      "caption": "Answered: composer back, no leftover question rows."
+    },
+    {
+      "image": "tui-overlay-completions-open-140.png",
+      "caption": "@ completions menu over the composer."
+    },
+    {
+      "image": "tui-overlay-completions-closed-140.png",
+      "caption": "Dismissed: menu cells cleared under the prompt."
+    },
+    {
+      "image": "tui-overlay-composer-submit-open-140.png",
+      "caption": "Long prompt grows the composer."
+    },
+    {
+      "image": "tui-overlay-composer-submit-closed-140.png",
+      "caption": "After Enter: composer collapsed, no stale lines."
+    },
+    {
+      "image": "tui-overlay-landing-header-open-140.png",
+      "caption": "Landing screen with the wide header."
+    },
+    {
+      "image": "tui-overlay-landing-header-closed-140.png",
+      "caption": "Started a session: header fully gone."
+    }
+  ]
+}
