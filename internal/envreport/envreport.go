@@ -145,6 +145,10 @@ func Build(dir string) (Manifest, error) {
 	}
 
 	stacks := DetectStacks(abs)
+	commit := version.Commit
+	if commit == "unknown" {
+		commit = ""
+	}
 	root := repoRoot(abs)
 	branch := ""
 	if root != "" {
@@ -159,7 +163,7 @@ func Build(dir string) (Manifest, error) {
 		},
 		Star: Star{
 			Version: version.Version,
-			Commit:  version.Commit,
+			Commit:  commit,
 			OS:      runtime.GOOS,
 			Arch:    runtime.GOARCH,
 		},

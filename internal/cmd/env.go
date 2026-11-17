@@ -151,6 +151,10 @@ func printEnvManifest(cmd *cobra.Command, m envreport.Manifest) {
 		envLine(cmd, rt.Name, mark+" "+hint.Render(value))
 	}
 
+	if missing := m.Missing(); len(missing) > 0 {
+		cmd.Println("  " + hint.Render("missing: "+strings.Join(missing, ", ")))
+	}
+
 	section("Cloud")
 	envLine(cmd, "api base url", presence(m.Cloud.APIBaseURLSet))
 	envLine(cmd, "user credential", presence(m.Cloud.UserCredential))
