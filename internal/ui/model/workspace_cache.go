@@ -10,7 +10,7 @@ package model
 // yolo and ready/model caches synchronously so the first frame has values to
 // render; Init then refreshes them off-thread.)
 //
-//   - Reads (isAgentBusy, yoloModeCached, promptQueue, selectedLargeModel,
+//   - Reads (isAgentBusy, permModeCached, promptQueue, selectedLargeModel,
 //     lspInfo) always return the memoized value, stale or not.
 //   - State edges (message created, agent finished/errored, prompt
 //     submitted, cancel, session switch, yolo toggle, model change, LSP
@@ -27,6 +27,8 @@ package model
 import (
 	"slices"
 	"time"
+
+	"github.com/charmbracelet/crush/internal/message"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -70,20 +72,25 @@ func (c *ttlCache) invalidate() {
 	c.at = time.Time{}
 }
 
+// ttlCacheMode memoizes one permission-mode workspace probe result.
 type ttlCacheMode struct {
 	val permission.Mode
 	at  time.Time
 }
 
+// fresh reports whether the cached value is within its TTL.
 func (c *ttlCacheMode) fresh(ttl time.Duration) bool {
 	return !c.at.IsZero() && time.Since(c.at) < ttl
 }
 
+// set writes a known-good value through the cache.
 func (c *ttlCacheMode) set(val permission.Mode) {
 	c.val = val
 	c.at = time.Now()
 }
 
+// invalidate marks the value stale so the next Update-tail backstop
+// re-probes; the last value keeps being served in the meantime.
 func (c *ttlCacheMode) invalidate() {
 	c.at = time.Time{}
 }
@@ -127,6 +134,8 @@ type promptQueueMsg struct {
 // rejected prompt gets no RunComplete, so err must end its turn.
 type agentRunSubmittedMsg struct {
 	sessionID string
+	// pendingID is the optimistic queue entry for the prompt, or zero.
+	pendingID uint64
 	err       error
 }
 
@@ -155,7 +164,7 @@ func (m *UI) currentSessionID() string {
 // state.
 func (m *UI) invalidateBusyCaches() {
 	m.agentBusyCache.invalidate()
-	m.yoloCache.invalidate()
+	m.modeCache.invalidate()
 	m.busyFetchGen++
 }
 
@@ -228,11 +237,12 @@ func (m *UI) applyBusyState(msg busyStateMsg) []tea.Cmd {
 	m.agentReady = msg.ready
 	m.agentModel = msg.model
 	if prevYolo != msg.yolo || prevMode != msg.mode {
-		// A remote/async toggle changed yolo mode: update the editor
-		// prompt function so the prompt icon/style tracks the new mode.
-		// The cache is written above and the placeholder is refreshed by
-		// the Update tail.
-		m.setEditorPrompt(msg.yolo || msg.mode == permission.ModeYolo || msg.mode == permission.ModeYeehaw, msg.mode)
+		// A remote/async toggle changed the permission mode: update the
+		// editor prompt function so the prompt icon/style tracks the new
+		// mode. The cache is written above and the placeholder is refreshed
+		// by the Update tail.
+		m.setEditorPrompt(msg.mode)
+
 	}
 	var cmds []tea.Cmd
 
@@ -285,14 +295,14 @@ func (m *UI) dispatchPromptQueueRefresh() tea.Cmd {
 		return nil
 	}
 	if !m.hasSession() {
-		m.promptQueueItems = nil
 		m.promptQueueCheckedAt = time.Now()
 		// Bump the generation so any in-flight fetch scoped to the
 		// now-departed session is discarded rather than repopulating the
 		// queue.
 		m.invalidatePromptQueue()
-		if m.promptQueue != 0 {
-			m.promptQueue = 0
+		prev := m.promptQueue.Shown()
+		m.promptQueue.Reset()
+		if prev != 0 {
 			m.updateLayoutAndSize()
 		}
 		return nil
@@ -325,10 +335,17 @@ func (m *UI) applyPromptQueue(msg promptQueueMsg) []tea.Cmd {
 		return nil
 	}
 	m.promptQueueCheckedAt = time.Now()
-	itemsChanged := !slices.Equal(m.promptQueueItems, msg.prompts)
-	countChanged := len(msg.prompts) != m.promptQueue
-	m.promptQueueItems = msg.prompts
-	m.promptQueue = len(msg.prompts)
+	prevItems := m.promptQueue.Items()
+	m.promptQueue.SetFetched(msg.prompts)
+	itemsChanged := !slices.Equal(prevItems, m.promptQueue.Items())
+	countChanged := len(prevItems) != m.promptQueue.Shown()
+	// A report waits in the queue until the model reads it, but its
+	// subagent is already done.
+	for _, prompt := range msg.prompts {
+		if report, ok := message.ParseSubAgentReportPrompt(prompt); ok {
+			m.markDispatchReported(report.Label)
+		}
+	}
 	if countChanged {
 		m.updateLayoutAndSize()
 	} else if itemsChanged {
@@ -346,7 +363,7 @@ func (m *UI) staleWorkspaceRefreshCmds() []tea.Cmd {
 		return nil
 	}
 	var cmds []tea.Cmd
-	if !m.agentBusyCache.fresh(busyCacheTTL) || !m.yoloCache.fresh(busyCacheTTL) {
+	if !m.agentBusyCache.fresh(busyCacheTTL) || !m.modeCache.fresh(busyCacheTTL) {
 		if cmd := m.dispatchBusyRefresh(); cmd != nil {
 			cmds = append(cmds, cmd)
 		}
@@ -381,7 +398,7 @@ func (m *UI) setPermissionMode(mode permission.Mode) {
 	yolo := mode == permission.ModeYolo
 	m.yoloCache.set(yolo)
 	m.busyFetchGen++
-	m.setEditorPrompt(yolo, mode)
+	m.setEditorPrompt(mode)
 }
 
 func (m *UI) toggleYoloMode() bool {
@@ -404,18 +421,30 @@ func (m *UI) toggleYoloMode() bool {
 	// clear the fresh value) so applyBusyState's guard discards and
 	// re-dispatches the stale probe.
 	m.busyFetchGen++
-	m.setEditorPrompt(yolo, mode)
+	m.setEditorPrompt(mode)
 	// Any explicit toggle hands YOLO ownership back to the user; the
 	// Shift+Tab cycle re-claims it right after its own call.
 	m.cycleYolo = false
 	return yolo
 }
 
-// yoloModeCached reports the memoized permission-skip ("yolo") mode. Toggles
-// write through the cache; the Update-tail backstop keeps it bounded-stale
-// otherwise.
+// yoloModeCached reports the memoized skip-requests flag.
 func (m *UI) yoloModeCached() bool {
 	return m.yoloCache.val
+}
+
+// permModeCached reports the memoized permission mode. Toggles write
+// through the cache; the Update-tail backstop keeps it bounded-stale
+// otherwise.
+func (m *UI) permModeCached() permission.Mode {
+	return m.modeCache.val
+}
+
+// yoloActive reports whether the memoized permission mode skips permission
+// prompts. Sysadmin skips them too, differing from yolo only in dropping the
+// exec-time block list, which the input-mode cycle has no stake in.
+func (m *UI) yoloActive() bool {
+	return m.permModeCached().SkipsPrompts()
 }
 
 // setYeehawMode enables or disables yeehaw mode for the current session.
@@ -464,13 +493,12 @@ func (m *UI) setYeehawMode(enable bool) tea.Cmd {
 		m.yeehawFadeFrames = 0
 		m.yeehawHorseGen++
 		m.yeehawHorseTick = 0
-		m.setEditorPrompt(false, permission.ModeNormal)
+		m.setEditorPrompt(permission.ModeNormal)
 		m.focus = uiFocusEditor
 		m.invalidateFrame()
 		m.updateLayoutAndSize()
 		return nil
 	}
-	return nil
 }
 
 // syncYeehawFromMode retires the yeehaw presentation when the workspace
@@ -554,7 +582,7 @@ func (m *UI) setYeehawPresentation(want bool) tea.Cmd {
 	m.yeehawFadeFrames = 0
 	m.yeehawHorseGen++
 	m.yeehawHorseTick = 0
-	m.setEditorPrompt(false, permission.ModeNormal)
+	m.setEditorPrompt(permission.ModeNormal)
 	m.focus = uiFocusEditor
 	m.invalidateFrame()
 	m.updateLayoutAndSize()

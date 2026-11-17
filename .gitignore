@@ -71,3 +71,7 @@ demo/star-acp-web/node_modules/
 # Third-party upstream clone (rebuilt via README steps, not committed)
 demo/acp-ui/
 demo/acp-ui-star/node_modules/
+/docs-site
+
+# Local Go toolchain used for builds in this workspace
+.tools/

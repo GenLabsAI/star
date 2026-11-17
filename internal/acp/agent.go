@@ -12,7 +12,7 @@ import (
 	"strings"
 	"sync"
 
-	"charm.land/catwalk/pkg/catwalk"
+	"charm.land/catwalk/v3/pkg/catwalk"
 	"charm.land/fantasy"
 	"github.com/charmbracelet/crush/internal/agent/hyper"
 	"github.com/charmbracelet/crush/internal/app"
@@ -638,12 +638,12 @@ func (a *Agent) cmdToggleThinking(ctx context.Context) (string, error) {
 		return "", fmt.Errorf("could not determine current model configuration")
 	}
 
-	if !model.CanReason {
+	if !model.CanReason() {
 		return "", fmt.Errorf("current model does not support reasoning")
 	}
 
 	// Thinking toggle is only for Anthropic/Hyper models.
-	if providerCfg.Type != catwalk.TypeAnthropic && providerCfg.Type != catwalk.Type(hyper.Name) {
+	if providerCfg.Type != catwalk.TypeMessages && providerCfg.Type != catwalk.Type(hyper.Name) {
 		return "", fmt.Errorf("toggle_thinking is only supported for Anthropic models; use /set_reasoning_effort for other providers")
 	}
 
@@ -682,7 +682,7 @@ func (a *Agent) cmdSetReasoningEffort(ctx context.Context, args []string) (strin
 	agentCfg := cfg.Agents[config.AgentCoder]
 	model := cfg.GetModelByType(agentCfg.Model)
 
-	if model == nil || len(model.ReasoningLevels) == 0 {
+	if model == nil || len(model.ReasoningEffortLevels()) == 0 {
 		return "", fmt.Errorf("current model does not support reasoning effort levels")
 	}
 
@@ -693,14 +693,14 @@ func (a *Agent) cmdSetReasoningEffort(ctx context.Context, args []string) (strin
 			current = "default"
 		}
 		return fmt.Sprintf("Current reasoning effort: %s\nAvailable levels: %s",
-			current, strings.Join(model.ReasoningLevels, ", ")), nil
+			current, strings.Join(model.ReasoningEffortLevels(), ", ")), nil
 	}
 
 	effort := strings.ToLower(args[0])
 
 	// Validate the effort level.
 	valid := false
-	for _, level := range model.ReasoningLevels {
+	for _, level := range model.ReasoningEffortLevels() {
 		if strings.EqualFold(level, effort) {
 			effort = level // Use the canonical casing.
 			valid = true
@@ -709,7 +709,7 @@ func (a *Agent) cmdSetReasoningEffort(ctx context.Context, args []string) (strin
 	}
 	if !valid {
 		return "", fmt.Errorf("invalid reasoning effort %q; valid levels: %s",
-			effort, strings.Join(model.ReasoningLevels, ", "))
+			effort, strings.Join(model.ReasoningEffortLevels(), ", "))
 	}
 
 	currentModel := cfg.Models[agentCfg.Model]

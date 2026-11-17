@@ -87,16 +87,18 @@ type SendMsg struct {
 
 type highlightableMessageItem struct {
 	// version is the parent item's version counter. SetHighlight
-	// bumps it on every observable change so the F6 list memo and
-	// any frozen entry get invalidated when a selection drag enters
-	// or leaves the item.
+	// bumps it on every observable change so the F6 list memo is
+	// invalidated when a selection drag enters or leaves the item.
 	version *list.Versioned
 
-	startLine   int
-	startCol    int
-	endLine     int
-	endCol      int
-	highlighter list.Highlighter
+	startLine int
+	startCol  int
+	endLine   int
+	endCol    int
+	// sty supplies the selection style. It is read when highlighting, not
+	// copied when the item is built, so a theme switch recolors selections
+	// in existing items too.
+	sty *styles.Styles
 }
 
 var _ list.Highlightable = (*highlightableMessageItem)(nil)
@@ -112,7 +114,7 @@ func (h *highlightableMessageItem) renderHighlighted(content string, width, heig
 		return content
 	}
 	area := image.Rect(0, 0, width, height)
-	return list.Highlight(content, area, h.startLine, h.startCol, h.endLine, h.endCol, h.highlighter)
+	return list.Highlight(content, area, h.startLine, h.startCol, h.endLine, h.endCol, list.ToHighlighter(h.sty.TextSelection))
 }
 
 // SetHighlight implements list.Highlightable.
@@ -144,12 +146,12 @@ func (h *highlightableMessageItem) Highlight() (startLine int, startCol int, end
 
 func defaultHighlighter(sty *styles.Styles, v *list.Versioned) *highlightableMessageItem {
 	return &highlightableMessageItem{
-		version:     v,
-		startLine:   -1,
-		startCol:    -1,
-		endLine:     -1,
-		endCol:      -1,
-		highlighter: list.ToHighlighter(sty.TextSelection),
+		version:   v,
+		startLine: -1,
+		startCol:  -1,
+		endLine:   -1,
+		endCol:    -1,
+		sty:       sty,
 	}
 }
 
@@ -166,21 +168,27 @@ type animRestyler interface {
 	restyleAnim()
 }
 
-// ClearItemCaches drops any cached rendered output on each item so the
-// next render uses the current styles. It also bumps each item's
-// version so the F6 list-level memo invalidates frozen entries on
-// the next render.
-func ClearItemCaches(items []MessageItem) {
-	for _, item := range items {
-		if cc, ok := item.(cacheClearable); ok {
-			cc.clearCache()
+// ClearItemCache drops an item's cached rendered output, and that of any
+// nested tools, so the next render uses the current styles.
+func ClearItemCache(item MessageItem) {
+	if cc, ok := item.(cacheClearable); ok {
+		cc.clearCache()
+	}
+	if ar, ok := item.(animRestyler); ok {
+		ar.restyleAnim()
+	}
+	if c, ok := item.(NestedToolContainer); ok {
+		for _, nested := range c.NestedTools() {
+			if cc, ok := nested.(cacheClearable); ok {
+				cc.clearCache()
+			}
+			if v, ok := nested.(interface{ Bump() }); ok {
+				v.Bump()
+			}
 		}
-		if ar, ok := item.(animRestyler); ok {
-			ar.restyleAnim()
-		}
-		if v, ok := item.(interface{ Bump() }); ok {
-			v.Bump()
-		}
+	}
+	if v, ok := item.(interface{ Bump() }); ok {
+		v.Bump()
 	}
 }
 
@@ -289,13 +297,18 @@ func AssistantInfoID(messageID string) string {
 // render its info footer. The turn that ends the prompt always gets one;
 // intermediate turns only get one when a Prism-routed model name is
 // available, since that is the only case where the footer adds
-// per-turn information.
+// per-turn information. A truncated turn always gets one: it is the
+// final turn by definition (the model cannot continue past the token
+// limit), and without the footer it would render with the compact
+// intermediate-step header, reading as a step of a loop still running.
 func ShouldShowAssistantInfo(msg *message.Message) bool {
 	finishData := msg.FinishPart()
 	if finishData == nil {
 		return false
 	}
-	return finishData.Reason == message.FinishReasonEndTurn || msg.PrismModelName != ""
+	return finishData.Reason == message.FinishReasonEndTurn ||
+		finishData.Reason == message.FinishReasonMaxTokens ||
+		msg.PrismModelName != ""
 }
 
 // AssistantInfoItem renders model info and response time after assistant completes.
@@ -321,13 +334,6 @@ func NewAssistantInfoItem(sty *styles.Styles, message *message.Message, cfg *con
 		cfg:                 cfg,
 		lastUserMessageTime: lastUserMessageTime,
 	}
-}
-
-// Finished implements list.Item. Assistant info blocks render a fixed
-// model/duration footer once the assistant turn finishes; the data
-// is immutable after construction so the entry is safe to freeze.
-func (a *AssistantInfoItem) Finished() bool {
-	return true
 }
 
 // ID implements MessageItem.
@@ -365,20 +371,42 @@ func (a *AssistantInfoItem) Render(width int) string {
 	return out
 }
 
+// modelDisplayName resolves the model name shown in the assistant info
+// footer. It prefers the current config entry (so a renamed model shows
+// its fresh name), then the name persisted with the message (so a
+// renamed or removed model still shows a friendly name for old turns),
+// then the model ID, which is always identifiable. "Unknown Model" is
+// only used when the message carries no model at all.
+func (a *AssistantInfoItem) modelDisplayName() string {
+	if model := a.cfg.GetModel(a.message.Provider, a.message.Model); model != nil && model.Name != "" {
+		return model.Name
+	}
+	if a.message.ModelName != "" {
+		return a.message.ModelName
+	}
+	if a.message.Model != "" {
+		return a.message.Model
+	}
+	return "Unknown Model"
+}
+
 func (a *AssistantInfoItem) renderContent(width int) string {
 	finishData := a.message.FinishPart()
 	if finishData == nil {
 		return ""
 	}
 	// The final turn of a prompt keeps the full footer (duration and
-	// separator line); intermediate turns render a compact header.
-	isFinalTurn := finishData.Reason == message.FinishReasonEndTurn
+	// separator line); intermediate turns render a compact header. A
+	// truncated turn never gets a follow-up step (the model cannot
+	// continue past the token limit), so it renders the full footer
+	// too: otherwise the compact header reads as just another step of a
+	// loop that is still running, and the TRUNCATED banner is the only
+	// hint the turn is over.
+	isFinalTurn := finishData.Reason == message.FinishReasonEndTurn ||
+		finishData.Reason == message.FinishReasonMaxTokens
 
 	icon := a.sty.Messages.AssistantInfoIcon.Render(styles.ModelIcon)
-	mainModelName := "Unknown Model"
-	if model := a.cfg.GetModel(a.message.Provider, a.message.Model); model != nil {
-		mainModelName = model.Name
-	}
+	mainModelName := a.modelDisplayName()
 	modelFormatted := a.sty.Messages.AssistantInfoModel.Render(mainModelName)
 	// A Prism-routed turn shows the model that actually served the
 	// request, with the arrow and any savings suffix subdued.
@@ -451,31 +479,20 @@ func ExtractMessageItems(sty *styles.Styles, msg *message.Message, toolResults m
 		if msg.Content().Hidden {
 			return nil
 		}
-		// Reconstruct shell command items from ShellCommand parts.
-		// Group sequential shell commands into a single ShellGroupItem.
-		var shellCommands []ShellCommand
-		var otherItems []MessageItem
+		// Reconstruct shell command and subagent report items from their
+		// parts. Both are carried on user-role messages but neither is
+		// something the user typed, so they render as their own items.
+		var items []MessageItem
 		for _, part := range msg.Parts {
-			if sc, ok := part.(message.ShellCommand); ok {
-				shellCommands = append(shellCommands, ShellCommand{
-					Command:  sc.Command,
-					Output:   sc.Output,
-					ExitCode: sc.ExitCode,
-				})
+			switch p := part.(type) {
+			case message.ShellCommand:
+				items = append(items, NewShellItem(sty, p.Command, p.Output, p.ExitCode))
+			case message.SubAgentReport:
+				items = append(items, NewSubAgentReportItem(sty, p.Label, p.Model, p.Output, p.Failed))
 			}
 		}
-		if len(shellCommands) > 0 {
-			// Group multiple shell commands into a single collapsible item
-			if len(shellCommands) == 1 {
-				// Single command: use regular ShellItem for backward compatibility
-				otherItems = append(otherItems, NewShellItem(sty, shellCommands[0].Command, shellCommands[0].Output, shellCommands[0].ExitCode))
-			} else {
-				// Multiple commands: group them
-				otherItems = append(otherItems, NewShellGroupItem(sty, shellCommands))
-			}
-		}
-		if len(otherItems) > 0 {
-			return otherItems
+		if len(items) > 0 {
+			return items
 		}
 		return []MessageItem{NewUserMessageItem(sty, msg, newAttachmentRenderer(sty))}
 	case message.Assistant:
@@ -488,14 +505,22 @@ func ExtractMessageItems(sty *styles.Styles, msg *message.Message, toolResults m
 			if tr, ok := toolResults[tc.ID]; ok {
 				result = &tr
 			}
-			items = append(items, NewToolMessageItem(
+			item := NewToolMessageItem(
 				sty,
 				msg.ID,
 				tc,
 				result,
 				msg.FinishReason() == message.FinishReasonCanceled,
 				workingDir,
-			))
+			)
+			// History items have no trustworthy start time; clear the
+			// constructor timestamp so no misleading timer is shown.
+			if !tc.Finished {
+				if restorable, ok := item.(interface{ markRestored() }); ok {
+					restorable.markRestored()
+				}
+			}
+			items = append(items, item)
 		}
 		// Runs of reads, searches, and commands are noise on their own;
 		// collapse them into one summary row that expands on demand.
@@ -513,7 +538,10 @@ func ShouldRenderAssistantMessage(msg *message.Message) bool {
 	thinking := strings.TrimSpace(msg.ReasoningContent().Thinking)
 	isCancelled := msg.FinishReason() == message.FinishReasonCanceled
 	hasToolCalls := len(msg.ToolCalls()) > 0
-	return !hasToolCalls || content != "" || thinking != "" || msg.IsThinking() || msg.IsErrorLike() || isCancelled
+	// A tool-only turn renders no assistant body, but an error, refusal,
+	// or truncation banner still has to appear, so those finishes force
+	// the message to render.
+	return !hasToolCalls || content != "" || thinking != "" || msg.IsThinking() || msg.IsErrorLike() || msg.IsTruncated() || isCancelled
 }
 
 // ForkRequestMsg is sent when the user clicks the Fork button rendered on the

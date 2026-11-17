@@ -492,6 +492,34 @@ func resolveSchedule(req tools.ScheduleRequest, now time.Time) (WakeupSchedule, 
 	return sched, nil
 }
 
+// wakeupToolAdapter exposes the durable scheduler to the schedule_wakeup
+// tool under the tool package's interface. The agent and tool packages
+// cannot share a ScheduleResult type without an import cycle, so the
+// agent's ScheduleResult (which carries the stored schedule) is
+// translated into the tool's ScheduleResult (which carries only the
+// schedule id) here. Without this adapter the type assertion to
+// tools.ExtendedWakeupScheduler fails in production and advanced
+// (repeat, cron, daily, event, cloud) wakeups never run.
+type wakeupToolAdapter struct {
+	scheduler *WakeupScheduler
+}
+
+func (a wakeupToolAdapter) Schedule(sessionID string, delay time.Duration, reason, prompt string) {
+	a.scheduler.Schedule(sessionID, delay, reason, prompt)
+}
+
+func (a wakeupToolAdapter) Cancel(sessionID string) {
+	a.scheduler.Cancel(sessionID)
+}
+
+func (a wakeupToolAdapter) ScheduleAdvanced(ctx context.Context, req tools.ScheduleRequest) (tools.ScheduleResult, error) {
+	res, err := a.scheduler.ScheduleAdvanced(ctx, req)
+	if err != nil {
+		return tools.ScheduleResult{}, err
+	}
+	return tools.ScheduleResult{ScheduleID: res.Schedule.ID, Message: res.Message}, nil
+}
+
 func fireTime(sched WakeupSchedule) time.Time {
 	if !sched.Timed() {
 		return time.Time{}

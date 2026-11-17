@@ -72,15 +72,17 @@ func (s *runCoordinator) RunAccepted(ctx context.Context, accept *agent.Accepted
 func (s *runCoordinator) BeginAccepted(sessionID string) *agent.AcceptedRun {
 	return nil
 }
-func (s *runCoordinator) Cancel(string) {}
-func (s *runCoordinator) CancelAll()    {}
-func (s *runCoordinator) IsBusy() bool  { return s.busy }
+func (s *runCoordinator) Cancel(string)       {}
+func (s *runCoordinator) CancelWakeup(string) {}
+func (s *runCoordinator) CancelAll()          {}
+func (s *runCoordinator) IsBusy() bool        { return s.busy }
 func (s *runCoordinator) IsSessionBusy(string) bool {
 	return false
 }
 func (s *runCoordinator) QueuedPrompts(string) int          { return 0 }
 func (s *runCoordinator) QueuedPromptsList(string) []string { return nil }
 func (s *runCoordinator) ClearQueue(string)                 {}
+func (s *runCoordinator) AddNote(string, string)            {}
 func (s *runCoordinator) Summarize(context.Context, string) error {
 	return nil
 }
@@ -91,6 +93,9 @@ func (s *runCoordinator) SetSessionModels(context.Context, string, map[config.Se
 }
 func (s *runCoordinator) UpdateModels(context.Context) error            { return nil }
 func (s *runCoordinator) GenerateTitle(context.Context, string, string) {}
+func (s *runCoordinator) SetHostContext(proto.HostContext)              {}
+func (s *runCoordinator) HostContext() proto.HostContext                { return proto.HostContext{} }
+
 func (s *runCoordinator) SetMainAgent(agentName string) error {
 	s.lastMainAgentSet.Store(agentName)
 	return s.setMainAgentErr

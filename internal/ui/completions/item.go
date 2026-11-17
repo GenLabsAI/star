@@ -51,15 +51,6 @@ func NewCompletionItem(text string, value any, normalStyle, focusedStyle, matchS
 	}
 }
 
-// Finished implements list.Item. Completion items render purely from
-// (text, match, focus); any mutation (SetMatch / SetFocused) bumps
-// Version() so the frozen cache entry invalidates on the next
-// render. Marking them finished lets the F6 list memo skip the
-// per-line work for the steady completions popup.
-func (c *CompletionItem) Finished() bool {
-	return true
-}
-
 // Text returns the display text of the item.
 func (c *CompletionItem) Text() string {
 	return c.text
@@ -104,6 +95,15 @@ func (c *CompletionItem) SetFocused(focused bool) {
 	}
 	c.cache = nil
 	c.focused = focused
+	c.Bump()
+}
+
+// setStyles replaces the item's styles and drops its cached renders.
+func (c *CompletionItem) setStyles(normalStyle, focusedStyle, matchStyle lipgloss.Style) {
+	c.normalStyle = normalStyle
+	c.focusedStyle = focusedStyle
+	c.matchStyle = matchStyle
+	c.cache = nil
 	c.Bump()
 }
 
