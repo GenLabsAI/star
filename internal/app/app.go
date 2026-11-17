@@ -13,10 +13,11 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
-	"charm.land/catwalk/pkg/catwalk"
+	"charm.land/catwalk/v3/pkg/catwalk"
 	"charm.land/fantasy"
 	"github.com/charmbracelet/crush/internal/agent"
 	"github.com/charmbracelet/crush/internal/agent/notify"
@@ -34,12 +35,14 @@ import (
 	"github.com/charmbracelet/crush/internal/lsp"
 	"github.com/charmbracelet/crush/internal/message"
 	"github.com/charmbracelet/crush/internal/permission"
+	"github.com/charmbracelet/crush/internal/pinentry"
 	"github.com/charmbracelet/crush/internal/pubsub"
 	"github.com/charmbracelet/crush/internal/question"
 	"github.com/charmbracelet/crush/internal/search"
 	"github.com/charmbracelet/crush/internal/session"
 	"github.com/charmbracelet/crush/internal/shell"
 	"github.com/charmbracelet/crush/internal/skills"
+	"github.com/charmbracelet/crush/internal/sshaskpass"
 	"github.com/charmbracelet/crush/internal/ui/anim"
 	"github.com/charmbracelet/crush/internal/ui/styles"
 	"github.com/charmbracelet/crush/internal/update"
@@ -65,6 +68,7 @@ type App struct {
 	Permissions permission.Service
 	Questions   question.Service
 	FileTracker filetracker.Service
+	Pinentry    *pinentry.Service
 
 	AgentCoordinator agent.Coordinator
 
@@ -98,6 +102,14 @@ type App struct {
 	// herdrClient reports agent state to herdr when running inside
 	// a herdr-managed pane. Nil when not in a herdr environment.
 	herdrClient *herdr.Client
+
+	// hookRunner runs user hooks for every event; it reads the config
+	// store on each event so reloads need no extra wiring.
+	hookRunner *hooks.Runner
+
+	// currentSessionID is the session the user is working in, reported
+	// by the TUI and the non-interactive runner, for SessionEnd.
+	currentSessionID atomic.Value
 }
 
 // New initializes a new application instance. skillsMgr carries the
@@ -111,41 +123,46 @@ func New(ctx context.Context, conn *sql.DB, store *config.ConfigStore, skillsMgr
 	searchSvc := search.NewService(conn, messages)
 	files := history.NewService(q, conn)
 	cfg := store.Config()
-
 	var mode permission.Mode = permission.ModeNormal
-	if store.Overrides().PermissionMode != "" {
-		mode = permission.Mode(store.Overrides().PermissionMode)
-	} else if store.Overrides().SkipPermissionRequests {
+	switch {
+	case store.Overrides().PermissionModeName != "":
+		mode = store.Overrides().PermissionModeName
+	case store.Overrides().PermissionMode == permission.PermissionModeSysadmin:
+		mode = permission.ModeSysadmin
+	case store.Overrides().SkipPermissionRequests:
 		mode = permission.ModeYolo
 	}
 
-	skipPermissionsRequests := mode == permission.ModeYolo
+	skipPermissionsRequests := mode.SkipsPrompts()
 	var allowedTools []string
 	if cfg.Permissions != nil && cfg.Permissions.AllowedTools != nil {
 		allowedTools = cfg.Permissions.AllowedTools
 	}
 
-	var permissionHookRunner *hooks.Runner
-	if permissionHooks := cfg.Hooks[hooks.EventPermissionRequest]; len(permissionHooks) > 0 {
-		permissionHookRunner = hooks.NewRunner(permissionHooks, store.WorkingDir(), store.WorkingDir())
-	}
+	hookRunner := hooks.NewRunner(func() map[string][]config.HookConfig {
+		return store.Config().Hooks
+	}, store.WorkingDir(), store.WorkingDir())
+
+	permSvc := permission.NewPermissionService(store.WorkingDir(), skipPermissionsRequests, allowedTools, hookRunner, mode)
 
 	app := &App{
 		Sessions:    sessions,
 		Messages:    messages,
 		Search:      searchSvc,
 		History:     files,
-		Permissions: permission.NewPermissionService(store.WorkingDir(), skipPermissionsRequests, allowedTools, permissionHookRunner, mode),
+		Permissions: permSvc,
 		Questions:   question.NewService(),
-		FileTracker: filetracker.NewService(q),
+		FileTracker: filetracker.NewService(q, store.WorkingDir()),
+		Pinentry:    pinentry.DefaultService(),
 		LSPManager:  lsp.NewManager(store),
 		Skills:      skillsMgr,
 
-		globalCtx: ctx,
+		globalCtx:  ctx,
+		hookRunner: hookRunner,
 
 		config: store,
 
-		events:             pubsub.NewBroker[tea.Msg](),
+		events:             pubsub.NewCoalescingBroker(eventCoalesceKey),
 		serviceEventsWG:    &sync.WaitGroup{},
 		tuiWG:              &sync.WaitGroup{},
 		agentNotifications: pubsub.NewBroker[notify.Notification](),
@@ -157,6 +174,45 @@ func New(ctx context.Context, conn *sql.DB, store *config.ConfigStore, skillsMgr
 
 	app.setupEvents()
 	app.setupSearchIndexer(ctx)
+
+	// Start the pinentry watcher so terminal-based GPG passphrase prompts
+	// (pinentry-curses/pinentry-tty) get exclusive terminal access while a
+	// shell command runs. It only polls while commands are executing, and
+	// stops with the events pipeline.
+	app.Pinentry.Start(app.eventsCtx)
+
+	// Enable the integrated pinentry: GPG passphrase/PIN prompts are
+	// rendered as native dialogs (loopback pinentry) for Crush-spawned
+	// processes without touching GPG or git configuration. The
+	// terminal-handover watcher above remains the fallback.
+	if cfg.Options.GetPinentryIntegrated() {
+		if executable, err := os.Executable(); err != nil {
+			slog.Warn("Integrated pinentry unavailable", "error", err)
+		} else if cleanup, err := pinentry.StartIntegration(ctx, executable, cfg.Options.GetPinentryCacheTimeout()); err != nil {
+			slog.Warn("Integrated pinentry unavailable", "error", err)
+		} else {
+			app.cleanupFuncs = append(app.cleanupFuncs, func(context.Context) error {
+				cleanup()
+				return nil
+			})
+		}
+	}
+
+	// Enable the integrated ssh askpass: OpenSSH credential and
+	// confirmation prompts (passwords, key passphrases, security key
+	// touches) for Crush-spawned commands are rendered as native
+	// dialogs. The redirect is environment-scoped; no ssh configuration
+	// or files are modified.
+	if executable, err := os.Executable(); err != nil {
+		slog.Warn("Integrated ssh prompts unavailable", "error", err)
+	} else if cleanup, err := sshaskpass.StartIntegration(ctx, executable); err != nil {
+		slog.Warn("Integrated ssh prompts unavailable", "error", err)
+	} else {
+		app.cleanupFuncs = append(app.cleanupFuncs, func(context.Context) error {
+			cleanup()
+			return nil
+		})
+	}
 
 	// Initialize clipboard support. This is best-effort; if it fails
 	// (e.g., headless environment), clipboard operations will return nil.
@@ -186,6 +242,10 @@ func New(ctx context.Context, conn *sql.DB, store *config.ConfigStore, skillsMgr
 	if err != nil {
 		slog.Warn("Failed to list disabled MCP overrides; starting them anyway", "error", err)
 	}
+	// MCP clients are process-global and a server hosts one app per
+	// workspace, so hold a reference that keeps another app's shutdown from
+	// closing them. The mcp.Close cleanup below releases it.
+	mcp.Acquire()
 	go mcp.Initialize(ctx, app.Permissions, store, forceStart, localDisabled)
 
 	// Start herdr integration when running inside a herdr pane.
@@ -214,6 +274,10 @@ func New(ctx context.Context, conn *sql.DB, store *config.ConfigStore, skillsMgr
 		return app, nil
 	}
 	if err := app.InitCoderAgent(ctx); err != nil {
+		// A failed app is never shut down, so release its MCP reference.
+		closeCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		_ = mcp.Close(closeCtx)
+		cancel()
 		return nil, fmt.Errorf("failed to initialize coder agent: %w", err)
 	}
 	go app.refreshDiscoveredModels(ctx, app.AgentCoordinator)
@@ -268,6 +332,13 @@ func (app *App) Events(ctx context.Context) <-chan pubsub.Event[tea.Msg] {
 	return app.events.Subscribe(ctx)
 }
 
+// EventsWithOverflow is like [App.Events], but also returns a channel that
+// is closed the first time an event is dropped for this caller because it
+// fell behind. See [pubsub.Broker.SubscribeWithOverflow].
+func (app *App) EventsWithOverflow(ctx context.Context) (<-chan pubsub.Event[tea.Msg], <-chan struct{}) {
+	return app.events.SubscribeWithOverflow(ctx)
+}
+
 // SendEvent publishes a message to all event subscribers.
 func (app *App) SendEvent(msg tea.Msg) {
 	app.events.Publish(pubsub.UpdatedEvent, msg)
@@ -292,44 +363,22 @@ func (app *App) RunCompletions() *pubsub.Broker[notify.RunComplete] {
 // is nil-safe. Call this whenever the active session changes (load,
 // new, or select).
 func (app *App) ReportCurrentSession(sessionID string) {
+	app.currentSessionID.Store(sessionID)
 	app.herdrClient.SetSessionID(sessionID)
-}
-
-// resolveSession resolves which session to use for a non-interactive run
-// If continueSessionID is set, it looks up that session by ID
-// If useLast is set, it returns the most recently updated top-level session
-// Otherwise, it creates a new session
-func (app *App) resolveSession(ctx context.Context, continueSessionID string, useLast bool) (session.Session, error) {
-	switch {
-	case continueSessionID != "":
-		if app.Sessions.IsAgentToolSession(continueSessionID) {
-			return session.Session{}, fmt.Errorf("cannot continue an agent tool session: %s", continueSessionID)
-		}
-		sess, err := app.Sessions.Get(ctx, continueSessionID)
-		if err != nil {
-			return session.Session{}, fmt.Errorf("session not found: %s", continueSessionID)
-		}
-		if sess.ParentSessionID != "" {
-			return session.Session{}, fmt.Errorf("cannot continue a child session: %s", continueSessionID)
-		}
-		return sess, nil
-
-	case useLast:
-		sess, err := app.Sessions.GetLast(ctx)
-		if err != nil {
-			return session.Session{}, fmt.Errorf("no sessions found to continue")
-		}
-		return sess, nil
-
-	default:
-		return app.Sessions.Create(ctx, agent.DefaultSessionName)
-	}
 }
 
 // RunNonInteractive runs the application in non-interactive mode with the
 // given prompt, printing to stdout.
 func (app *App) RunNonInteractive(ctx context.Context, output io.Writer, prompt, largeModel, smallModel, reasoningEffort string, hideSpinner bool, continueSessionID string, useLast bool) error {
 	slog.Info("Running in non-interactive mode")
+
+	// No dialog can answer an integrated pinentry prompt here, so GPG
+	// would wait forever: let the agent's own pinentry ask instead.
+	pinentry.DisableIntegration()
+
+	// No dialog can answer an ssh prompt here, so ssh would wait forever:
+	// let it fail instead.
+	sshaskpass.DisableIntegration()
 
 	// Re-initialize the coder agent without interactive-only tools.
 	if err := app.InitCoderAgentNonInteractive(ctx); err != nil {
@@ -702,7 +751,7 @@ func (app *App) GetDefaultSmallModel(providerID string) config.SelectedModel {
 						Provider:        providerID,
 						Model:           small.ID,
 						MaxTokens:       small.DefaultMaxTokens,
-						ReasoningEffort: small.DefaultReasoningEffort,
+						ReasoningEffort: small.Reasoning.DefaultEffortLevel,
 					}
 				}
 				return largeModelCfg
@@ -715,7 +764,7 @@ func (app *App) GetDefaultSmallModel(providerID string) config.SelectedModel {
 		Provider:        providerID,
 		Model:           defaultSmallModelID,
 		MaxTokens:       model.DefaultMaxTokens,
-		ReasoningEffort: model.DefaultReasoningEffort,
+		ReasoningEffort: model.Reasoning.DefaultEffortLevel,
 	}
 }
 
@@ -810,20 +859,33 @@ func setupSubscriberMustDeliver[T any](
 func (app *App) setupEvents() {
 	ctx, cancel := context.WithCancel(app.globalCtx)
 	app.eventsCtx = ctx
-	setupSubscriber(ctx, app.serviceEventsWG, "sessions", app.Sessions.Subscribe, app.events)
-	setupSubscriber(ctx, app.serviceEventsWG, "messages", app.Messages.Subscribe, app.events)
-	setupSubscriberMustDeliver(ctx, app.serviceEventsWG, "permissions", app.Permissions.Subscribe, app.events)
-	setupSubscriberMustDeliver(ctx, app.serviceEventsWG, "permissions-notifications", app.Permissions.SubscribeNotifications, app.events)
-	setupSubscriberMustDeliver(ctx, app.serviceEventsWG, "question-batches", app.Questions.Subscribe, app.events)
-	setupSubscriberMustDeliver(ctx, app.serviceEventsWG, "question-notifications", app.Questions.SubscribeNotifications, app.events)
-	setupSubscriber(ctx, app.serviceEventsWG, "history", app.History.Subscribe, app.events)
-	setupSubscriber(ctx, app.serviceEventsWG, "agent-notifications", app.agentNotifications.Subscribe, app.events)
-	setupSubscriber(ctx, app.serviceEventsWG, "wakeups", app.wakeups.Subscribe, app.events)
-	setupSubscriber(ctx, app.serviceEventsWG, "wakeups-scheduled", app.wakeupsScheduled.Subscribe, app.events)
-	setupSubscriber(ctx, app.serviceEventsWG, "wakeups-canceled", app.wakeupsCanceled.Subscribe, app.events)
-	setupSubscriberMustDeliver(ctx, app.serviceEventsWG, "run-completions", app.runCompletions.Subscribe, app.events)
-	setupSubscriber(ctx, app.serviceEventsWG, "mcp", mcp.SubscribeEvents, app.events)
-	setupSubscriber(ctx, app.serviceEventsWG, "lsp", SubscribeLSPEvents, app.events)
+	app.subscribe(ctx, "sessions", app.Sessions.Subscribe)
+	app.subscribe(ctx, "messages", app.Messages.Subscribe)
+	app.subscribeMustDeliver(ctx, "permissions", app.Permissions.Subscribe)
+	app.subscribeMustDeliver(ctx, "permissions-notifications", app.Permissions.SubscribeNotifications)
+	app.subscribeMustDeliver(ctx, "question-batches", app.Questions.Subscribe)
+	app.subscribeMustDeliver(ctx, "question-notifications", app.Questions.SubscribeNotifications)
+	// SSH credential prompts hang a running ssh command if lost, so
+	// the fan-in must not drop them.
+	app.subscribeMustDeliver(ctx, "ssh-prompts", sshaskpass.DefaultPrompts().Subscribe)
+	app.subscribeMustDeliver(ctx, "ssh-notifications", sshaskpass.DefaultPrompts().SubscribeNotifications)
+	app.subscribeMustDeliver(ctx, "permissions-mode", app.Permissions.SubscribeModeChanges)
+	app.subscribe(ctx, "history", app.History.Subscribe)
+	app.subscribe(ctx, "agent-notifications", app.agentNotifications.Subscribe)
+	app.subscribe(ctx, "wakeups", app.wakeups.Subscribe)
+	app.subscribe(ctx, "wakeups-scheduled", app.wakeupsScheduled.Subscribe)
+	app.subscribe(ctx, "wakeups-canceled", app.wakeupsCanceled.Subscribe)
+	// Pinentry transitions are rare and drive the terminal handover, so
+	// they must not be dropped: a lost release/restore would leave the
+	// terminal in the wrong state. The same goes for integrated pinentry
+	// credential prompts, which hang a GPG command if lost.
+	app.subscribeMustDeliver(ctx, "pinentry", app.Pinentry.Subscribe)
+	app.subscribeMustDeliver(ctx, "pinentry-prompts", pinentry.DefaultPrompts().Subscribe)
+	app.subscribeMustDeliver(ctx, "pinentry-notifications", pinentry.DefaultPrompts().SubscribeNotifications)
+	app.subscribeMustDeliver(ctx, "run-completions", app.runCompletions.Subscribe)
+	app.subscribe(ctx, "mcp", mcp.SubscribeEvents)
+	app.subscribe(ctx, "mcp-channels", app.subscribeScopedChannelEvents)
+	app.subscribe(ctx, "lsp", SubscribeLSPEvents)
 	// Keep looking for a new release so the TUI can offer the update for as
 	// long as one is outstanding, not just for the first seconds of a run.
 	app.serviceEventsWG.Go(func() { app.pollForUpdates(ctx) })
@@ -882,11 +944,21 @@ func (app *App) subscribeScopedChannelEvents(ctx context.Context) <-chan pubsub.
 	return scoped
 }
 
+// eventCoalesceKey keeps at most one pending message update per message
+// for each slow app.events subscriber.
+func eventCoalesceKey(ev pubsub.Event[tea.Msg]) string {
+	if e, ok := ev.Payload.(pubsub.Event[message.Message]); ok {
+		return message.CoalesceKey(e)
+	}
+	return ""
+}
+
 // subscribe fans a service's event stream into the shared app.events
 // broker on app.serviceEventsWG, re-publishing each upstream event as a
-// tea.Msg. The goroutine exits when ctx is cancelled or the upstream
-// channel closes. It is a generic method (Go 1.27) so it can live in the
-// App namespace while still inferring the upstream event type T.
+// tea.Msg. Upstream must-deliver events stay must-deliver. The goroutine
+// exits when ctx is cancelled or the upstream channel closes. It is a
+// generic method (Go 1.27) so it can live in the App namespace while still
+// inferring the upstream event type T.
 func (app *App) subscribe[T any](
 	ctx context.Context,
 	name string,
@@ -901,7 +973,11 @@ func (app *App) subscribe[T any](
 					slog.Debug("Subscription channel closed", "name", name)
 					return
 				}
-				app.events.Publish(pubsub.UpdatedEvent, tea.Msg(event))
+				if event.MustDeliver {
+					app.events.PublishMustDeliver(ctx, pubsub.UpdatedEvent, tea.Msg(event))
+				} else {
+					app.events.Publish(pubsub.UpdatedEvent, tea.Msg(event))
+				}
 			case <-ctx.Done():
 				slog.Debug("Subscription cancelled", "name", name)
 				return
@@ -973,7 +1049,9 @@ func (app *App) initCoderAgent(ctx context.Context, interactive bool) error {
 		Skills:           app.Skills,
 		WorktreeManager:  app.worktreeManager,
 		Search:           app.Search,
+		HookRunner:       app.hookRunner,
 		Interactive:      interactive,
+		ShellOwner:       app,
 	})
 	if err != nil {
 		slog.Error("Failed to create coder agent", "err", err)
@@ -1078,6 +1156,7 @@ func (app *App) Shutdown() {
 	if app.AgentCoordinator != nil {
 		app.AgentCoordinator.CancelAll()
 	}
+	app.fireSessionEnd()
 
 	// Shared shutdown context for all timeout-bounded cleanup.
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -1101,9 +1180,11 @@ func (app *App) Shutdown() {
 		event.AppExited()
 	})
 
-	// Kill all background shells.
+	// Kill the background shells this app started. The shell manager is
+	// shared by the whole process, and the server hosts one app per
+	// workspace, so other workspaces' shells must keep running.
 	wg.Go(func() {
-		shell.GetBackgroundShellManager().KillAll(shutdownCtx)
+		shell.GetBackgroundShellManager().KillOwned(shutdownCtx, app)
 	})
 
 	// Close herdr client to stop its background writer.

@@ -215,6 +215,18 @@ func (c *scriptedCoordinator) CancelAll() {
 	}
 }
 
+func (c *scriptedCoordinator) AddNote(string, string) {}
+
+func (c *scriptedCoordinator) GenerateTitle(context.Context, string, string) {}
+
+func (c *scriptedCoordinator) SetMainAgent(string) error { return nil }
+
+func (c *scriptedCoordinator) UpdateModels(context.Context) error { return nil }
+
+func (c *scriptedCoordinator) SetHostContext(proto.HostContext) {}
+
+func (c *scriptedCoordinator) HostContext() proto.HostContext { return proto.HostContext{} }
+
 func (c *scriptedCoordinator) IsBusy() bool                            { return false }
 func (c *scriptedCoordinator) IsSessionBusy(string) bool               { return false }
 func (c *scriptedCoordinator) QueuedPrompts(string) int                { return 0 }
@@ -226,9 +238,6 @@ func (c *scriptedCoordinator) SessionModel(string) agent.Model         { return 
 func (c *scriptedCoordinator) SetSessionModels(context.Context, string, map[config.SelectedModelType]config.SelectedModel) error {
 	return nil
 }
-func (c *scriptedCoordinator) UpdateModels(context.Context) error            { return nil }
-func (c *scriptedCoordinator) SetMainAgent(string) error                     { return nil }
-func (c *scriptedCoordinator) GenerateTitle(context.Context, string, string) {}
 
 // agentE2EHarness extends the SSE harness with a scripted coordinator
 // wired into the workspace's embedded app.App, so POST /agent drives a

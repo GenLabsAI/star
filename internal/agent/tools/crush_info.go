@@ -12,6 +12,7 @@ import (
 	"github.com/charmbracelet/crush/internal/agent/tools/mcp"
 	"github.com/charmbracelet/crush/internal/config"
 	"github.com/charmbracelet/crush/internal/lsp"
+	"github.com/charmbracelet/crush/internal/permission"
 	"github.com/charmbracelet/crush/internal/skills"
 )
 
@@ -351,20 +352,32 @@ func writePermissions(b *strings.Builder, cfg *config.ConfigStore) {
 	c := cfg.Config()
 	overrides := cfg.Overrides()
 
-	if c.Permissions == nil {
-		if overrides.PermissionMode == "" && !overrides.SkipPermissionRequests {
-			return
-		}
-	} else if overrides.PermissionMode == "" && !overrides.SkipPermissionRequests && len(c.Permissions.AllowedTools) == 0 {
+	hasAllowedTools := c.Permissions != nil && len(c.Permissions.AllowedTools) > 0
+	isNonNormalMode := overrides.PermissionMode != permission.PermissionModeNormal ||
+		overrides.PermissionModeName != "" && overrides.PermissionModeName != permission.ModeNormal ||
+		overrides.SkipPermissionRequests
+
+	if !isNonNormalMode && !hasAllowedTools {
 		return
 	}
+
 	b.WriteString("[permissions]\n")
-	if overrides.PermissionMode != "" {
-		fmt.Fprintf(b, "mode = %s\n", overrides.PermissionMode)
-	} else if overrides.SkipPermissionRequests {
-		b.WriteString("mode = yolo\n")
+	mode := overrides.PermissionModeName
+	if mode == "" {
+		switch overrides.PermissionMode {
+		case permission.PermissionModeSysadmin:
+			mode = permission.ModeYeehaw
+		case permission.PermissionModeYolo:
+			mode = permission.ModeYolo
+		default:
+			mode = permission.ModeNormal
+		}
 	}
-	if c.Permissions != nil && len(c.Permissions.AllowedTools) > 0 {
+	if overrides.SkipPermissionRequests && mode == permission.ModeNormal {
+		mode = permission.ModeYolo
+	}
+	fmt.Fprintf(b, "mode = %s\n", mode)
+	if hasAllowedTools {
 		sorted := slices.Clone(c.Permissions.AllowedTools)
 		slices.Sort(sorted)
 		fmt.Fprintf(b, "allowed_tools = %s\n", strings.Join(sorted, ", "))

@@ -24,6 +24,7 @@ func (b *Backend) GrantPermission(workspaceID string, req proto.PermissionGrant)
 		Action:      req.Permission.Action,
 		Params:      req.Permission.Params,
 		Path:        req.Permission.Path,
+		Danger:      req.Permission.Danger,
 	}
 
 	switch req.Action {
@@ -36,6 +37,19 @@ func (b *Backend) GrantPermission(workspaceID string, req proto.PermissionGrant)
 	default:
 		return false, ErrInvalidPermissionAction
 	}
+}
+
+// AutoApproveSession grants every permission request the session raises
+// from now on without prompting, as a non-interactive run does for its own
+// session. Other sessions keep prompting.
+func (b *Backend) AutoApproveSession(workspaceID, sessionID string) error {
+	ws, err := b.GetWorkspace(workspaceID)
+	if err != nil {
+		return err
+	}
+
+	ws.Permissions.AutoApproveSession(sessionID)
+	return nil
 }
 
 // SetPermissionsSkip sets whether permission prompts are skipped. When
@@ -68,6 +82,25 @@ func (b *Backend) GetPermissionsSkip(workspaceID, sessionID string) (bool, error
 		return ws.Permissions.SessionSkipRequests(sessionID), nil
 	}
 	return ws.Permissions.SkipRequests(), nil
+}
+
+// SetPermissionMode sets the permission mode for a workspace.
+//
+// Only the permission service is updated; the config override is left
+// holding the startup flag on purpose. The override is a seed that
+// app.New reads once at construction, and config.Overrides() hands
+// back a bare pointer with no locking, so writing it here would race
+// the readers on the CreateWorkspace path for no benefit. Leaving the
+// service as the single writable source of truth is what keeps the
+// enforced mode and the mode reported to clients from drifting apart.
+func (b *Backend) SetPermissionMode(workspaceID string, mode permission.PermissionMode) error {
+	ws, err := b.GetWorkspace(workspaceID)
+	if err != nil {
+		return err
+	}
+
+	ws.Permissions.SetPermissionMode(mode)
+	return nil
 }
 
 // SetPermissionsMode sets the permission mode. When sessionID is

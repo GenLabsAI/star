@@ -7,6 +7,7 @@ import (
 	"charm.land/bubbles/v2/help"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/crush/internal/permission"
 	"github.com/charmbracelet/crush/internal/ui/common"
 	"github.com/charmbracelet/crush/internal/ui/util"
 	uv "github.com/charmbracelet/ultraviolet"
@@ -36,11 +37,13 @@ type Status struct {
 
 	// inputMode, yolo and yeehaw drive the mode badge shown before the help
 	// hints. Yeehaw is a distinct badge from YOLO so an unattended yeehaw
-	// run is visually obvious when you return.
+	// run is visually obvious when you return, and the upstream three-mode
+	// protocol is tracked alongside for sysadmin.
 	inputMode uiInputMode
 	yolo      bool
 	yeehaw    bool
 	cloud     bool
+	permMode  permission.Mode
 }
 
 // NewStatus creates a new status bar and help model.
@@ -75,10 +78,12 @@ func (s *Status) ClearInfoMsg(seq uint64) {
 	}
 }
 
-// SetMode sets the input mode and YOLO state used for the mode badge.
-func (s *Status) SetMode(mode uiInputMode, yolo bool) {
+// SetMode sets the input mode and permission mode used for the mode badge.
+func (s *Status) SetMode(mode uiInputMode, permMode permission.Mode) {
 	s.inputMode = mode
-	s.yolo = yolo
+	s.permMode = permMode
+	s.yolo = permMode == permission.ModeYolo && !s.yeehaw
+	s.yeehaw = permMode == permission.ModeYeehaw
 }
 
 // SetCloudMode reports whether the current session's prompts run on a
@@ -110,11 +115,14 @@ func (s *Status) modeBadge() string {
 	if s.inputMode == uiInputModePlan {
 		return t.Status.ModeBadgePlan.String() + cloud
 	}
-	if s.yeehaw {
+	if s.yeehaw || s.permMode == permission.ModeYeehaw {
 		return t.Status.ModeBadgeYeehaw.String() + cloud
 	}
-	if s.yolo {
+	if s.yolo || s.permMode == permission.ModeYolo {
 		return t.Status.ModeBadgeYolo.String() + cloud
+	}
+	if s.permMode == permission.ModeSysadmin {
+		return t.Status.ModeBadgeSysadmin.String() + cloud
 	}
 	return cloud
 }
@@ -190,6 +198,10 @@ func (s *Status) Draw(scr uv.Screen, area uv.Rectangle) {
 	case util.InfoTypeYolo:
 		indStyle = s.com.Styles.Status.ModeBannerYoloBadge
 		msgStyle = s.com.Styles.Status.ModeBannerYolo
+		indInset = badgeLeftInset
+	case util.InfoTypeSysadmin:
+		indStyle = s.com.Styles.Status.ModeBannerSysadminBadge
+		msgStyle = s.com.Styles.Status.ModeBannerSysadmin
 		indInset = badgeLeftInset
 	case util.InfoTypeError:
 		indStyle = s.com.Styles.Status.ErrorIndicator
