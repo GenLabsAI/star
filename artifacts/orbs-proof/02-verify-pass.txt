@@ -1,0 +1,59 @@
+$ star verify        # second run: expectation fixed, code changed
+Verification: PASS
+  workspace         /tmp/orbs-proof-proj
+  branch            main
+  duration          139ms
+  bundle            /tmp/proof-out/02-pass-bundle
+
+Steps
+  pass     build  go build ./...                         25ms
+  pass     test   go test ./...                         113ms
+
+Changes
+  2 path(s), patch 606 bytes
+
+Evidence: /tmp/proof-out/02-pass-bundle/summary.md
+exit=0
+
+--- verify.json (verdict, steps, changes) ---
+verdict: pass
+star: devel -
+branch: main
+  build  go build ./...     exit=0 25ms log=logs/01-build.log
+  test   go test ./...      exit=0 113ms log=logs/02-test.log
+changes: [('M', 'sum.go'), ('M', 'sum_test.go')]
+
+--- logs/02-test.log ---
+$ go test ./...
+# kind: test
+# exit: 0
+# duration_ms: 113
+
+ok  	example.com/proof	(cached)
+
+--- changes.patch ---
+diff --git a/sum.go b/sum.go
+index da216cf..429ccd6 100644
+--- a/sum.go
++++ b/sum.go
+@@ -2,3 +2,6 @@ package proof
+ 
+ // Sum adds two integers.
+ func Sum(a, b int) int { return a + b }
++
++// Double returns twice n.
++func Double(n int) int { return Sum(n, n) }
+diff --git a/sum_test.go b/sum_test.go
+index bbebbcd..b7ba31e 100644
+--- a/sum_test.go
++++ b/sum_test.go
+@@ -3,7 +3,7 @@ package proof
+ import "testing"
+ 
+ func TestSum(t *testing.T) {
+-	if got := Sum(2, 2); got != 5 {
+-		t.Fatalf("Sum(2, 2) = %d, want 5", got)
++	if got := Sum(2, 2); got != 4 {
++		t.Fatalf("Sum(2, 2) = %d, want 4", got)
+ 	}
+ }

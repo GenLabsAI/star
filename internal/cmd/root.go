@@ -72,6 +72,8 @@ func init() {
 		runCmd,
 		dirsCmd,
 		envCmd,
+		verifyCmd,
+		changesCmd,
 		projectsCmd,
 		updateProvidersCmd,
 		logsCmd,

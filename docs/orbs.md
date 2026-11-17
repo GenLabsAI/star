@@ -124,13 +124,19 @@ proof. Everything else is ours to finish.
     inventory, which needs item 7.
 16. **Autonomous testing and verification** against the real running
     application: reproduce bugs, investigate failures, run regressions,
-    iterate until it works. — **WIP**. Bash/job tools, LSP, `crush logs`
-    and the `tui-walkthrough` skill cover the loop manually; there is no
-    first-class test runner with a pass/fail verdict.
+    iterate until it works. — **WIP → advanced here**. `star verify` runs
+    the commands `star env` detected (build and test by default, install
+    with `--install`), bounds each with `--timeout`, records exit code,
+    duration and output, and exits non-zero when anything fails. Evidence
+    in `artifacts/orbs-proof/`. Missing: coverage thresholds, flake
+    detection, and driving a running application rather than its test
+    suite.
 17. **Evidence-based task completion**: test results, screenshots, videos,
     logs and a summary the user can check instead of trusting a claim. —
     **DONE**. Screenshot/video/gif + e2e log convention and the
-    `artifacts/` tree; cloud transcripts via `star cloud attach`.
+    `artifacts/` tree; cloud transcripts via `star cloud attach`. `star
+    verify` now emits the bundle in the shape this needs: `verify.json`,
+    `summary.md`, per-command logs and `changes.patch` in one directory.
 18. **External integrations and event triggers**: tasks originating from
     GitHub, Slack, Linear, webhooks; agents calling external APIs. —
     **WIP**. MCP servers, plugins, hooks, and event wakeups triggered by
@@ -148,10 +154,14 @@ proof. Everything else is ours to finish.
     worker policy yet.
 21. **Complete change management**: track every modification, produce clean
     diffs, commits, branches and pull requests, isolated until review. —
-    **WIP**. Per-session git worktrees (`internal/worktree`,
-    `enter_worktree`/`exit_worktree`), the diff tool and
-    `internal/gitutil` branch detection. Missing: a commit/branch/PR
-    pipeline in Star and a review gate before changes leave the orb.
+    **WIP → advanced here**. Per-session git worktrees
+    (`internal/worktree`, `enter_worktree`/`exit_worktree`), the diff tool,
+    `internal/gitutil` branch detection, and now `star changes`: branch and
+    upstream divergence, every touched path, diffstat and patch size, JSON
+    for agents, and `--patch FILE` to hand a reviewer a real diff. `star
+    verify` bundles carry the same patch, so a diff never travels without
+    the run that produced it. Missing: commit/branch/PR creation in Star
+    and an approval gate before changes leave the orb.
 22. **Resource and cost management**: configurable CPU/memory/storage,
     scaling with workload, minimal idle cost, usage and cost visibility. —
     **WIP**. Sleeping/reused orbs, `DeleteSession`, and explicit session
@@ -178,12 +188,25 @@ old 3 + 6 → 3, old 4 → 4, old 5 → 5 (continuous validation is now part of
 3/4), old 7 → 12, old 8 → 6, old 9 → 17, old 10 → 8, old 11 → 10, old 12
 → 13. Items 7, 9, 11, 14, 15, 16, 18, 19, 20, 21, 22, 23 and 24 are new.
 
-## Working on now (unblocked, partially built)
+## Done in this pass (proof in `artifacts/orbs-proof/`)
 
 * **Item 15 + 4** — `star env [--json]`: the machine-readable environment
   manifest (paths, git, stacks, commands, hooks, readiness, credential
   presence). New `internal/envreport` package with tests.
-* **Items 14, 16, 21, 23, 24** — the next slice, in that order: a
-  cross-session knowledge pointer, a test-runner verdict for the current
-  stack, commit/branch/diff helpers, the per-orb permission model, and a
-  joined workspace overview.
+* **Item 16** — `star verify [--json]`: builds and tests the detected
+  stack, bounds every command, writes an evidence bundle, fails loudly.
+  New `internal/verify` package with tests, including the timeout path.
+* **Item 21 (review half)** — `star changes [--json] [--patch FILE]`:
+  what changed, on which branch, and a diff a reviewer can read. New
+  `internal/changes` package with tests.
+
+## Next (unblocked, partially built)
+
+* **Item 24** — a single overview joining `star projects`, verification
+  history, wakeup schedules and cloud credential state.
+* **Item 14** — a durable cross-session knowledge pointer, so discoveries
+  survive sessions instead of being rediscovered.
+* **Item 7** — a port and process inventory for background jobs (local
+  half only; the orb-side mapping needs harness access).
+* **Items 22, 23** — per-orb resource and permission surfaces, once the
+  harness side is reachable.
