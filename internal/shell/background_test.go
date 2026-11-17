@@ -397,6 +397,56 @@ func TestBackgroundShellManager_DropsStaleFinishedJobs(t *testing.T) {
 	require.True(t, ok, "a recently finished job stays readable")
 }
 
+// A kill must always finish. A job whose process tree keeps its output pipe
+// open never reports exit, and a kill that waits for it blocks the tool call
+// that issued it, which in turn leaves the agent's turn active forever.
+func TestBackgroundShellManager_KillAbandonsUnconfirmedExit(t *testing.T) {
+	t.Parallel()
+
+	previous := KillTimeout
+	KillTimeout = 50 * time.Millisecond
+	t.Cleanup(func() { KillTimeout = previous })
+
+	manager := newBackgroundShellManager()
+	released := make(chan struct{})
+	manager.shells["JOB"] = &BackgroundShell{
+		ID:     "JOB",
+		cancel: func() {},
+		done:   released,
+	}
+	t.Cleanup(func() { close(released) })
+
+	err := manager.Kill("JOB")
+	require.ErrorIs(t, err, ErrJobStillRunning)
+
+	_, ok := manager.Get("JOB")
+	require.False(t, ok, "a job is untracked even when its exit is unconfirmed")
+}
+
+// The wait is abandoned as soon as the turn is cancelled: stopping the agent
+// must not depend on a background job cooperating.
+func TestBackgroundShellManager_KillContextHonorsCancellation(t *testing.T) {
+	t.Parallel()
+
+	manager := newBackgroundShellManager()
+	released := make(chan struct{})
+	cancelled := false
+	manager.shells["JOB"] = &BackgroundShell{
+		ID:     "JOB",
+		cancel: func() { cancelled = true },
+		done:   released,
+	}
+	t.Cleanup(func() { close(released) })
+
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+
+	err := manager.KillContext(ctx, "JOB")
+	require.ErrorIs(t, err, ErrJobStillRunning)
+	require.ErrorIs(t, err, context.Canceled)
+	require.True(t, cancelled, "the job must be signalled even when the wait is abandoned")
+}
+
 func TestBackgroundShellManager_PruneDropsOldestFinished(t *testing.T) {
 	t.Parallel()
 

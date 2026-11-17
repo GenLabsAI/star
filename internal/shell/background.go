@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"cmp"
 	"context"
+	"errors"
 	"fmt"
 	"maps"
 	"slices"
@@ -21,6 +22,18 @@ const (
 	// readable.
 	CompletedJobRetention = 8 * time.Hour
 )
+
+// ErrJobStillRunning reports that a kill was delivered and the job
+// untracked, but the job never confirmed that it exited. A job can outlive
+// the kill when its process tree detaches a child that keeps the output
+// pipe open, which makes the shell's wait never return.
+var ErrJobStillRunning = errors.New("background shell did not confirm exit")
+
+// KillTimeout bounds how long a kill waits for the job to confirm exit.
+// Variable so tests can pin it. The wait must always end: the kill runs
+// inside a tool call, so blocking here leaves the agent's turn active
+// forever, and a turn wedged in a tool cannot be cancelled.
+var KillTimeout = 5 * time.Second
 
 // syncBuffer is a thread-safe wrapper around bytes.Buffer.
 type syncBuffer struct {
@@ -187,15 +200,34 @@ func (m *BackgroundShellManager) Remove(id string) error {
 	return err
 }
 
-// Kill terminates a background shell by ID.
+// Kill terminates a background shell by ID and waits up to [KillTimeout]
+// for it to confirm that it exited.
 func (m *BackgroundShellManager) Kill(id string) error {
+	return m.KillContext(context.Background(), id)
+}
+
+// KillContext is [BackgroundShellManager.Kill] with a caller-supplied
+// context. The job is untracked and its process tree signalled immediately;
+// the wait for it to confirm exit is abandoned as soon as ctx is done or
+// [KillTimeout] elapses, reporting [ErrJobStillRunning]. Abandoning the wait
+// is what keeps a job with a detached child from wedging the caller.
+func (m *BackgroundShellManager) KillContext(ctx context.Context, id string) error {
 	shell, err := m.take(id)
 	if err != nil {
 		return err
 	}
 	shell.cancel()
-	<-shell.done
-	return nil
+
+	timer := time.NewTimer(KillTimeout)
+	defer timer.Stop()
+	select {
+	case <-shell.done:
+		return nil
+	case <-ctx.Done():
+		return fmt.Errorf("%w: %s (%w)", ErrJobStillRunning, id, ctx.Err())
+	case <-timer.C:
+		return fmt.Errorf("%w: %s (no exit after %s)", ErrJobStillRunning, id, KillTimeout)
+	}
 }
 
 // BackgroundShellInfo contains information about a background shell.
