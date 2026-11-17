@@ -151,14 +151,6 @@ type Chat struct {
 	// the decoded buffer instead of re-parsing ANSI.
 	drawDecodes int
 
-	// blitGood reports that drawCache.buf is already painted on screen at
-	// blitArea. While it holds, Draw skips the per-cell copy: the cells are
-	// already what the buffer would write, and copying them would mark every
-	// chat row dirty for no visual change. Anything that paints over the
-	// chat area must call InvalidateBlit so the next frame repaints.
-	blitGood bool
-	blitArea image.Rectangle
-
 	// scrollbarBlit caches the scrollbar cells. Drawing it with a fresh
 	// StyledString cleared the reserved column on every frame, dirtying
 	// every chat row for a thumb that usually did not move.
@@ -311,14 +303,10 @@ func (m *Chat) Draw(scr uv.Screen, area uv.Rectangle) {
 		if changed {
 			m.drawDecodes++
 		}
-		if changed || !m.blitGood || m.blitArea != listArea {
-			// An invalidated blit must clear its area even when the rendered
-			// content is byte-identical: a dialog or overlay may have painted
-			// cells over it that Buffer.Draw skips because they are empty in
-			// the cache.
-			drawCachedBuffer(scr, listArea, buf, changed || !m.blitGood)
-			m.blitGood, m.blitArea = true, listArea
-		}
+		// Blit the decoded cells every frame. View composes onto a blank
+		// canvas, so nothing has to be cleared first and no cell of an
+		// earlier frame can leak through.
+		buf.Draw(scr, listArea)
 	}
 
 	// Draw scrollbar if visible and needed. Only reached when not resizing
@@ -390,13 +378,6 @@ func (m *Chat) drawForkButton(scr uv.Screen, area, listArea image.Rectangle) {
 		rect.Max.Y-area.Min.Y,
 	)
 	m.forkButtonMsgID = msgID
-}
-
-// InvalidateBlit forces the next Draw to repaint the chat cells. Call it
-// whenever something else writes over the chat area (a dialog, an overlay) or
-// the screen is cleared underneath it.
-func (m *Chat) InvalidateBlit() {
-	m.blitGood = false
 }
 
 // decodeCache assembles the decoded screen for rendered, reusing the rows the
@@ -498,22 +479,6 @@ func renderedBounds(rendered string, method ansi.Method) (w, h int) {
 		h++
 	}
 	return w, h
-}
-
-// drawCachedBuffer blits a previously-decoded buffer into scr at area,
-// mirroring uv.StyledString.Draw's screen-mode behavior for the default
-// Wrap=false, Tail="" case. The clear loop matches StyledString.Draw line
-// 51-56; the buf.Draw call replaces the per-cell ANSI decode that printString
-// does on every uncached frame with a pure cell copy.
-func drawCachedBuffer(scr uv.Screen, area uv.Rectangle, buf uv.ScreenBuffer, clear bool) {
-	// Leftover cells from a previous frame outside the new content must be
-	// zeroed because Buffer.Draw skips empty cells (it doesn't clear). This
-	// is also required when a dialog invalidated the chat: the content may be
-	// identical, but the cells on screen are no longer the cached ones.
-	if clear {
-		clearScreenArea(scr, area)
-	}
-	buf.Draw(scr, area)
 }
 
 // BeginResize marks the chat as actively resizing so the next draws skip

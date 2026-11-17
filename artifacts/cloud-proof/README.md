@@ -23,8 +23,8 @@ like a TV screen.
   `/terminal/runner/<id>` with `/terminal/browser/<id>` and pumps
   bytes both ways, like prod.
 * `probe_agent_jobs.py` — env-driven probe for mock or prod.
-* `../harness/` — read-only reference copy of public
-  `GenLabsAI/opencode-action-harness` (not committed).
+* the harness lives in the public `GenLabsAI/opencode-action-harness`
+  repo (payload shipped sealed); no copy is kept here.
 
 ## Push access checked (2026-11-12)
 
@@ -42,10 +42,10 @@ every write is denied server-side:
   `Write access to repository not granted`.
 
 Prepared and verified locally instead: `acp-session.yml` (ACP workflow
-with relay pairing) + `acp_bridge.py` are committed here and apply
-cleanly to a harness checkout; `artifacts/cloud-proof/acp-session.yml`
-can be dropped into `.github/workflows/` on a branch once a token with
-`contents: write` on the org repos is available.
+with relay pairing) applies cleanly to a harness checkout;
+`artifacts/cloud-proof/acp-session.yml` can be dropped into
+`.github/workflows/` on a branch once a token with `contents: write` on
+the org repos is available.
 
 ## ACP leg (passes): Star cloud session carrying model config
 
@@ -55,9 +55,10 @@ inference key from `NVIDIA_API_KEY` (env only), creates the session
 frame `{prompt, model, base_url, api_key}` over the relay, then runs
 `initialize` / `session/new` / `session/prompt` and prints the
 streamed `agent_message_chunk` text. The reference runner
-(`acp_bridge.py`, the GH-actions side) reads the config, calls the
-model, and answers with real ACP frames. Verified live against the
-mock relay with NVIDIA `mistralai/mistral-large-4-1t-a52b`: prompt in,
+(`acp_bridge.py` in the harness repo, the GH-actions side) reads the
+config, calls the model, and answers with real ACP frames. Verified live
+against the mock relay with NVIDIA `mistralai/mistral-large-4-1t-a52b`:
+prompt in,
 `CLOUD-ACP-OK` out. Full exchange in `acp-transcript.txt` (key
 redacted; repo swept clean). Deca provider/config untouched — the
 default model flags and all pre-existing `star cloud` commands behave

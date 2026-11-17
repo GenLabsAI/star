@@ -45,3 +45,26 @@ func TestDialogCloseClearsPaintedCells(t *testing.T) {
 	require.NotContains(t, u.View().Content, text,
 		"closing a dialog must clear cells it painted over blank chat rows")
 }
+
+// TestFrameComposeBufferIsBlanked proves the compose canvas starts blank on
+// every frame. Anything painted into it by an overlay (a popup, a dialog, the
+// fork button) must be gone on the next frame even when the components under
+// it redraw byte-identical content and are never told to invalidate: that
+// manual bookkeeping is what left ghost cells behind before.
+func TestFrameComposeBufferIsBlanked(t *testing.T) {
+	t.Parallel()
+
+	u := newFrameTestUI(t)
+	u.width, u.height = 120, 40
+	u.updateLayoutAndSize()
+	want := u.View().Content
+
+	// Paint junk over the middle of the screen the way a popup does, then
+	// leave it there without invalidating anything.
+	canvas := u.frameCanvas()
+	uv.NewStyledString("POPUP_GHOST").Draw(canvas, image.Rect(10, 10, 21, 11))
+	require.Contains(t, canvas.Render(), "POPUP_GHOST")
+
+	require.Equal(t, want, u.View().Content,
+		"a frame must never inherit cells painted by an overlay")
+}

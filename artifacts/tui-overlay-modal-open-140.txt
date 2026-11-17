@@ -1,0 +1,44 @@
+
+ │ Our checkout retries are double-charging customers. Can you trace where the retry is scheduled?          ╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱
+                                                                                                            ╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱
+   I'll start by looking at the payment service and the retry scheduler. The first suspect is the webhook   de el ╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱
+   handler enqueueing a second attempt before the original settles.                                         ╭──╮╶─┬─╴╭──╮ ╭──╮ ╱╱╱╱╱╱╱╱╱╱
+                                                                                                            ╰──╮  │  ├──┤ ├─┬╯ ╱╱╱╱╱╱╱╱╱╱
+ │ The duplicate charges all share the same idempotency key prefix. Check the queue consumer too.           ╰──╯  ╵  ╵  ╵ ╵ ╰╴ ╱╱╱╱╱╱╱╱╱╱
+                                                                                                            ╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱
+   Found it: the consumer re-enqueues on any timeout, including attempts that already committed. I'll add 
+   an idempotency guard keyed by the charge ID.                                                           
+
+ │ Good. Add a regression test with╭────────────────────────────────────────────────────────────────────╮   /tmp/crush-test
+                                   │ Fork From... ╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱ 6 messages  │
+ ▌ Added the guard and a test that │ Assistant  Added the guard and a test that forces the pos… latest  │d  ◇
+ ▌ charge and skips the retry. All │ You  Good. Add a regression test with a simulated timeout after c… │ 
+                                   │ Assistant  Found it: the consumer re-enqueues on any timeout, inc… │   Modified Files ──────────────
+                                   │ You  The duplicate charges all share the same idempotency key pre… │
+                                   │ Assistant  I'll start by looking at the payment service and the r… │   None
+                                   │ You  Our checkout retries are double-charging customers. Can you … │
+                                   │                                                                    │   LSPs ────────────────────────
+                                   │                                                                    │
+                                   │                                                                    │   None
+                                   │                                                                    │
+                                   │                                                                    │   MCPs ────────────────────────
+                                   │                                                                    │
+                                   │                                                                    │   None
+                                   │                                                                    │
+                                   │                                                                    │   Skills ──────────────────────
+                                   │                                                                    │
+                                   │                                                                    │   ● crush-config
+                                   │                                                                    │   ● crush-hooks
+                                   │ ↑↓ choose • enter fork • esc exit                                  │   ● jq
+                                   ╰────────────────────────────────────────────────────────────────────╯
+
+
+
+
+
+
+ ┃ Refactor the auth module                                                                                
+ ┃                                                                                                         
+ ┃                                                                                                         
+
+ tab focus chat • shift+tab mode • ctrl+p commands • ctrl+l models • ctrl+b toggle sidebar • ctrl+j newline • ctrl+c quit • ctrl+g more

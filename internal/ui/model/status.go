@@ -30,7 +30,6 @@ type Status struct {
 	msg      util.InfoMsg
 	helpBlit styledBlit
 	msgBlit  styledBlit
-	msgShown bool
 
 	// msgSeq identifies the message on screen; expiry timers carry it.
 	msgSeq uint64
@@ -151,13 +150,6 @@ func (s *Status) SetHideHelp(hideHelp bool) {
 
 // Draw draws the status bar onto the screen.
 func (s *Status) Draw(scr uv.Screen, area uv.Rectangle) {
-	// A banner paints over the help hints; once it expires the help has to
-	// be repainted, even though its own text never changed.
-	if s.msg.IsEmpty() && s.msgShown {
-		s.helpBlit.invalidate()
-		s.msgShown = false
-	}
-
 	if !s.hideHelp {
 		helpStyle := s.com.Styles.Status.Help
 		helpWidth := area.Dx() - helpStyle.GetPaddingLeft() - helpStyle.GetPaddingRight()
@@ -233,7 +225,6 @@ func (s *Status) Draw(scr uv.Screen, area uv.Rectangle) {
 
 	// Draw the info message over the help view
 	s.msgBlit.draw(scr, area, strings.Repeat(" ", indInset)+ind+info)
-	s.msgShown = true
 }
 
 // clearInfoMsgCmd returns a command that clears the info message after the

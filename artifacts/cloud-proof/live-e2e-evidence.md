@@ -60,9 +60,10 @@ gh repo fork GenLabsAI/opencode-action-harness -> HTTP 403: Resource not accessi
 ```
 
 Conclusion: no repo write is possible with this credential anywhere, and
-`GenlabsAPI` is not even readable. The ACP workflow + bridge are prepared
-in this repo (`acp-session.yml`, `acp_bridge.py`) and apply cleanly to a
-harness checkout; only the push is blocked. Required fix: regenerate the
+`GenlabsAPI` is not even readable. The ACP workflow is prepared in this
+repo (`acp-session.yml`) and applies cleanly to a harness checkout (the
+bridge itself ships sealed in the harness repo); only the push is
+blocked. Required fix: regenerate the
 PAT with **Contents: Read and write** on `GenLabsAI/GenlabsAPI` and
 `GenLabsAI/opencode-action-harness`.
 

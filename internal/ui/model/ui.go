@@ -66,7 +66,6 @@ import (
 	"github.com/charmbracelet/crush/internal/workspace"
 	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/charmbracelet/ultraviolet/layout"
-	"github.com/charmbracelet/ultraviolet/screen"
 	"github.com/charmbracelet/x/editor"
 	xstrings "github.com/charmbracelet/x/exp/strings"
 )
@@ -285,16 +284,14 @@ type UI struct {
 	frameSkipPut     bool
 	frameGCArmed     bool
 
-	// canvas is the screen buffer View composes into. It is reused across
-	// frames and only replaced on resize: a full cell grid costs roughly
-	// 100 bytes per cell, so allocating one per frame dominated the render
-	// path's garbage (see perf_audit_test.go).
-	canvas uv.ScreenBuffer
-
-	// dialogGeneration tracks the previous frame's overlay stack. A dialog
-	// paints cells that the underlying components may leave blank, so any
-	// stack change has to reset the reused canvas before they redraw.
-	dialogGeneration uint64
+	// canvas is the screen buffer View composes into and prevCanvas holds the
+	// previous frame's cells. Both are reused across frames and swapped after
+	// each one: a full cell grid costs roughly 100 bytes per cell, so
+	// allocating a pair per frame would dominate the render path's garbage.
+	// Because the compose buffer is blanked before every frame, no cell can
+	// survive from an earlier frame, whatever painted it.
+	canvas     uv.ScreenBuffer
+	prevCanvas uv.ScreenBuffer
 
 	// rows memoizes the rendered text of each screen row so a frame only
 	// re-renders rows whose cells changed (see framerows.go).
@@ -3985,25 +3982,6 @@ func (m *UI) handleKeyPressMsg(msg tea.KeyPressMsg) tea.Cmd {
 	return tea.Sequence(cmds...)
 }
 
-// invalidateBlits drops every memoized region so the next Draw repaints its
-// cells. Call it whenever the screen is cleared or painted by something other
-// than the components themselves (dialogs, overlays, layout changes).
-func (m *UI) invalidateBlits() {
-	m.chat.InvalidateBlit()
-	m.blitEditor = styledBlit{}
-	m.blitPills = styledBlit{}
-	m.blitSidebarScrollbar = styledBlit{}
-	if m.blitSidebarLogo != nil {
-		m.blitSidebarLogo.invalidate()
-	}
-	if m.blitSidebarBody != nil {
-		m.blitSidebarBody.invalidate()
-	}
-	m.status.helpBlit.invalidate()
-	m.status.msgBlit.invalidate()
-	m.status.msgShown = false
-}
-
 // drawHeader draws the header section of the UI.
 func (m *UI) drawHeader(scr uv.Screen, area uv.Rectangle) {
 	m.header.drawHeader(
@@ -4024,25 +4002,10 @@ func (m *UI) drawHeader(scr uv.Screen, area uv.Rectangle) {
 func (m *UI) Draw(scr uv.Screen, area uv.Rectangle) *tea.Cursor {
 	layout := m.generateLayout(area.Dx(), area.Dy())
 	dialogsOpen := m.dialog.HasDialogs()
-	dialogGeneration := m.dialog.Generation()
 
 	if m.layout != layout {
 		m.layout = layout
 		m.updateSize()
-		// The canvas is repainted from scratch below, so every memoized
-		// blit has to write its cells again.
-		m.invalidateBlits()
-		// Repaint from a blank canvas when regions move: a region that
-		// shrinks would otherwise leave cells from the previous layout
-		// behind. Steady-state frames skip this so unchanged rows stay
-		// untouched for the row cache in View.
-		screen.Clear(scr)
-	} else if dialogGeneration != m.dialogGeneration {
-		// Opening, closing, or replacing a dialog changes cells over empty
-		// regions that the underlying components do not repaint. Reset the
-		// reused canvas so no modal text survives into the next frame.
-		screen.Clear(scr)
-		m.invalidateBlits()
 	} else if m.state == uiChat && m.hasSession() {
 		// Re-render pills on every draw so the box appears even when
 		// the layout footprint hasn't changed (e.g. todos arrived
@@ -4051,8 +4014,6 @@ func (m *UI) Draw(scr uv.Screen, area uv.Rectangle) *tea.Cursor {
 		// this catches the steady-state case.
 		m.renderPills()
 	}
-
-	m.dialogGeneration = dialogGeneration
 
 	if m.state == uiChat && m.hasSession() && !m.isCompact {
 		m.updateSidebarScrollState()
@@ -4121,7 +4082,6 @@ func (m *UI) Draw(scr uv.Screen, area uv.Rectangle) *tea.Cursor {
 		// Draw details overlay in compact mode when open
 		if m.isCompact && m.detailsOpen {
 			m.drawSessionDetails(scr, layout.sessionDetails)
-			m.chat.InvalidateBlit()
 		}
 	}
 
@@ -4168,12 +4128,7 @@ func (m *UI) Draw(scr uv.Screen, area uv.Rectangle) *tea.Cursor {
 	// the full screen bounds because the dialogs will position themselves
 	// accordingly.
 	if dialogsOpen {
-		cursor := m.dialog.Draw(scr, scr.Bounds())
-		// The dialog painted over the components, so their cells on screen
-		// are no longer what the buffers hold. Drop the blits and the next
-		// frame repaints them.
-		m.invalidateBlits()
-		return cursor
+		return m.dialog.Draw(scr, scr.Bounds())
 	}
 
 	switch m.focus {
@@ -4256,36 +4211,52 @@ func (m *UI) View() tea.View {
 	canvas := m.frameCanvas()
 	v.Cursor = m.Draw(canvas, canvas.Bounds())
 
-	content := m.rows.render(canvas)
+	content := m.rows.render(canvas, m.prevCanvas)
 
 	v.Content = content
 	if cacheable {
 		m.storeFrame(key, content, v.Cursor)
 	}
+	m.swapCanvases()
 	m.applyTerminalStatus(&v)
 
 	return v
 }
 
-// frameCanvas returns the screen buffer View composes into, reusing it across
-// frames and resizing it only when the terminal dimensions change. A full cell
-// grid costs roughly 100 bytes per cell, so allocating one per frame was the
-// largest single source of render garbage.
+// frameCanvas returns the blank screen buffer View composes into, resizing the
+// buffer pair when the terminal dimensions change. Blanking is what makes the
+// render pipeline stateless: every frame composes the whole screen from
+// scratch, so a dialog, popup or overlay that painted over a region cannot
+// leave cells behind once it is gone, and a region that moved or shrank cannot
+// leave stale cells where it used to be.
 func (m *UI) frameCanvas() uv.ScreenBuffer {
-	if m.canvas.RenderBuffer != nil && m.canvas.Width() == m.width && m.canvas.Height() == m.height {
-		return m.canvas
+	if m.canvas.RenderBuffer == nil || m.canvas.Width() != m.width || m.canvas.Height() != m.height {
+		m.canvas = uv.NewScreenBuffer(max(m.width, 0), max(m.height, 0))
+		m.prevCanvas = uv.NewScreenBuffer(max(m.width, 0), max(m.height, 0))
+	} else {
+		clearCanvas(m.canvas)
 	}
-	m.canvas = uv.NewScreenBuffer(max(m.width, 0), max(m.height, 0))
 	return m.canvas
 }
 
-// invalidateFrame drops the reusable screen buffer and any memoized frame so
-// the next render starts from a blank canvas. The buffer is reused across
-// frames, so cells that a frame no longer covers keep whatever was drawn there
-// before: collapsing the yeehaw lane back to a normal editor would otherwise
-// leave the horse stamped on the screen of the session we switched to.
+// swapCanvases makes the frame just composed the baseline for the next row
+// diff, and hands the previous baseline back to the compose path to blank.
+func (m *UI) swapCanvases() {
+	m.canvas, m.prevCanvas = m.prevCanvas, m.canvas
+}
+
+// clearCanvas blanks every cell so a buffer can be composed from scratch.
+func clearCanvas(b uv.ScreenBuffer) {
+	for _, line := range b.Lines {
+		for i := range line {
+			line[i] = uv.EmptyCell
+		}
+	}
+}
+
+// invalidateFrame drops any memoized frame so the next render composes the
+// current state instead of serving one from another session.
 func (m *UI) invalidateFrame() {
-	m.canvas = uv.ScreenBuffer{}
 	if m.frames != nil {
 		m.frames.reset()
 	}
