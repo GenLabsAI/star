@@ -128,7 +128,21 @@ fn run_core(coord: &Coord) -> i32 {
         }
     };
 
-    handshake.wait_ready();
+    if let handshake::Waited::CoreExited(code) = handshake.wait_ready(&mut child) {
+        // The core went away before it took the terminal (Ctrl+C during the
+        // splash, a crash, a failed launch). Stop painting the splash and
+        // report its exit instead of waiting on a handoff that will never
+        // come, which left the splash on screen with nothing listening.
+        stop.store(true, Ordering::Relaxed);
+        if let Some(animation) = animation {
+            let _ = animation.join();
+        }
+        handshake.cleanup();
+        if tty {
+            leave_alt_screen(&stdout);
+        }
+        return code;
+    }
 
     // Hold the banner for its full entrance. If the core booted slowly, the
     // banner simply keeps animating until the handoff.
@@ -147,7 +161,9 @@ fn run_core(coord: &Coord) -> i32 {
     // what gives a terminal the opportunity to restore the old splash buffer
     // underneath the new content.
     handshake.signal_release();
-    handshake.wait_rendered();
+    // A core that exits before rendering its first frame needs no wait: the
+    // child.wait below reports why it went away.
+    let _ = handshake.wait_rendered(&mut child);
     handshake.cleanup();
 
     let code = match child.wait() {

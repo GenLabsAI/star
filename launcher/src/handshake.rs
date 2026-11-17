@@ -1,6 +1,15 @@
 use std::path::PathBuf;
+use std::process::Child;
 use std::time::Duration;
 use std::{fs, thread};
+
+/// Outcome of a handshake wait.
+pub enum Waited {
+    /// The sentinel appeared: the core reached that stage of the launch.
+    Signalled,
+    /// The core exited first, so the sentinel will never appear.
+    CoreExited(i32),
+}
 
 pub struct Handshake {
     pid: u32,
@@ -28,28 +37,34 @@ impl Handshake {
         self.pid.to_string()
     }
 
-    fn wait_for(path: &PathBuf) {
-        // No timeout here - if core crashes we rely on the OS to clean up temp files.
-        // If we timeout early, we can write our release signal while core is still
-        // setting up the DB, which creates a TOCTOU race condition where core hangs.
-        while !path.exists() {
-            thread::sleep(Duration::from_millis(10));
-        }
-        if path.exists() {
-            let _ = fs::remove_file(path);
+    fn wait_for(path: &PathBuf, child: &mut Child) -> Waited {
+        // No timeout here - if the core is still working we must keep waiting:
+        // releasing early would race it while it is still setting up the DB.
+        // A core that has *exited* is different: it will never signal, so
+        // waiting on it would leave the splash spinning forever.
+        loop {
+            if path.exists() {
+                let _ = fs::remove_file(path);
+                return Waited::Signalled;
+            }
+            match child.try_wait() {
+                Ok(Some(status)) => return Waited::CoreExited(status.code().unwrap_or(1)),
+                Ok(None) => thread::sleep(Duration::from_millis(10)),
+                Err(_) => return Waited::CoreExited(1),
+            }
         }
     }
 
-    pub fn wait_ready(&self) {
-        Self::wait_for(&self.ready_path);
+    pub fn wait_ready(&self, child: &mut Child) -> Waited {
+        Self::wait_for(&self.ready_path, child)
     }
 
     pub fn signal_release(&self) {
         let _ = fs::write(&self.release_path, b"1");
     }
 
-    pub fn wait_rendered(&self) {
-        Self::wait_for(&self.rendered_path);
+    pub fn wait_rendered(&self, child: &mut Child) -> Waited {
+        Self::wait_for(&self.rendered_path, child)
     }
 
     pub fn cleanup(&self) {
