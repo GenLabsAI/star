@@ -116,21 +116,12 @@ jobs:
           echo "GH_TOKEN=${DECRYPTED}" >> $GITHUB_ENV
           git config --global url."https://${DECRYPTED}@github.com/".insteadOf "https://github.com/"
 
-      - name: Unseal harness payload
-        env:
-          SEAL_KEY: ${{ secrets.SEAL_KEY }}
-        run: |
-          python3 -m pip install --quiet cryptography
-          mkdir -p "$HOME/harness"
-          python3 seal/seal.py unseal --in sealed/payload.tar.seal --out "$HOME/harness"
-          echo "HARNESS_DIR=$HOME/harness" >> $GITHUB_ENV
-
       - name: Run PTY bridge
         env:
           DECA_API_KEY: ${{ github.event.inputs.deca_api_key }}
           TERM: xterm-256color
         run: |
-          python "$HARNESS_DIR/terminal_runner.py" \
+          python terminal_runner.py \
             --relay-url "${{ github.event.inputs.relay_url }}" \
             --session-token "${{ github.event.inputs.session_token }}" \
             --api-base-url "${{ github.event.inputs.api_base_url }}" \
