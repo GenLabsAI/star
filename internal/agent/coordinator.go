@@ -234,6 +234,15 @@ func NewCoordinator(ctx context.Context, opts CoordinatorOptions) (Coordinator, 
 	}
 	skillTracker := skills.NewTracker(activeSkills)
 
+	// Wakeup schedules persist in the workspace data directory so they
+	// survive restarts; a missing data dir falls back to memory.
+	dataDir := ""
+	if opts.Config != nil && opts.Config.Config().Options != nil {
+		dataDir = opts.Config.Config().Options.DataDirectory
+	}
+	wakeupScheduler := NewWakeupSchedulerWithStore(opts.Wakeups, opts.WakeupsScheduled, opts.WakeupsCanceled, NewWakeupStore(dataDir))
+	wakeupScheduler.AttachContext(ctx)
+
 	c := &coordinator{
 		cfg:             opts.Config,
 		sessions:        opts.Sessions,
@@ -248,7 +257,7 @@ func NewCoordinator(ctx context.Context, opts CoordinatorOptions) (Coordinator, 
 		agents:          make(map[string]SessionAgent),
 		sessionModels:   csync.NewMap[string, map[config.SelectedModelType]config.SelectedModel](),
 		allSkills:       allSkills,
-		wakeupScheduler: NewWakeupScheduler(opts.Wakeups, opts.WakeupsScheduled, opts.WakeupsCanceled),
+		wakeupScheduler: wakeupScheduler,
 		wakeups:         opts.Wakeups,
 		activeSkills:    activeSkills,
 		skillTracker:    skillTracker,
@@ -292,6 +301,18 @@ func NewCoordinator(ctx context.Context, opts CoordinatorOptions) (Coordinator, 
 
 	c.mainAgent = agent
 	c.mainAgentName = config.AgentCoder
+
+	// By default a fired wakeup runs a local turn through this
+	// coordinator. Hosts with a cloud-capable workspace (the local
+	// TUI) override this via SetWakeupExecutor so cloud schedules
+	// run on the cloud machine instead of locally.
+	c.wakeupScheduler.SetExecutor(func(runCtx context.Context, sched WakeupSchedule) error {
+		if sched.Cloud {
+			return ErrWakeupCloudUnsupported
+		}
+		_, err := c.Run(runCtx, sched.SessionID, sched.Prompt)
+		return err
+	})
 	return c, nil
 }
 
@@ -446,7 +467,7 @@ func (c *coordinator) run(ctx context.Context, accept *AcceptedRun, sessionID st
 			FrequencyPenalty:  freqPenalty,
 			PresencePenalty:   presPenalty,
 			LargeModel:        sessionLarge,
-			SmallModel:       sessionSmall,
+			SmallModel:        sessionSmall,
 			OnComplete:        onComplete,
 			Accepted:          accept,
 			OnAuthRefresh:     c.makeAuthRefreshCallback(providerCfg),
@@ -475,43 +496,44 @@ func (c *coordinator) run(ctx context.Context, accept *AcceptedRun, sessionID st
 	return result, originalErr
 }
 
-	// syncSessionChannel reconciles the session's persisted channel binding with
-	// the origin of the turn about to run.
-	func (c *coordinator) syncSessionChannel(ctx context.Context, sessionID, channel string) {
-		sess, err := c.sessions.Get(ctx, sessionID)
-		if err != nil {
-			if !errors.Is(err, sql.ErrNoRows) {
-				slog.Warn("Failed to load session for channel binding sync",
-					"session", sessionID, "channel", channel, "error", err)
-			}
-			return
-		}
-		if sess.Channel == channel {
-			return
-		}
-		if _, err := c.sessions.SetChannel(ctx, sessionID, channel); err != nil {
-			slog.Warn("Failed to sync session channel binding",
+// syncSessionChannel reconciles the session's persisted channel binding with
+// the origin of the turn about to run.
+func (c *coordinator) syncSessionChannel(ctx context.Context, sessionID, channel string) {
+	sess, err := c.sessions.Get(ctx, sessionID)
+	if err != nil {
+		if !errors.Is(err, sql.ErrNoRows) {
+			slog.Warn("Failed to load session for channel binding sync",
 				"session", sessionID, "channel", channel, "error", err)
 		}
+		return
 	}
-	// fireLifecycleHook fires a lifecycle hook event for the given session.
-	func (c *coordinator) fireLifecycleHook(ctx context.Context, sessionID, eventName string, args map[string]any) {
-		hookMap := c.cfg.Config().Hooks[eventName]
-		if len(hookMap) == 0 {
-			return
-		}
-		runner := hooks.NewRunner(hookMap, c.cfg.WorkingDir(), c.cfg.WorkingDir())
-		inputBytes, err := json.Marshal(args)
-		if err != nil {
-			inputBytes = []byte("{}")
-		}
-		// Empty tool name: lifecycle events are not tied to a specific tool.
-		result, err := runner.Run(ctx, eventName, sessionID, "", string(inputBytes))
-		if err != nil {
-			slog.Warn("Lifecycle hook execution error", "event", eventName, "error", err)
-		}
-		if result.Decision == hooks.DecisionDeny || result.Halt {
-			slog.Warn("Lifecycle hook denied or halted", "event", eventName, "reason", result.Reason)
+	if sess.Channel == channel {
+		return
+	}
+	if _, err := c.sessions.SetChannel(ctx, sessionID, channel); err != nil {
+		slog.Warn("Failed to sync session channel binding",
+			"session", sessionID, "channel", channel, "error", err)
+	}
+}
+
+// fireLifecycleHook fires a lifecycle hook event for the given session.
+func (c *coordinator) fireLifecycleHook(ctx context.Context, sessionID, eventName string, args map[string]any) {
+	hookMap := c.cfg.Config().Hooks[eventName]
+	if len(hookMap) == 0 {
+		return
+	}
+	runner := hooks.NewRunner(hookMap, c.cfg.WorkingDir(), c.cfg.WorkingDir())
+	inputBytes, err := json.Marshal(args)
+	if err != nil {
+		inputBytes = []byte("{}")
+	}
+	// Empty tool name: lifecycle events are not tied to a specific tool.
+	result, err := runner.Run(ctx, eventName, sessionID, "", string(inputBytes))
+	if err != nil {
+		slog.Warn("Lifecycle hook execution error", "event", eventName, "error", err)
+	}
+	if result.Decision == hooks.DecisionDeny || result.Halt {
+		slog.Warn("Lifecycle hook denied or halted", "event", eventName, "reason", result.Reason)
 	}
 }
 
@@ -1479,6 +1501,20 @@ func (c *coordinator) Cancel(sessionID string) {
 
 func (c *coordinator) CancelWakeup(sessionID string) {
 	c.wakeupScheduler.Cancel(sessionID)
+}
+
+// SetWakeupExecutor overrides how fired wakeup schedules run. The
+// workspace layer uses it to route cloud schedules to the cloud
+// runner; the default runs every schedule as a local turn.
+func (c *coordinator) SetWakeupExecutor(executor WakeupExecutor) {
+	c.wakeupScheduler.SetExecutor(executor)
+}
+
+// WakeupDispatcher exposes the durable schedule store and fire
+// paths for the workspace layer and the wakeup CLI (list, run-due,
+// event trigger) without widening the Coordinator interface.
+func (c *coordinator) WakeupDispatcher() *WakeupScheduler {
+	return c.wakeupScheduler
 }
 
 func (c *coordinator) CancelAll() {

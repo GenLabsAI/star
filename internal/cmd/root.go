@@ -76,9 +76,11 @@ func init() {
 		schemaCmd,
 		loginCmd,
 		acpCmd,
+		cloudCmd,
 		statsCmd,
 		sessionCmd,
 		pluginCmd,
+		wakeupCmd,
 	)
 }
 
@@ -129,7 +131,17 @@ star --continue
 		go func() { ready <- splash.initialize() }()
 
 		_ = splash.handshake.signalReady()
-		_ = splash.handshake.awaitRelease()
+		if err := splash.handshake.awaitRelease(cmd.Context()); err != nil {
+			// An interrupt during the splash ends the launch. The launcher
+			// installs no signal handler, so it is likely already gone and
+			// will never restore the screen it entered: do it here rather
+			// than leaving the user on a frozen splash, which used to cost
+			// an extra Ctrl+C that nothing was listening for.
+			if splash.launcherOwnsAltScreen {
+				restoreTerminal()
+			}
+			return err
+		}
 
 		inputFilter := ui.NewFilter()
 		var env uv.Environ = os.Environ()
@@ -372,6 +384,9 @@ func setupLocalWorkspace(cmd *cobra.Command) (workspace.Workspace, func(), error
 	}
 
 	ws := workspace.NewAppWorkspace(appInstance, store)
+	// Fired wakeup schedules execute through the workspace (local or
+	// cloud) in every host: TUI, server-backed runs, and headless CLIs.
+	ws.StartWakeupDispatch()
 	cleanup := func() { appInstance.Shutdown() }
 	return ws, cleanup, nil
 }

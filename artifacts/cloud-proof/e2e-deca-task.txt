@@ -1,0 +1,53 @@
+=== TIMING (seconds since TUI start) ===
+t_submit: 35.0s
+t_first_tool: 53.2s (+18.2s after submit)
+t_done: n/a
+t_error: n/a
+
+=== FINAL SCREEN (text) ===
+                                                                                                                        
+     14)]                                                                               ╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱   
+     • (reused the repo's existing   for a refined 1px border +                         ╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱   
+     translucent bg, slimmer   <  , reduced vertical padding  ,                         de el ╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱   
+     soft refined glow instead of heavy  )                                ith cat -A    ╭──╮╶─┬─╴╭──╮ ╭──╮ ╱╱╱╱╱╱╱╱╱╱   
+   • Input:  he edit.                                                                   ╰──╮  │  ├──┤ ├─┬╯ ╱╱╱╱╱╱╱╱╱╱   
+   focus:bg-white/8 duration-200  →                                                     ╰──╯  ╵  ╵  ╵ ╵ ╰╴ ╱╱╱╱╱╱╱╱╱╱   
+   rounded-lg … focus:border-white/35 focus:bg-white/[0.07] focus:shadow-[0_0_24px_-    ╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱   
+   8px_rgba(255,255,255,0.25)] duration-300                                                                             
+   • Enter-hint row:   →   (kept   so it stays alignedthe edit with the exact tab.      New Session                     
+   with the slimmer bar)                                                                                                
+                                                                                        ~/work                          
+   Kept intact: placeholder  , the   hint row,                                                                          
+   label, and the JS (  — Enter/"/" focus behavior), plus                               ◇ Cloud Demo via Local Mock     
+                                                                                          0% (0) $0.00                  
+   4) Commit & push                                                                                                     
+                                                                                        Modified Files ──────────────   
+   4) Commit & push                                                                                                     
+                                                                                        None                            
+   • Commit:   —                         d)                                                                             
+   • Pushed with plain   (auth via preconfigured GIT_ASKPASS; no                        LSPsLSPs ───────────────────────
+─  credentials printed or embedded). Verified   and   both at.                                                          
+    .                                        sk/index.html                              None                            
+                                                                                                                        
+   5) Files changed:   only. Tree: clean (  empty).                                     MCPs ────────────────────────   
+                                                                                                                        
+   Note: a repo-local  /  (Star / star@sapiens.ai) was set in    strings with cat -A    None                            
+   this repo to allow the commit; it does not affect the pushed content beyond author                                   
+   metadata. The remote also reported it has moved to   —                               Skills ──────────────────────   
+   ◇ Cloud Demo via Local Mock in 1m47s ──────────────────────────────────────────────                                  
+ ::: border and glow, keep the placeholder, the Enter hint row and the deca-2.6-pro     ● crush-config                  
+                                                                                        ● crush-hooks                   
+  !  Go crazy                                                                           ● jq                            
+ :::                                                                                                                    
+ :::                                                                                                                    
+                                                                                                                        
+  YOLO MODE   tab focus chat • shift+tab mode • / or ctrl+p commands • ctrl+l models • ctrl+b toggle sidebar …          
+                                                                                                                        
+
+=== VERIFICATION (independent fresh clone) ===
+deca tip before: e35fcbe
+deca tip after:  d1747d67b1dd0e625da9256bb7afe161255fa74b
+commit: d1747d6 "style: slimmer premium hero chat bar", Author Star <star@sapiens.ai>, 2026-11-15 22:41:28 UTC
+push: plain `git push origin deca` from runner, auth via GIT_ASKPASS (token never in commands/logs)
+turn footer: "Cloud Demo via Local Mock in 1m47s" (minutes format; driver regex only matched seconds)
+submit->done wall: ~1m47s; runner workflow run: 22:39:55Z -> 22:41:58Z (success)

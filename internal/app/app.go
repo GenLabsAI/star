@@ -830,9 +830,21 @@ func (app *App) setupEvents() {
 	if app.Skills != nil {
 		setupSubscriber(ctx, app.serviceEventsWG, "skills", app.Skills.SubscribeEvents, app.events)
 	}
-	cleanupFunc := func(context.Context) error {
+	cleanupFunc := func(ctx context.Context) error {
 		cancel()
-		app.serviceEventsWG.Wait()
+		// Bounded wait: a subscriber that never observes cancel
+		// must not hang headless commands (e.g. `star run`) in
+		// Shutdown forever. Shutdown callers already bound ctx.
+		done := make(chan struct{})
+		go func() {
+			app.serviceEventsWG.Wait()
+			close(done)
+		}()
+		select {
+		case <-done:
+		case <-ctx.Done():
+			slog.Warn("Timed out waiting for service events to shut down")
+		}
 		app.events.Shutdown()
 		return nil
 	}

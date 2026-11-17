@@ -1,0 +1,107 @@
+name: "Deca Wakeup Sweep"
+
+# No job ever sleeps: each run restores one orb snapshot, reaps due
+# wakeups (seconds when nothing is due), and saves state back. A wakeup
+# 24h out simply waits through the no-op sweeps and fires within one
+# sweep interval of its due time, so individual runs never approach the
+# 6h GitHub Actions limit.
+#
+# Triggers:
+# - schedule: sweeps every session listed in sweeps.txt (one
+#   chat_session_id per line; Star appends a line when an agent arms a
+#   far-future or event schedule for a cloud session).
+# - workflow_dispatch: sweep one session on demand (inputs below).
+# - repository_dispatch type wakeup-event: external webhooks (e.g. a CI
+#   workflow reporting failure) fire a named event for a session.
+#   Payload: { chat_session_id, event, session?, prompt? }.
+
+permissions:
+  contents: write
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+    inputs:
+      chat_session_id:
+        required: true
+        description: "Deca chat session id"
+      event:
+        required: false
+        description: "Named wakeup event to fire after the sweep"
+      session:
+        required: false
+        description: "Restrict the event to one Star session"
+      prompt:
+        required: false
+        description: "Prompt override (or direct-run prompt)"
+  repository_dispatch:
+    types: [wakeup-event]
+
+jobs:
+  collect-sessions:
+    runs-on: ubuntu-latest
+    outputs:
+      sessions: ${{ steps.list.outputs.sessions }}
+      event: ${{ steps.list.outputs.event }}
+      session: ${{ steps.list.outputs.session }}
+      prompt: ${{ steps.list.outputs.prompt }}
+    steps:
+      - name: Checkout harness
+        uses: actions/checkout@v4
+
+      - name: List sessions to sweep
+        id: list
+        env:
+          DISPATCH_SESSION: ${{ github.event.inputs.chat_session_id }}
+          DISPATCH_EVENT: ${{ github.event.inputs.event }}
+          DISPATCH_WAKE_SESSION: ${{ github.event.inputs.session }}
+          DISPATCH_PROMPT: ${{ github.event.inputs.prompt }}
+          HOOK_SESSION: ${{ github.event.client_payload.chat_session_id }}
+          HOOK_EVENT: ${{ github.event.client_payload.event }}
+          HOOK_WAKE_SESSION: ${{ github.event.client_payload.session }}
+          HOOK_PROMPT: ${{ github.event.client_payload.prompt }}
+        run: |
+          if [ -n "$DISPATCH_SESSION" ]; then
+            sessions=$(printf '%s' "$DISPATCH_SESSION" | jq -R . | jq -s -c .)
+            event="$DISPATCH_EVENT"; session="$DISPATCH_WAKE_SESSION"; prompt="$DISPATCH_PROMPT"
+          elif [ -n "$HOOK_SESSION" ]; then
+            sessions=$(printf '%s' "$HOOK_SESSION" | jq -R . | jq -s -c .)
+            event="$HOOK_EVENT"; session="$HOOK_WAKE_SESSION"; prompt="$HOOK_PROMPT"
+          else
+            sessions=$(grep -v '^[[:space:]]*#' sweeps.txt 2>/dev/null | grep -v '^[[:space:]]*$' | jq -R . | jq -s -c . || echo '[]')
+            event=""; session=""; prompt=""
+          fi
+          echo "sessions=$sessions" >> "$GITHUB_OUTPUT"
+          echo "event=$event" >> "$GITHUB_OUTPUT"
+          echo "session=$session" >> "$GITHUB_OUTPUT"
+          echo "prompt=$prompt" >> "$GITHUB_OUTPUT"
+
+  sweep:
+    needs: collect-sessions
+    if: ${{ needs.collect-sessions.outputs.sessions != '[]' }}
+    runs-on: ubuntu-latest
+    concurrency:
+      group: deca-wakeup-sweep-${{ matrix.session }}
+      cancel-in-progress: false
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        session: ${{ fromJson(needs.collect-sessions.outputs.sessions) }}
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout harness
+        uses: actions/checkout@v4
+
+      - name: Sweep due wakeups
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DECA_AGENT_STATE_PASSWORD: ${{ secrets.DECA_AGENT_STATE_PASSWORD }}
+          SNAPSHOT_REPO: ${{ github.repository }}
+          DECA_AGENT_CHAT_SESSION_ID: ${{ matrix.session }}
+          WAKEUP_EVENT: ${{ needs.collect-sessions.outputs.event }}
+          WAKEUP_SESSION: ${{ needs.collect-sessions.outputs.session }}
+          WAKEUP_PROMPT: ${{ needs.collect-sessions.outputs.prompt }}
+        run: bash sweep_wakeups.sh

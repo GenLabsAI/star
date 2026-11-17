@@ -39,6 +39,7 @@ type Status struct {
 	inputMode uiInputMode
 	yolo      bool
 	yeehaw    bool
+	cloud     bool
 }
 
 // NewStatus creates a new status bar and help model.
@@ -79,6 +80,12 @@ func (s *Status) SetMode(mode uiInputMode, yolo bool) {
 	s.yolo = yolo
 }
 
+// SetCloudMode reports whether the current session's prompts run on a
+// cloud machine; when true the status bar shows a CLOUD badge.
+func (s *Status) SetCloudMode(cloud bool) {
+	s.cloud = cloud
+}
+
 // SetYeehaw sets the yeehaw state used for the mode badge. It is orthogonal
 // to the input mode and YOLO state.
 func (s *Status) SetYeehaw(yeehaw bool) {
@@ -92,16 +99,23 @@ func (s *Status) modeBadge() string {
 	// Mirror the editor prompt precedence: planning wins over YOLO, which
 	// can be carried into plan mode. Yeehaw is its own badge so an
 	// unattended run is visually obvious when you return.
+	// Cloud mode composes with every other badge: a yolo cloud run shows
+	// both, so the remote-execution state is never hidden by the
+	// autonomy state.
+	cloud := ""
+	if s.cloud {
+		cloud = t.Status.ModeBadgeCloud.String()
+	}
 	if s.inputMode == uiInputModePlan {
-		return t.Status.ModeBadgePlan.String()
+		return t.Status.ModeBadgePlan.String() + cloud
 	}
 	if s.yeehaw {
-		return t.Status.ModeBadgeYeehaw.String()
+		return t.Status.ModeBadgeYeehaw.String() + cloud
 	}
 	if s.yolo {
-		return t.Status.ModeBadgeYolo.String()
+		return t.Status.ModeBadgeYolo.String() + cloud
 	}
-	return ""
+	return cloud
 }
 
 // SetWidth sets the width of the status bar and help view.

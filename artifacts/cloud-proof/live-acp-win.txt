@@ -1,0 +1,40 @@
+LIVE end-to-end ACP proof — 2026-11-13 23:08:30 UTC.
+
+Command (Star binary, built from this repo):
+  star cloud acp \
+    --relay-url wss://api.genlabs.dev/terminal/browser/33326a79-e385-4897-9e6e-c6548ad970ea \
+    --prompt "Reply with exactly: LIVE-ACP-OK" \
+    --model deca-2.5-mini --base-url https://api.genlabs.dev/deca/v1
+  (model key: enrolled deca_oc_* device key via POST /deca/v1/opencode/enroll,
+   passed as NVIDIA_API_KEY env; 51 chars, never printed — sweep clean)
+
+Star printed, exit 0:
+  LIVE-ACP-OK
+
+Chain (all live, all observed in tool output):
+  Star -> POST /deca/v1/terminal/session (sessionid cookie, HTTP 200,
+           session 33326a79-...) on api.genlabs.dev (Koyeb)
+       -> prod terminal relay pairs runner
+       -> acp_bridge.py (this repo, pushed to harness cloud-acp @ 17adbb1)
+          reads Star's acp_init config frame over the relay
+       -> POST /deca/v1/chat/completions on api.genlabs.dev (deca-2.5-mini)
+       -> model reply streams back as ACP session/update frames
+       -> Star prints LIVE-ACP-OK, exit 0. Total wall time ~3s.
+
+Koyeb service log (personal-jenda/genlabsapi):
+  registered session 33326a79-... for help@genlabs.dev
+  runner connected to session 33326a79-...
+  browser connected to session 33326a79-...
+
+Cleanup: GH run 43524827537 cancelled, session DELETE -> {"status":"terminated"}.
+Secret sweep over outputs: deca_oc_* = 0 hits, session cookie = 0 hits.
+
+Root cause found along the way (fixed on genlabsapi codebuff/cloud-acp):
+  flask_relay._pump broke the whole viewer connection after ~1s with no
+  frames in either direction (receive(timeout=1) -> None -> break, plus
+  2s handler teardown -> bare 1000 close). Any model call longer than a
+  second killed the exchange. Fixed by continuing on the idle tick,
+  resolving the pump destination fresh every tick, and replacing (not
+  stacking) a second runner. Until that deploys, Star sends 0x03
+  heartbeats every 500ms and the bridge sends quiet keepalives, which is
+  what carried this live run through the unfixed prod relay.

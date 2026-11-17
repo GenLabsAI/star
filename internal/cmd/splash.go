@@ -2,7 +2,9 @@ package cmd
 
 import (
 	"fmt"
+	"log/slog"
 
+	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/crush/internal/event"
 	"github.com/charmbracelet/crush/internal/session"
@@ -21,6 +23,11 @@ type splashReadyMsg struct {
 }
 
 type launcherReleasedMsg struct{}
+
+// splashQuitKey quits from the splash screen. Ctrl+C is a request to leave
+// even before the UI exists; dropping it there made the splash eat a press
+// that the quit dialog never saw.
+var splashQuitKey = key.NewBinding(key.WithKeys("ctrl+c"))
 
 type splashModel struct {
 	cmd               *cobra.Command
@@ -66,6 +73,10 @@ func (m *splashModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.height = msg.Height
 		if m.launcherReleased && m.pendingReady != nil && m.width > 0 && m.height > 0 {
 			return m, m.transitionToUI(m.pendingReady)
+		}
+	case tea.KeyPressMsg:
+		if key.Matches(msg, splashQuitKey) {
+			return m, tea.Quit
 		}
 	case splashReadyMsg:
 		if msg.err != nil {
@@ -145,6 +156,14 @@ func (m *splashModel) initialize() splashReadyMsg {
 			return splashReadyMsg{err: err}
 		}
 		sessionID = sess.ID
+	}
+
+	// Long-lived TUI hosts the durable wakeup timers; one-shot
+	// commands must never arm them (see ArmWakeupTimers).
+	if appWs, ok := ws.(*workspace.AppWorkspace); ok {
+		if err := appWs.ArmWakeupTimers(m.cmd.Context()); err != nil {
+			slog.Warn("Failed to arm saved wakeups", "error", err)
+		}
 	}
 
 	event.AppInitialized()

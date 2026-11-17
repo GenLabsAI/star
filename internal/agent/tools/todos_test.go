@@ -35,6 +35,10 @@ func (m *mockSessionService) CreateTaskSession(ctx context.Context, toolCallID, 
 	return session.Session{}, nil
 }
 
+func (m *mockSessionService) Fork(ctx context.Context, sourceSessionID, upToMessageID, title string) (session.Session, error) {
+	return session.Session{}, nil
+}
+
 func (m *mockSessionService) Get(ctx context.Context, id string) (session.Session, error) {
 	return m.sessions[id], nil
 }

@@ -329,6 +329,12 @@ type UI struct {
 	// Escape works for bang commands the same way it does for agent runs.
 	bangCancel context.CancelFunc
 
+	// cloudSessions holds the sessions whose prompts run on a cloud
+	// machine (toggled with /cloud). cloudActive tracks the sessions
+	// with a cloud turn in flight. Both are keyed by session id.
+	cloudSessions map[string]bool
+	cloudActive   map[string]bool
+
 	header *header
 
 	// sendProgressBar instructs the TUI to send progress bar updates to the
@@ -626,6 +632,8 @@ func New(com *common.Common, initialSessionID string, continueLast bool) *UI {
 		initialSessionID:    initialSessionID,
 		continueLastSession: continueLast,
 		skillStates:         skills.GetLatestStates(),
+		cloudSessions:       make(map[string]bool),
+		cloudActive:         make(map[string]bool),
 	}
 
 	status := NewStatus(com, ui)
@@ -938,10 +946,21 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, cmd)
 		}
 	case pubsub.Event[notify.RunComplete]:
+		m.clearCloudTurn(msg.Payload.SessionID)
 		m.endPendingTurn(msg.Payload.SessionID)
 		if cmd := m.handlePlanHandoff(msg.Payload); cmd != nil {
 			cmds = append(cmds, cmd)
 		}
+	case pubsub.Event[pubsub.WakeupScheduledEvent]:
+		if cmd := m.handleWakeupScheduled(msg.Payload); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+	case pubsub.Event[pubsub.WakeupEvent]:
+		// The dispatcher executes the wakeup itself; the toast just
+		// retires so the fresh turn is not hidden behind it.
+		m.closeWakeupToast()
+	case pubsub.Event[pubsub.WakeupCanceledEvent]:
+		m.closeWakeupToast()
 	case busyStateMsg:
 		cmds = append(cmds, m.applyBusyState(msg)...)
 	case promptQueueMsg:
@@ -961,6 +980,7 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.err != nil {
 			// The run never started, so no terminal event is coming to
 			// retire its spinner.
+			m.clearCloudTurn(msg.sessionID)
 			m.endPendingTurn(msg.sessionID)
 			cmds = append(cmds, util.ReportError(msg.err))
 		}
@@ -2384,6 +2404,13 @@ func (m *UI) handleDialogMsg(msg tea.Msg) tea.Cmd {
 			m.notifyBackend = selectNotificationBackend(m.caps, cfg)
 		}
 		m.dialog.CloseDialog(dialog.NotificationsID)
+	case dialog.ActionToggleCloudMode:
+		cmds = append(cmds, m.toggleCloudMode(""))
+	case dialog.ActionCancelWakeup:
+		m.closeWakeupToast()
+		m.com.Workspace.AgentWakeupCancel(msg.SessionID)
+		cmds = append(cmds, util.ReportInfo("Wakeup cancelled"))
+		m.dialog.CloseDialog(dialog.CommandsID)
 	case dialog.ActionNewSession:
 		if m.isAgentBusy() {
 			cmds = append(cmds, util.ReportWarn("Agent is busy, please wait before starting a new session..."))
@@ -3492,6 +3519,10 @@ func (m *UI) handleKeyPressMsg(msg tea.KeyPressMsg) tea.Cmd {
 					return nil
 				}
 
+				if handled, cmd := m.handleCloudSubmit(value, attachments); handled {
+					return tea.Batch(cmd, m.loadPromptHistory())
+				}
+
 				m.randomizePlaceholders()
 				m.historyReset()
 
@@ -3888,6 +3919,7 @@ func (m *UI) Draw(scr uv.Screen, area uv.Rectangle) *tea.Cursor {
 	m.status.SetHideHelp(isOnboarding)
 	m.status.SetMode(m.mode, m.yoloModeCached())
 	m.status.SetYeehaw(m.yeehawActive)
+	m.status.SetCloudMode(m.cloudModeFor(m.currentSessionID()))
 	m.status.Draw(scr, layout.status)
 
 	// Draw completions popup if open

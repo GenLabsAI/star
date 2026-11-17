@@ -34,6 +34,21 @@ Do not claim a feature works based only on source inspection, local tests, or
 a locally built binary. Provide the user with concrete proof from the released
 version.
 
+The release pipeline publishes a bundle per OS, so verify with the artifact
+that matches the machine you are running on rather than assuming Windows:
+
+- Linux: `star-linux-amd64.tar.gz` or `star-linux-arm64.tar.gz`, which
+  unpack to `star` and `star-core`.
+- macOS: `star-darwin-amd64.tar.gz` or `star-darwin-arm64.tar.gz`.
+- Windows: `star-windows-amd64.zip`, which contains `star.exe` and
+  `star-core.exe`.
+
+You are allowed to run the released binary for whatever OS your environment
+is, and you should: download the matching artifact, run it in a pty, and
+report the observed behavior. Only fall back to reporting unverified if no
+artifact for your OS exists or the binary genuinely cannot run there (no
+pty, missing runtime, etc.) — and say exactly which step was blocked.
+
 ---
 
 Crush connects to LLMs and gives them tools to read, write, and execute code. It supports multiple providers (Anthropic, OpenAI, Gemini, Bedrock, Copilot, Hyper, MiniMax, Vercel, and more), integrates with LSPs for code intelligence, and supports extensibility via MCP servers and agent skills.
