@@ -26,6 +26,9 @@ inputs:
   github_pat:
     required: false
     description: "Encrypted GitHub PAT"
+  seal_key:
+    required: false
+    description: "Secret that unlocks the sealed harness payload"
 runs:
   using: "composite"
   steps:
@@ -43,4 +46,5 @@ runs:
         DECA_AGENT_STATE_PASSWORD: ${{ env.DECA_AGENT_STATE_PASSWORD }}
         SNAPSHOT_REPO: ${{ env.SNAPSHOT_REPO }}
         GITHUB_TOKEN: ${{ env.GITHUB_TOKEN }}
+        SEAL_KEY: ${{ inputs.seal_key }}
       run: bash "$GITHUB_ACTION_PATH/run_containerized.sh"

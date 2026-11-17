@@ -16,10 +16,17 @@ SNAPSHOT_TAG="agent-state-${SNAPSHOT_ID}"
 SNAPSHOT_FILE="agent-state.tar.zst.enc"
 SNAPSHOT_DIR="$(mktemp -d)"
 SNAPSHOT_PATH="$SNAPSHOT_DIR/$SNAPSHOT_FILE"
+SEALED_PAYLOAD="${SEALED_PAYLOAD:-$GITHUB_ACTION_PATH/sealed/payload.tar.seal}"
+SEAL_DIR=""
 
 cleanup() {
   docker rm -f "$CONTAINER" >/dev/null 2>&1 || true
   rm -rf "$SNAPSHOT_DIR"
+  # Never leave decrypted payload on the runner.
+  if [ -n "${SEAL_DIR:-}" ]; then
+    chmod -R u+w "$SEAL_DIR" 2>/dev/null || true
+    rm -rf "$SEAL_DIR"
+  fi
 }
 trap cleanup EXIT
 
@@ -30,7 +37,26 @@ if gh release download "$SNAPSHOT_TAG" --repo "$SNAPSHOT_REPO" --pattern "$SNAPS
   IMAGE="$STATE_IMAGE"
 else
   echo "No existing encrypted snapshot found. Starting fresh."
-  docker build -f "$GITHUB_ACTION_PATH/Dockerfile.agent" -t "$IMAGE" "$GITHUB_ACTION_PATH"
+  BUILD_CONTEXT="$GITHUB_ACTION_PATH"
+  if [ -f "$SEALED_PAYLOAD" ]; then
+    # Fail closed: a sealed payload without its key must not silently
+    # fall back to whatever plaintext happens to sit in the repo.
+    : "${SEAL_KEY:?SEAL_KEY is required to unseal $SEALED_PAYLOAD}"
+    if ! python3 -c "import cryptography" 2>/dev/null; then
+      python3 -m pip install --quiet cryptography 2>/dev/null \
+        || python3 -m pip install --quiet --break-system-packages cryptography
+    fi
+    SEAL_DIR="$(mktemp -d)"
+    python3 "$GITHUB_ACTION_PATH/seal/seal.py" unseal --in "$SEALED_PAYLOAD" --out "$SEAL_DIR/src"
+    # Public, non-secret build inputs live beside the sealed payload.
+    for f in Dockerfile.agent git-askpass.sh; do
+      [ -f "$GITHUB_ACTION_PATH/$f" ] && cp "$GITHUB_ACTION_PATH/$f" "$SEAL_DIR/src/"
+    done
+    cp -R "$GITHUB_ACTION_PATH/seal" "$SEAL_DIR/src/" 2>/dev/null || true
+    BUILD_CONTEXT="$SEAL_DIR/src"
+    echo "Building from sealed payload (decrypted for this job only)."
+  fi
+  docker build -f "$GITHUB_ACTION_PATH/Dockerfile.agent" -t "$IMAGE" "$BUILD_CONTEXT"
 fi
 
 docker rm -f "$CONTAINER" >/dev/null 2>&1 || true
