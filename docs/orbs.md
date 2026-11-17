@@ -32,9 +32,11 @@ exists but not closed out. OPEN = not started. SKIPPED = explicitly deferred.
    reuse + stash restore + dead-runner self-heal on `main`).
 7. **Scheduled and event-driven wakeups** (cron / webhooks like GitHub CI
    failures), integrated with Star's Schedule Wakeup tool, working on the
-   cloud too. — WIP (durable store + cron engine + `star wakeup` CLI + TUI
-   toast in worktree; tests green; live proof + commit + release
-   verification still to do).
+   cloud too. — DONE on `main` (durable store + cron engine + `star wakeup`
+   CLI + 15-min GH sweep + webhook trigger + explicit timer arming +
+   TUI toast; unit tests green, headless CLI proof: schedule →
+   backdate → `wakeup run` fired exactly once). Release-binary
+   verification still to do.
 8. **Pre-loaded agent-friendly toolchain** (Debian + git, `gh`, tmux,
    ffmpeg, ImageMagick, ripgrep, Node/Bun/pnpm, headless browsers). — DONE
    (`artifacts/harness/Dockerfile.agent`, proven by e2e orb runs).
