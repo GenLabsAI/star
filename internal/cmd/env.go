@@ -146,7 +146,10 @@ func printEnvManifest(cmd *cobra.Command, m envreport.Manifest) {
 		value := rt.Path
 		if !rt.Found {
 			mark = "missing"
-			value = "required by " + strings.Join(rt.RequiredBy, ", ")
+			value = "base tooling"
+			if len(rt.RequiredBy) > 0 {
+				value = "required by " + strings.Join(rt.RequiredBy, ", ")
+			}
 		}
 		envLine(cmd, rt.Name, mark+" "+hint.Render(value))
 	}
