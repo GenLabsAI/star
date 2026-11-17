@@ -41,6 +41,7 @@ type countingWorkspace struct {
 	agentBusy      bool
 	yolo           bool
 	permMode       permission.Mode
+	skip           bool
 	queued         []string
 	model          workspace.AgentModel
 	lspStates      map[string]workspace.LSPClientInfo
@@ -99,17 +100,34 @@ func (w *countingWorkspace) PermissionSetMode(mode permission.Mode) {
 	w.permMode = mode
 }
 
+func (w *countingWorkspace) PermissionSkipRequests() bool {
+	return w.skip
+}
+
+func (w *countingWorkspace) PermissionSetSkipRequests(skip bool) {
+	w.skip = skip
+}
+
 func (w *countingWorkspace) PermissionSessionSkipRequests(sessionID string) bool {
-	return w.PermissionSkipRequests()
+	return w.PermissionSessionMode(sessionID).SkipsPrompts()
 }
 func (w *countingWorkspace) PermissionSetSessionSkipRequests(sessionID string, skip bool) {
-	w.PermissionSetSkipRequests(skip)
+	mode := permission.ModeNormal
+	if skip {
+		mode = permission.ModeYolo
+	}
+	w.PermissionSetSessionMode(sessionID, mode)
 }
 func (w *countingWorkspace) PermissionSessionMode(sessionID string) permission.Mode {
-	if mode, ok := w.sessionModes[sessionID]; ok {
-		return mode
+	if sessionID != "" {
+		if mode, ok := w.sessionModes[sessionID]; ok {
+			return mode
+		}
 	}
-	return w.PermissionMode()
+	if w.permMode == "" {
+		return permission.ModeNormal
+	}
+	return w.permMode
 }
 func (w *countingWorkspace) PermissionSetSessionMode(sessionID string, mode permission.Mode) {
 	if sessionID == "" {

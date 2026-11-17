@@ -881,77 +881,71 @@ func TestConfig_IsConfigured(t *testing.T) {
 }
 
 func TestConfig_setupAgentsWithNoDisabledTools(t *testing.T) {
-	cfg := &Config{
-		Options: &Options{
-			DisabledTools: []string{},
-		},
-	}
+	t.Parallel()
 
+	cfg := &Config{Options: &Options{DisabledTools: []string{}}}
 	cfg.SetupAgents()
-	coderAgent, ok := cfg.Agents[AgentCoder]
-	require.True(t, ok)
-	assert.Equal(t, allToolNames(), coderAgent.AllowedTools)
 
-	taskAgent, ok := cfg.Agents[AgentTask]
+	all := allToolNames()
+	coder, ok := cfg.Agents[AgentCoder]
 	require.True(t, ok)
-	assert.Equal(t, filterSlice(allToolNames(), []string{"agent"}, false), taskAgent.AllowedTools)
+	assert.Equal(t, all, coder.AllowedTools)
 
-	planAgent, ok := cfg.Agents[AgentPlan]
+	task, ok := cfg.Agents[AgentTask]
 	require.True(t, ok)
-	assert.Equal(t, []string{"agent", "agent_dispatch", "agent_send", "agent_status", "agent_stop", "lsp_symbols", "lsp_definition", "lsp_call_hierarchy", "glob", "grep", "ls", "question", "sourcegraph", "view"}, planAgent.AllowedTools)
+	assert.Equal(t, resolveTaskTools(all), task.AllowedTools)
+
+	plan, ok := cfg.Agents[AgentPlan]
+	require.True(t, ok)
+	assert.Equal(t, resolvePlanTools(all), plan.AllowedTools)
 }
 
 func TestConfig_setupAgentsWithDisabledTools(t *testing.T) {
-	cfg := &Config{
-		Options: &Options{
-			DisabledTools: []string{
-				"edit",
-				"download",
-				"grep",
-			},
-		},
+	t.Parallel()
+
+	disabled := []string{"edit", "download", "grep"}
+	cfg := &Config{Options: &Options{DisabledTools: disabled}}
+	cfg.SetupAgents()
+
+	allowed := resolveAllowedTools(allToolNames(), disabled)
+	coder, ok := cfg.Agents[AgentCoder]
+	require.True(t, ok)
+	assert.Equal(t, allowed, coder.AllowedTools)
+	for _, tool := range disabled {
+		assert.NotContains(t, coder.AllowedTools, tool)
 	}
 
-	cfg.SetupAgents()
-	coderAgent, ok := cfg.Agents[AgentCoder]
+	task, ok := cfg.Agents[AgentTask]
 	require.True(t, ok)
+	assert.Equal(t, resolveTaskTools(allowed), task.AllowedTools,
+		"the task agent gets the read-only set plus bash")
 
-	assert.Equal(t, []string{"agent", "bash", "crush_info", "crush_logs", "enter_plan_mode", "exit_plan_mode", "job_output", "job_kill", "multiedit", "lsp_diagnostics", "lsp_references", "lsp_restart", "lsp_symbols", "lsp_definition", "lsp_call_hierarchy", "lsp_rename", "lsp_replace_symbol", "fetch", "agentic_fetch", "glob", "ls", "question", "sourcegraph", "todos", "team", "view", "write", "list_mcp_resources", "read_mcp_resource", "schedule_wakeup", "enter_worktree", "exit_worktree"}, coderAgent.AllowedTools)
-
-	taskAgent, ok := cfg.Agents[AgentTask]
+	plan, ok := cfg.Agents[AgentPlan]
 	require.True(t, ok)
-	assert.Equal(t, []string{"bash", "crush_info", "crush_logs", "enter_plan_mode", "exit_plan_mode", "job_output", "job_kill", "multiedit", "lsp_diagnostics", "lsp_references", "lsp_restart", "lsp_symbols", "lsp_definition", "lsp_call_hierarchy", "lsp_rename", "lsp_replace_symbol", "fetch", "agentic_fetch", "glob", "ls", "question", "sourcegraph", "todos", "team", "view", "write", "list_mcp_resources", "read_mcp_resource", "schedule_wakeup", "enter_worktree", "exit_worktree"}, taskAgent.AllowedTools)
-
-	planAgent, ok := cfg.Agents[AgentPlan]
-	require.True(t, ok)
-	assert.Equal(t, []string{"agent", "agent_dispatch", "agent_send", "agent_status", "agent_stop", "lsp_symbols", "lsp_definition", "lsp_call_hierarchy", "glob", "ls", "question", "sourcegraph", "view"}, planAgent.AllowedTools)
+	assert.Equal(t, resolvePlanTools(allowed), plan.AllowedTools)
 }
 
 func TestConfig_setupAgentsWithEveryReadOnlyToolDisabled(t *testing.T) {
-	cfg := &Config{
-		Options: &Options{
-			DisabledTools: []string{
-				"agent",
-				"bash",
-				"glob",
-				"grep",
-				"ls",
-				"lsp_call_hierarchy",
-				"lsp_definition",
-				"lsp_symbols",
-				"sourcegraph",
-				"view",
-				"agent",
-			},
-		},
+	t.Parallel()
+
+	disabled := []string{
+		"agent", "bash", "glob", "grep", "ls", "lsp_call_hierarchy",
+		"lsp_definition", "lsp_symbols", "sourcegraph", "view",
 	}
-
+	cfg := &Config{Options: &Options{DisabledTools: disabled}}
 	cfg.SetupAgents()
-	coderAgent, ok := cfg.Agents[AgentCoder]
-	require.True(t, ok)
-	assert.Equal(t, []string{"bash", "crush_info", "crush_logs", "enter_plan_mode", "exit_plan_mode", "job_output", "job_kill", "download", "edit", "multiedit", "lsp_diagnostics", "lsp_references", "lsp_restart", "lsp_rename", "lsp_replace_symbol", "fetch", "agentic_fetch", "question", "todos", "team", "write", "list_mcp_resources", "read_mcp_resource", "schedule_wakeup", "enter_worktree", "exit_worktree"}, coderAgent.AllowedTools)
 
-	taskAgent, ok := cfg.Agents[AgentTask]
+	allowed := resolveAllowedTools(allToolNames(), disabled)
+	coder, ok := cfg.Agents[AgentCoder]
 	require.True(t, ok)
-	assert.Equal(t, []string{"bash", "crush_info", "crush_logs", "enter_plan_mode", "exit_plan_mode", "job_output", "job_kill", "download", "edit", "multiedit", "lsp_diagnostics", "lsp_references", "lsp_restart", "lsp_rename", "lsp_replace_symbol", "fetch", "agentic_fetch", "question", "todos", "team", "write", "list_mcp_resources", "read_mcp_resource", "schedule_wakeup", "enter_worktree", "exit_worktree"}, taskAgent.AllowedTools)
+	assert.Equal(t, allowed, coder.AllowedTools)
+
+	task, ok := cfg.Agents[AgentTask]
+	require.True(t, ok)
+	assert.Empty(t, task.AllowedTools,
+		"with every read-only tool and bash disabled the task agent has nothing left")
+
+	plan, ok := cfg.Agents[AgentPlan]
+	require.True(t, ok)
+	assert.Equal(t, resolvePlanTools(allowed), plan.AllowedTools)
 }

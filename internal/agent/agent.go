@@ -1436,7 +1436,7 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
 		a.messageQueue.Set(call.SessionID, kept)
 		a.settleDroppedCalls(dropped)
 	}
-	if len(queuedMessages) == 0 && a.permissions.SessionMode(call.SessionID) == permission.ModeYeehaw && !call.NonInteractive && call.acceptSeq < 100 {
+	if len(queuedMessages) == 0 && a.permissions != nil && a.permissions.SessionMode(call.SessionID) == permission.ModeYeehaw && !call.NonInteractive && call.acceptSeq < 100 {
 		promptText := a.generateYeehawPrompt(ctx, call.SessionID)
 		if !strings.Contains(promptText, "TERMINATE_YEEHAW_LOOP") && !a.yeehawShouldTerminate(ctx, call.SessionID) {
 			queuedMessages = []SessionAgentCall{{

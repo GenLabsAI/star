@@ -91,8 +91,8 @@ func TestBashToolMessageItem_LongCommandNotTruncated(t *testing.T) {
 		ExpandedContent: false,
 	}))
 
-	require.Contains(t, out, "…", "collapsed bash command truncates to the row width")
-	require.NotContains(t, out, "TAILMARKER", "collapsed row hides the tail")
+	require.Contains(t, out, "TAILMARKER", "collapsed bash command wraps instead of truncating")
+	require.NotContains(t, out, "…", "the command is never shortened with an ellipsis")
 
 	expanded := ansi.Strip(ctx.RenderTool(&sty, 120, &ToolRenderOpts{
 		ToolCall:        tc,

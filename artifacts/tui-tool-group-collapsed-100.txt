@@ -1,15 +1,15 @@
 
   ╱╱╱ STAR ╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱ /tmp/crush-test • ctrl+d open 
 
- │ Fix the refresh flow and keep the transcript quiet - I mostly care about what changed.         
+ │ Fix the refresh flow and keep the transcript quiet - I mostly care about what changed.        
 
-   I'll trace the refresh path, check prior art, then patch it.                                   
+   I'll trace the refresh path, check prior art, then patch it.                                  
 
  ▌ ✓ Ran 2 commands, Read 2 files, Searched the web, Sourcegraph (double-click to expand)
 
    ✓ Edit internal/auth/middleware.go
 
-      Applied 1 edit to internal/auth/middleware.go                                               
+      Applied 1 edit to internal/auth/middleware.go                                              
 
    ✓ Ran 2 commands (double-click to expand)
 

@@ -410,12 +410,19 @@ func (t *baseToolMessageItem) renderTool(width int) string {
 		ToolCall:        t.toolCall,
 		Result:          t.result,
 		Anim:            t.anim,
-		ExpandedContent: t.expandedContent,
+		ExpandedContent: t.expandedContent || t.keepsOutputWhenCanceled(),
 		Compact:         t.isCompact,
 		IsSpinning:      t.isSpinning(),
 		Status:          t.computeStatus(),
 		Elapsed:         t.elapsed(),
 	})
+}
+
+// keepsOutputWhenCanceled reports whether the item should show its body even
+// while collapsed: a call that finished before the turn was cancelled keeps
+// its output, since the cancellation ended the run, not the call.
+func (t *baseToolMessageItem) keepsOutputWhenCanceled() bool {
+	return t.status == ToolStatusCanceled && t.result != nil && !t.result.IsError
 }
 
 // Render renders the tool message item at the given width.

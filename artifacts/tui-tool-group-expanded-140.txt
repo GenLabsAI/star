@@ -18,7 +18,7 @@
  ▌        middleware_test.go:88: Error: Not equal:                                                       ┃  None
  ▌            expected: "Bearer abc123"                                                                  ┃
  ▌            actual  : "Bearer "                                                                        ┃  LSPs ────────────────────────
- ▌    --- FAIL: TestRotateSession (0.02s)                                                                │
+ ▌    --- FAIL: TestRotateSession (0.02s)                                                                ┃
  ▌        middleware_test.go:140: Error: token was not rotated                                           │  None
  ▌    FAIL                                                                                               │
  ▌    FAIL    github.com/charmbracelet/crush/internal/auth    0.58s                                      │  MCPs ────────────────────────
@@ -41,4 +41,4 @@
  ┃                                                                                                         
  ┃                                                                                                         
 
- tab focus editor • shift+tab mode • ctrl+p commands • ctrl+l models • ctrl+b toggle sidebar • ↑↓ scroll • shift+↑↓ scroll one item …
+ tab focus editor • shift+tab mode • ctrl+p commands • ctrl+l models • ctrl+b toggle sidebar • ↑↓ scroll • 

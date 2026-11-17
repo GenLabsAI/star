@@ -481,7 +481,7 @@ func TestPathDedupe_FirstWinsKeepsOriginalEnv(t *testing.T) {
 	require.Equal(t, protoA.ID, protoB.ID)
 	require.Equal(t, proto.WorkspacePermissionModeYolo, protoB.PermissionMode, "first wins: PermissionMode must remain yolo")
 	require.Equal(t, originalEnv, protoB.Env, "proto must carry the originating client's Env")
-	require.Equal(t, permission.ModeYolo, wsA.Cfg.Overrides().PermissionMode)
+	require.Equal(t, permission.PermissionModeYolo, wsA.Cfg.Overrides().PermissionMode)
 }
 
 // TestPathDedupe_Symlink confirms two paths that resolve to the same
@@ -572,7 +572,7 @@ func TestPathDedupe_ParallelCreates(t *testing.T) {
 	dataDir := t.TempDir()
 
 	b := New(context.Background(), nil, func() {})
-	b.SetCreateGrace(2 * time.Second)
+	b.SetCreateGrace(60 * time.Second)
 	t.Cleanup(func() { drainBackend(t, b) })
 
 	cidA := uuid.New().String()

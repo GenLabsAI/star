@@ -364,7 +364,7 @@ func (s *permissionService) Request(ctx context.Context, opts CreatePermissionRe
 		return false, nil
 	}
 
-	if sessionMode == ModeYolo || sessionMode == ModeYeehaw {
+	if sessionMode.SkipsPrompts() {
 		return true, nil
 	}
 
@@ -670,7 +670,7 @@ func (s *permissionService) SessionSkipRequests(sessionID string) bool {
 
 func (s *permissionService) SetMode(mode Mode) {
 	s.mode.Store(mode)
-	s.skip.Store(mode == ModeYolo)
+	s.skip.Store(mode.SkipsPrompts())
 	s.modeBroker.Publish(pubsub.UpdatedEvent, ModeChangedEvent{Mode: s.PermissionMode()})
 }
 

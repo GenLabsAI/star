@@ -272,7 +272,7 @@ type testWorkspace struct {
 	agentBusy         bool
 	runPrompts        []string
 	permMode          permission.Mode
-	yolo              bool
+	sessionModes      map[string]permission.Mode
 	runHidden         []bool
 	compactCalls      []bool
 	forkCalls         [][2]string
@@ -297,23 +297,59 @@ func (w *testWorkspace) UpdateAgentModel(context.Context) error {
 	return nil
 }
 
-func (w *testWorkspace) PermissionSessionSkipRequests(string) bool { return w.yolo }
-
-func (w *testWorkspace) PermissionSetSessionSkipRequests(_ string, skip bool) { w.yolo = skip }
-
-func (w *testWorkspace) PermissionSessionMode(string) permission.Mode {
-	if w.yolo {
-		return permission.ModeYolo
-	}
-	return permission.ModeNormal
+func (w *testWorkspace) PermissionSkipRequests() bool {
+	return w.permMode.SkipsPrompts()
 }
 
-func (w *testWorkspace) PermissionSetSessionMode(string, permission.Mode) {}
+func (w *testWorkspace) PermissionSetSkipRequests(skip bool) {
+	mode := permission.ModeNormal
+	if skip {
+		mode = permission.ModeYolo
+	}
+	w.permMode = mode
+}
 
-func (w *testWorkspace) PermissionSetMode(permission.Mode) {}
+func (w *testWorkspace) PermissionSessionSkipRequests(sessionID string) bool {
+	return w.PermissionSessionMode(sessionID).SkipsPrompts()
+}
+
+func (w *testWorkspace) PermissionSetSessionSkipRequests(sessionID string, skip bool) {
+	mode := permission.ModeNormal
+	if skip {
+		mode = permission.ModeYolo
+	}
+	w.PermissionSetSessionMode(sessionID, mode)
+}
+
+func (w *testWorkspace) PermissionSessionMode(sessionID string) permission.Mode {
+	if sessionID != "" {
+		if mode, ok := w.sessionModes[sessionID]; ok {
+			return mode
+		}
+	}
+	return w.permMode
+}
+
+func (w *testWorkspace) PermissionSetSessionMode(sessionID string, mode permission.Mode) {
+	if sessionID == "" {
+		w.permMode = mode
+		return
+	}
+	if w.sessionModes == nil {
+		w.sessionModes = map[string]permission.Mode{}
+	}
+	w.sessionModes[sessionID] = mode
+}
+
+func (w *testWorkspace) PermissionSetMode(mode permission.Mode) {
+	w.permMode = mode
+}
 
 func (w *testWorkspace) PermissionMode() permission.Mode {
-	return w.PermissionSessionMode("")
+	if w.permMode == "" {
+		return permission.ModeNormal
+	}
+	return w.permMode
 }
 
 func (w *testWorkspace) AgentIsReady() bool {
