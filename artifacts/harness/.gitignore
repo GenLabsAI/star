@@ -1,6 +1,0 @@
-__pycache__/
-*.pyc
-*.pyo
-sealed/.staging/
-sealed/*.tar
-seal/*.key

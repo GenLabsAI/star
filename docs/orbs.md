@@ -13,7 +13,8 @@ exists but not closed out. OPEN = not started. SKIPPED = explicitly deferred.
 1. **Fully isolated cloud sandboxes** that spin up automatically on demand,
    ensuring the agent never executes code or consumes resources on the
    user's local machine. — DONE (containerized harness + cloud runs proven
-   e2e; see `artifacts/harness/`, `artifacts/cloud-proof/`).
+   e2e; see `GenLabsAI/opencode-action-harness` and
+   `artifacts/cloud-proof/`).
 2. **A 1:1 mapping between chat threads and execution environments**, so
    each agent session has its own dedicated workspace, terminal, and
    filesystem. — DONE (chat-affine cloud runs on `main`).
@@ -39,7 +40,7 @@ exists but not closed out. OPEN = not started. SKIPPED = explicitly deferred.
    verification still to do.
 8. **Pre-loaded agent-friendly toolchain** (Debian + git, `gh`, tmux,
    ffmpeg, ImageMagick, ripgrep, Node/Bun/pnpm, headless browsers). — DONE
-   (`artifacts/harness/Dockerfile.agent`, proven by e2e orb runs).
+   (`Dockerfile.agent` in the harness repo, proven by e2e orb runs).
 9. **End-to-end proof generation**: run apps, test matrices, screenshots,
    demo videos — irrefutable proof before bothering the human. — DONE
    (screenshot/video/gif + e2e log artifacts, TUI walkthrough skill).

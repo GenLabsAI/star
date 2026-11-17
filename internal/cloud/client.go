@@ -1,11 +1,12 @@
 // Package cloud is a client for the Deca Agent Jobs API.
 //
-// It mirrors the HTTP contract used by the opencode-action-harness
-// runner (see artifacts/harness/runner.py): worker calls authenticate
-// with the X-Worker-Token header, user calls authenticate with a
-// Bearer token. The base URL and credentials always come from the
-// environment (DECA_AGENT_API_BASE_URL, DECA_API_KEY,
-// DECA_AGENT_WORKER_TOKEN) so secrets never land in files or logs.
+// It mirrors the HTTP contract used by the runner in the public
+// GenLabsAI/opencode-action-harness repo, which ships its scripts
+// sealed: worker calls authenticate with the X-Worker-Token header,
+// user calls authenticate with a Bearer token. The base URL and
+// credentials always come from the environment
+// (DECA_AGENT_API_BASE_URL, DECA_API_KEY, DECA_AGENT_WORKER_TOKEN) so
+// secrets never land in files or logs.
 package cloud
 
 import (

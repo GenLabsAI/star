@@ -17,8 +17,9 @@ The relay pumps bytes both ways and, unlike the production _pump bug,
 does not treat an idle receive timeout as end-of-stream.
 
 Run: python3 mock_cloud_acp.py [port]
-Env: MOCK_USER_KEY (default user-secret), ACP_BRIDGE (bridge path),
-     ACP_CWD (working directory the bridge's tools run in).
+Env: MOCK_USER_KEY (default user-secret), ACP_BRIDGE (path to an
+     unsealed acp_bridge.py from GenLabsAI/opencode-action-harness;
+     required), ACP_CWD (working directory the bridge's tools run in).
 """
 
 from __future__ import annotations
@@ -33,7 +34,7 @@ import aiohttp.web as web
 
 USER_KEY = os.environ.get("MOCK_USER_KEY", "user-secret")
 HERE = os.path.dirname(os.path.abspath(__file__))
-BRIDGE = os.environ.get("ACP_BRIDGE", os.path.join(HERE, "acp_bridge.py"))
+BRIDGE = os.environ.get("ACP_BRIDGE", "")
 ACP_CWD = os.environ.get("ACP_CWD", "/tmp/cloud-machine")
 
 sessions: dict[str, dict] = {}
@@ -100,6 +101,11 @@ async def create_acp_session(request: web.Request) -> web.Response:
     ws_base = base.replace("http", "ws", 1)
     runner_url = f"{ws_base}/relay/runner/{session_id}"
     browser_url = f"{ws_base}/relay/browser/{session_id}"
+    if not BRIDGE:
+        return web.json_response(
+            {"error": "ACP_BRIDGE must point at an unsealed acp_bridge.py"},
+            status=500,
+        )
     sessions[session_id] = {"runner": None, "browser": None}
     os.makedirs(ACP_CWD, exist_ok=True)
     proc = await asyncio.create_subprocess_exec(
