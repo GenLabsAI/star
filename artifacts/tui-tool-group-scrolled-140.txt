@@ -5,7 +5,7 @@
  ▌    --- FAIL: TestRefreshToken (0.01s)                                                                 │  ╭──╮╶─┬─╴╭──╮ ╭──╮ ╱╱╱╱╱╱╱╱╱╱
  ▌        middleware_test.go:88: Error: Not equal:                                                       │  ╰──╮  │  ├──┤ ├─┬╯ ╱╱╱╱╱╱╱╱╱╱
  ▌            expected: "Bearer abc123"                                                                  │  ╰──╯  ╵  ╵  ╵ ╵ ╰╴ ╱╱╱╱╱╱╱╱╱╱
- ▌            actual  : "Bearer "                                                                        │  ╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱
+ ▌            actual  : "Bearer "                                                                        ┃  ╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱
  ▌    --- FAIL: TestRotateSession (0.02s)                                                                ┃
  ▌        middleware_test.go:140: Error: token was not rotated                                           ┃
  ▌    FAIL                                                                                               ┃
@@ -34,11 +34,11 @@
  ▌ ✓ Search oauth refresh token rotation avoid reusing old token                                         │
  ▌                                                                                                       │
  ▌                                                                                                       │
- ▌   1. OAuth 2.0 Security Best Current Practice - Refresh token rotation                               
+ ▌   1. OAuth 2.0 Security Best Current Practice - Refresh token rotation                              
 
 
  ┃ Refactor the auth module                                                                                
  ┃                                                                                                         
  ┃                                                                                                         
 
- tab focus editor • shift+tab mode • ctrl+p commands • ctrl+l models • ctrl+b toggle sidebar • ↑↓ scroll • shift+↑↓ scroll one item …
+ tab focus editor • shift+tab mode • ctrl+p commands • ctrl+l models • ctrl+b toggle sidebar • ↑↓ scroll • 

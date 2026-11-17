@@ -41,4 +41,4 @@
  :::                                                                                                       
  :::                                                                                                       
 
-  YOLO MODE   tab focus editor • shift+tab mode • ctrl+p commands • ctrl+l models • ctrl+b toggle sidebar • ↑↓ scroll …
+  YOLO MODE   tab focus editor • shift+tab mode • ctrl+p commands • ctrl+l models • ctrl+b toggle sidebar •

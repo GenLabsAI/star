@@ -7,16 +7,16 @@
  ▌                                                                                                          ╰──╯  ╵  ╵  ╵ ╵ ╰╴ ╱╱╱╱╱╱╱╱╱╱
  ▌ ✓ Bash uname -a && pwd && ls                                                                             ╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱
  ▌
- ▌    Linux cloud-runner 6.8.0 #1 SMP x86_64 GNU/Linux                                                
- ▌    /home/runner/work/star                                                                          
+ ▌    Linux cloud-runner 6.8.0 #1 SMP x86_64 GNU/Linux                                               
+ ▌    /home/runner/work/star                                                                         
  ▌    NOTES.md                                                                                              /tmp/crush-test
- ▌    src                                                                                             
+ ▌    src                                                                                            
  ▌                                                                                                          ◇
  ▌ ✓ View /tmp/cloud-demo/NOTES.md
  ▌                                                                                                          Modified Files ──────────────
- ▌    1        1  # Cloud workspace                                                                     
+ ▌    1        1  # Cloud workspace                                                                    
  ▌    2        2  This machine is not your laptop.                                                          None
- ▌    3        3  Prompts run here; the TUI streams the results back.                                   
+ ▌    3        3  Prompts run here; the TUI streams the results back.                                  
                                                                                                             LSPs ────────────────────────
 
                                                                                                             None
@@ -41,4 +41,4 @@
  ┃                                                                                                         
  ┃                                                                                                         
 
-  CLOUD   tab focus editor • shift+tab mode • ctrl+p commands • ctrl+l models • ctrl+b toggle sidebar • ↑↓ scroll …
+  CLOUD   tab focus editor • shift+tab mode • ctrl+p commands • ctrl+l models • ctrl+b toggle sidebar …

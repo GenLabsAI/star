@@ -6,7 +6,7 @@
                                                                                                             ╰──╮  │  ├──┤ ├─┬╯ ╱╱╱╱╱╱╱╱╱╱
  │ The duplicate charges all share the same idempotency key prefix. Check the queue consumer too.           ╰──╯  ╵  ╵  ╵ ╵ ╰╴ ╱╱╱╱╱╱╱╱╱╱
                                                                                                             ╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱
-   Found it: the consumer re-enqueues on any timeout, including attempts that already committed. I'll add 
+   Found it: the consumer re-enqueues on any timeout, including attempts that already committed. I'll add
    an idempotency guard keyed by the charge ID.                                                             Fork of Checkout retries
 
                                                                                                             /tmp/crush-test
@@ -41,4 +41,4 @@
  ┃                                                                                                         
  ┃                                                                                                         
 
- tab focus editor • shift+tab mode • ctrl+p commands • ctrl+l models • ctrl+b toggle sidebar • ↑↓ scroll • shift+↑↓ scroll one item …
+ tab focus editor • shift+tab mode • ctrl+p commands • ctrl+l models • ctrl+b toggle sidebar • ↑↓ scroll • 

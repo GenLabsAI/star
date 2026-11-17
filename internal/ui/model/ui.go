@@ -5402,6 +5402,10 @@ func (m *UI) applyModeSwitch(msg modeSwitchedMsg) []tea.Cmd {
 		return []tea.Cmd{util.ReportError(msg.err)}
 	}
 	m.mode = msg.mode
+	// Carry the permission mode across the agent switch: the mode is
+	// orthogonal to the input mode, but the workspace has to agree with the
+	// editor prompt the switch is about to show.
+	m.setPermissionMode(msg.perm)
 	m.setEditorPrompt(m.permModeCached())
 	var cmds []tea.Cmd
 	if msg.continueSessionID != "" && m.session != nil && m.session.ID == msg.continueSessionID {

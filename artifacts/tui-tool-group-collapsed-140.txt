@@ -7,7 +7,7 @@
                                                                                                             ╰──╯  ╵  ╵  ╵ ╵ ╰╴ ╱╱╱╱╱╱╱╱╱╱
    ✓ Edit internal/auth/middleware.go                                                                       ╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱
 
-      Applied 1 edit to internal/auth/middleware.go                                                       
+      Applied 1 edit to internal/auth/middleware.go                                                      
 
    ✓ Ran 2 commands (double-click to expand)                                                                /tmp/crush-test
 
@@ -41,4 +41,4 @@
  ┃                                                                                                         
  ┃                                                                                                         
 
- tab focus editor • shift+tab mode • ctrl+p commands • ctrl+l models • ctrl+b toggle sidebar • ↑↓ scroll • shift+↑↓ scroll one item …
+ tab focus editor • shift+tab mode • ctrl+p commands • ctrl+l models • ctrl+b toggle sidebar • ↑↓ scroll • 

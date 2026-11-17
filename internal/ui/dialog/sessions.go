@@ -172,7 +172,7 @@ func (s *Session) HandleMsg(msg tea.Msg) Action {
 			case key.Matches(msg, s.keyMap.ConfirmDelete):
 				action := s.confirmDeleteSession()
 				s.setListItems(sessionsModeNormal)
-				s.list.SelectFirst()
+				s.list.ScrollToSelected()
 				return action
 			case key.Matches(msg, s.keyMap.CancelDelete):
 				s.sessionsMode = sessionsModeNormal

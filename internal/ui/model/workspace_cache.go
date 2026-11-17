@@ -437,6 +437,9 @@ func (m *UI) yoloModeCached() bool {
 // through the cache; the Update-tail backstop keeps it bounded-stale
 // otherwise.
 func (m *UI) permModeCached() permission.Mode {
+	if m.modeCache.val == "" {
+		return permission.ModeNormal
+	}
 	return m.modeCache.val
 }
 
@@ -461,6 +464,9 @@ func (m *UI) setYeehawMode(enable bool) tea.Cmd {
 		// Yeehaw = skip permission requests + autonomous loop. Set both so
 		// the session behaves like a --yeehaw launch.
 		m.com.Workspace.PermissionSetSessionSkipRequests(sessionID, true)
+		// The skip flag is workspace-wide, as it is for a --yeehaw launch;
+		// the mode below stays session-scoped.
+		m.com.Workspace.PermissionSetSkipRequests(true)
 		// The mode is written for this session only. Writing it globally
 		// would make every other session fall back to yeehaw, handing them
 		// autopilot and a horse they never asked for.
@@ -484,6 +490,7 @@ func (m *UI) setYeehawMode(enable bool) tea.Cmd {
 		return m.armYeehawHorse()
 	} else {
 		m.com.Workspace.PermissionSetSessionMode(sessionID, permission.ModeNormal)
+		m.com.Workspace.PermissionSetSkipRequests(false)
 		m.modeCache.set(permission.ModeNormal)
 		m.yoloCache.set(false)
 		m.busyFetchGen++

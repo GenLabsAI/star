@@ -157,6 +157,12 @@ func (m *recordingPermissionService) SetSessionSkipRequests(sessionID string, sk
 func (m *recordingPermissionService) SessionSkipRequests(sessionID string) bool             { return false }
 func (m *recordingPermissionService) SetSessionMode(sessionID string, mode permission.Mode) {}
 func (m *recordingPermissionService) SessionMode(sessionID string) permission.Mode {
+	switch m.mode {
+	case permission.PermissionModeSysadmin:
+		return permission.ModeSysadmin
+	case permission.PermissionModeYolo:
+		return permission.ModeYolo
+	}
 	return permission.ModeNormal
 }
 
@@ -164,7 +170,9 @@ func (m *recordingPermissionService) SubscribeNotifications(ctx context.Context)
 	return make(<-chan pubsub.Event[permission.PermissionNotification])
 }
 
-func (m *recordingPermissionService) SetPermissionMode(mode permission.PermissionMode) { m.mode = mode }
+func (m *recordingPermissionService) SetPermissionMode(mode permission.PermissionMode) {
+	m.mode = mode
+}
 
 func (m *recordingPermissionService) PermissionMode() permission.PermissionMode { return m.mode }
 

@@ -444,11 +444,13 @@ func (c *Commands) setCommandItems(commandType CommandType) {
 		}
 	}
 
+	// Keep the filter the user has typed: a rebuild (tab switch, width
+	// change) must not silently drop the query they are looking at.
+	filter := c.input.Value()
 	c.list.SetItems(commandItems...)
-	c.list.SetFilter("")
+	c.list.SetFilter(filter)
 	c.list.ScrollToTop()
 	c.list.SetSelected(0)
-	c.input.SetValue("")
 }
 
 // defaultCommands returns the list of default system commands.
