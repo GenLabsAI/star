@@ -26,6 +26,11 @@ tar -C /tmp/rel -xzf /tmp/rel/star-linux-amd64.tar.gz
 gh release download v0.1.141 --repo GenLabsAI/star -p 'star-linux-amd64.tar.gz' -D /tmp/rel
 tar -C /tmp/rel -xzf /tmp/rel/star-linux-amd64.tar.gz
 ./artifacts/orbs-proof/make-release-commands-proof.sh /tmp/rel/star-linux-amd64/star-core /tmp/release-proof
+
+# and the commit/flake pair against the newest build:
+gh release download v0.1.143 --repo GenLabsAI/star -p 'star-linux-amd64.tar.gz' -D /tmp/rel3
+tar -C /tmp/rel3 -xzf /tmp/rel3/star-linux-amd64.tar.gz
+./artifacts/orbs-proof/make-release-commit-flake-proof.sh /tmp/rel3/star-linux-amd64/star-core /tmp/release-proof
 ```
 
 Each script rebuilds its scratch project from scratch, starts and stops its
@@ -48,10 +53,12 @@ own processes, and can be re-run in any order.
 | `09-released-commands.txt` | Items 14, 7 and 20 re-run with the **published** `v0.1.141` artifact. `star env --json` reports version `v0.1.141` and commit `1022fd03a` (this repository's commit), then the three proofs pass unchanged: knowledge read back identical, the real listener found and its pid killed, 401/401/200 pairing. |
 | `10-commit.txt` | `star commit` creates a real commit: a tracked edit plus an untracked file; it refuses while the new file is unapproved (`exit=1`, `git log` still shows one commit), refuses without a message, then with `--include-untracked --branch feat/greeting` creates the commit and the branch (`git show HEAD:RUNBOOK.md` prints the new file, `git status` is empty, `main` still has one commit). The JSON record's hash is compared against `git rev-parse HEAD`, and the repository has no remote, so nothing was pushed. |
 | `11-flaky-verification.txt` | `star verify --repeat` catches a flake a single run cannot: one run of the same project prints PASS (exit 0), three runs print FLAKY (exit 1) with `runs: pass, fail, pass`, the bundle keeps one log per attempt including the failing `02-test-run2.log`, and the JSON record shows attempts `[0, 1, 0]` with `flaky: true`. After the test is fixed the same repeated run passes, and a test that fails every time is reported as FAIL, not flaky. |
+| `12-released-commit-flake.txt` | Items 21 and 16 re-run with the **published** `v0.1.143` artifact, which reports commit `d465f916d` (this repository's commit): the commit refusals and the approved commit, the hidden flake under one run, the FLAKY verdict under three, the fixed pass, and the consistent failure. |
 | `make-proof.sh` | The script that produced 01–04, so nothing is hand-edited. |
 | `make-knowledge-proof.sh`, `make-ports-proof.sh`, `make-pairing-proof.sh` | The scripts that produced 06, 07 and 08. |
 | `make-release-commands-proof.sh` | The script that produced 09: it runs the three scripts above with a released binary and records its version and commit. |
 | `make-commit-proof.sh`, `make-flake-proof.sh` | The scripts that produced 10 and 11. |
+| `make-release-commit-flake-proof.sh` | The script that produced 12: it runs those two with a released binary and records its version and commit. |
 | `make-release-proof.sh` | The script that produced 05 against a released binary. |
 
 ## What a skeptic should check

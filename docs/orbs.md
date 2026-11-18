@@ -269,6 +269,8 @@ old 3 + 6 → 3, old 4 → 4, old 5 → 5 (continuous validation is now part of
   attempt's output preserved, and `GOFLAGS=-count=1` so Go's test cache
   cannot hide the flake. Proof: `artifacts/orbs-proof/11-flaky-verification.txt`
   (`make-flake-proof.sh`).
+* Both commands were also re-run against the published `v0.1.143` artifact
+  (commit `d465f916d`): `artifacts/orbs-proof/12-released-commit-flake.txt`.
 
 ## Next (unblocked, partially built)
 
