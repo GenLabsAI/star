@@ -1,0 +1,111 @@
+# scratch repository: /tmp/orbs-approval-proj
+
+# the policy is a project file, discovered the same way the CLI finds its config
+$ cat /tmp/orbs-approval-proj/crush.json
+{
+  "commit": {
+    "require_approval": true,
+    "approver": "the repo owner"
+  }
+}
+
+$ star commit --policy
+  policy            /tmp/orbs-approval-proj/crush.json
+  require approval  true
+  protected branches none
+  approver          the repo owner
+exit=0
+
+# one tracked edit, nothing staged, one commit in history
+$ cd /tmp/orbs-approval-proj && git rev-list --count HEAD
+1
+$ git status --porcelain
+ M app.txt
+$ git diff --cached --name-only   # nothing staged
+
+# without approval the policy refuses, and nothing moves
+$ star commit -m "feat: bump version"
+exit=1
+          
+   ERROR  
+          
+  Refusing to commit: /tmp/orbs-approval-proj/crush.json requires approval for the repo owner for every commit (re-run
+  with --approve once it is approved).                                                                                
+
+$ git rev-list --count HEAD
+1
+$ git status --porcelain   # identical to before: still one modified file
+ M app.txt
+$ git diff --cached --name-only   # the refusal staged nothing
+$ git log --format=%s
+chore: initial import
+
+# the refusal is also an error in machine-readable mode
+$ star commit -m "feat: bump version" --json
+exit=1
+          
+   ERROR  
+          
+  Refusing to commit: /tmp/orbs-approval-proj/crush.json requires approval for the repo owner for every commit (re-run
+  with --approve once it is approved).                                                                                
+
+record bytes: 0
+
+# approved once, the same commit lands and reports the real object id
+$ star commit -m "feat: bump version" --approve --json
+exit=0
+reported hash matches git rev-parse HEAD: True
+reported hash is a full 40-hex object id: True
+reported short matches the hash prefix: True
+branch: main | message: feat: bump version | committed paths: 1
+policy: /tmp/orbs-approval-proj/crush.json | approval_required: True | approved: True | require_approval: True
+
+# the repository confirms it: one more commit, a clean tree, the new message
+$ git rev-list --count HEAD
+2
+$ git status --porcelain
+$ git log --format=%s
+feat: bump version
+chore: initial import
+
+# a policy can protect only some branches: main is gated, a feature branch is not
+policy change exit=0
+$ star commit -m "feat: land on main"
+exit=1
+          
+   ERROR  
+          
+  Refusing to commit: /tmp/orbs-approval-proj/crush.json protects branch "main" (re-run with --approve once it is     
+  approved).                                                                                                          
+
+$ git rev-list --count HEAD
+3
+$ star commit -m "feat: land on a feature branch" --branch feat/gate-out --json
+exit=0
+reported hash matches git rev-parse HEAD: True
+reported hash is a full 40-hex object id: True
+reported short matches the hash prefix: True
+branch: feat/gate-out | message: feat: land on a feature branch | committed paths: 1
+policy: /tmp/orbs-approval-proj/crush.json | approval_required: False | approved: False | require_approval: False
+
+# a project without a policy is not gated: no new gate for everyone else
+$ cd /tmp/orbs-approval-free && star commit --policy
+  policy            none (no project policy)
+  require approval  false
+  protected branches none
+exit=0
+$ star commit -m "docs: say hello again" --json
+exit=0
+reported hash matches git rev-parse HEAD: True
+reported hash is a full 40-hex object id: True
+reported short matches the hash prefix: True
+branch: main | message: docs: say hello again | committed paths: 1
+policy: none recorded
+$ git rev-list --count HEAD
+2
+
+# nothing left the machine: neither repository has a remote
+$ git remote -v   (in both repositories)
+[/tmp/orbs-approval-proj]
+[/tmp/orbs-approval-free]
+(empty output above means no remote is configured)

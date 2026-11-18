@@ -21,6 +21,8 @@ tar -C /tmp/rel -xzf /tmp/rel/star-linux-amd64.tar.gz
 ./artifacts/orbs-proof/make-pairing-proof.sh /tmp/star /tmp/proof-out
 ./artifacts/orbs-proof/make-commit-proof.sh /tmp/star /tmp/proof-out
 ./artifacts/orbs-proof/make-flake-proof.sh /tmp/star /tmp/proof-out   # needs go on PATH
+./artifacts/orbs-proof/make-coverage-gate-proof.sh /tmp/star /tmp/proof-out   # needs go on PATH
+./artifacts/orbs-proof/make-approval-gate-proof.sh /tmp/star /tmp/proof-out
 
 # and the same three against a published build:
 gh release download v0.1.141 --repo GenLabsAI/star -p 'star-linux-amd64.tar.gz' -D /tmp/rel
@@ -53,11 +55,14 @@ own processes, and can be re-run in any order.
 | `09-released-commands.txt` | Items 14, 7 and 20 re-run with the **published** `v0.1.141` artifact. `star env --json` reports version `v0.1.141` and commit `1022fd03a` (this repository's commit), then the three proofs pass unchanged: knowledge read back identical, the real listener found and its pid killed, 401/401/200 pairing. |
 | `10-commit.txt` | `star commit` creates a real commit: a tracked edit plus an untracked file; it refuses while the new file is unapproved (`exit=1`, `git log` still shows one commit), refuses without a message, then with `--include-untracked --branch feat/greeting` creates the commit and the branch (`git show HEAD:RUNBOOK.md` prints the new file, `git status` is empty, `main` still has one commit). The JSON record's hash is compared against `git rev-parse HEAD`, and the repository has no remote, so nothing was pushed. |
 | `11-flaky-verification.txt` | `star verify --repeat` catches a flake a single run cannot: one run of the same project prints PASS (exit 0), three runs print FLAKY (exit 1) with `runs: pass, fail, pass`, the bundle keeps one log per attempt including the failing `02-test-run2.log`, and the JSON record shows attempts `[0, 1, 0]` with `flaky: true`. After the test is fixed the same repeated run passes, and a test that fails every time is reported as FAIL, not flaky. |
+| `13-coverage-gate.txt` | `star verify --min-coverage` enforces a coverage floor. The scratch Go project's own `go tool cover` reports 33.3% (1 of 3 statements); `--min-coverage 90` exits **1** with `Coverage gate failed: 33.3% measured, 90.0% required (1 of 3 statements)`, the bundle's `summary.md` records the same number, `--min-coverage 20` exits **0**, `--min-coverage 100` still reports 33.3%, and no flag leaves the record without a coverage block. A Node project with no coverage provider prints `coverage-unavailable` / `no coverage provider is known for the detected stack(s): Node` and exits **1** rather than passing. A failing test stays `fail` and a flaky `--repeat 3` run stays `flaky` with attempts `[0, 1, 0]`. `--min-coverage 120` is rejected. |
+| `14-approval-gate.txt` | `star commit` honours a project policy from `crush.json`. With `"require_approval": true` the commit is refused (`exit=1`, `Refusing to commit: ... requires approval ... for every commit`), and `git rev-list --count HEAD`, `git status --porcelain` and the empty `git diff --cached` are identical before and after. With `--approve` the same commit lands: the record's hash equals `git rev-parse HEAD`, the count goes 1 → 2, the tree is clean, and the policy block records `approval_required: true, approved: true`. A `"protected_branches": ["main"]` policy refuses `main` but allows `--branch feat/gate-out`, and a repository with no policy commits exactly as before. `star commit --policy` prints the effective policy; neither repository has a remote. |
 | `12-released-commit-flake.txt` | Items 21 and 16 re-run with the **published** `v0.1.143` artifact, which reports commit `d465f916d` (this repository's commit): the commit refusals and the approved commit, the hidden flake under one run, the FLAKY verdict under three, the fixed pass, and the consistent failure. |
 | `make-proof.sh` | The script that produced 01–04, so nothing is hand-edited. |
 | `make-knowledge-proof.sh`, `make-ports-proof.sh`, `make-pairing-proof.sh` | The scripts that produced 06, 07 and 08. |
 | `make-release-commands-proof.sh` | The script that produced 09: it runs the three scripts above with a released binary and records its version and commit. |
 | `make-commit-proof.sh`, `make-flake-proof.sh` | The scripts that produced 10 and 11. |
+| `make-coverage-gate-proof.sh`, `make-approval-gate-proof.sh` | The scripts that produced 13 and 14. They report selected JSON fields instead of raw output, so a clean rebuild reproduces the transcripts byte-for-byte (commit hashes are checked against `git rev-parse HEAD` rather than printed). |
 | `make-release-commit-flake-proof.sh` | The script that produced 12: it runs those two with a released binary and records its version and commit. |
 | `make-release-proof.sh` | The script that produced 05 against a released binary. |
 
@@ -109,6 +114,18 @@ own processes, and can be re-run in any order.
    the paired request returns the API response. The token's sha256 prefix
    proves the transcript shows a token was generated without revealing it;
    regenerate the transcript and the prefix changes, the verdicts do not.
+14. In `13-coverage-gate.txt`, the `go tool cover` line says 33.3% before
+   `star verify` ever runs, and every coverage number afterwards is that
+   same 33.3% with the same "1 of 3 statements": the gate reads a real
+   profile, it does not echo the threshold. The `COVERAGE-UNAVAILABLE` line
+   is a non-zero exit with a reason, not a zero and not a pass.
+15. In `14-approval-gate.txt`, the refusal block is bracketed by
+   `git rev-list --count HEAD` = `1` and the same `git status --porcelain`
+   output on both sides, with an empty `git diff --cached` (nothing staged)
+   and `git log --format=%s` still showing only the initial import. The
+   approved record then reports `reported hash matches git rev-parse HEAD:
+   True`, and the count becomes 2 with a clean tree. `git remote -v` prints
+   nothing for either repository, so nothing was pushed.
 
 ## What this does NOT prove
 

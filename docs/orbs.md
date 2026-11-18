@@ -150,9 +150,18 @@ proof. Everything else is ours to finish.
     exit, every attempt logged, the failing attempt's output kept) instead
     of letting a lucky retry pass for a stable result; repeated runs set
     `GOFLAGS=-count=1` so Go's test cache cannot replay a cached pass.
-    Proof: `artifacts/orbs-proof/11-flaky-verification.txt`. Missing:
-    coverage thresholds and driving a running application rather than its
-    test suite.
+    Proof: `artifacts/orbs-proof/11-flaky-verification.txt`. `--min-coverage
+    PERCENT` is the coverage gate: the run measures statement coverage
+    (`go test -coverprofile` today), exits non-zero with a distinct
+    **UNDER-COVERED** verdict when a passing run measures below the
+    threshold, reports the measured number rather than the threshold, and
+    prints **COVERAGE-UNAVAILABLE** with a reason (exit non-zero) when no
+    number can be measured — a project with no coverage provider, or a
+    toolchain that cannot produce a profile — instead of passing silently.
+    A failing test stays FAIL and a flaky repeated run stays FLAKY: the gate
+    only downgrades a run that would otherwise pass. Proof:
+    `artifacts/orbs-proof/13-coverage-gate.txt`. Missing: driving a running
+    application rather than its test suite.
 17. **Evidence-based task completion**: test results, screenshots, videos,
     logs and a summary the user can check instead of trusting a claim. —
     **DONE**. Screenshot/video/gif + e2e log convention and the
@@ -194,10 +203,17 @@ proof. Everything else is ours to finish.
     [--include-untracked] [--json]` is the other half: it stages tracked
     changes, refuses to touch untracked files until they are approved, needs
     an explicit message, optionally creates the branch it commits on, and
-    reports the resulting hash; it never pushes. Proof:
-    `artifacts/orbs-proof/10-commit.txt`. Missing: pull-request creation
-    (needs a remote and credentials) and a configurable approval gate
-    before anything leaves the machine.
+    reports the resulting hash; it never pushes. An explicit approval gate
+    comes from the project's own config: a `"commit"` block in `crush.json`
+    or `.crush.json` can set `require_approval` and/or
+    `protected_branches`, and a commit that arrives without `--approve` is
+    refused before anything is staged, so the tree, the index and
+    `git rev-list --count HEAD` are unchanged; the same commit with
+    `--approve` lands and reports the hash `git rev-parse HEAD` confirms.
+    `star commit --policy` prints the effective policy. Proof:
+    `artifacts/orbs-proof/10-commit.txt` and
+    `artifacts/orbs-proof/14-approval-gate.txt`. Missing: pull-request
+    creation (needs a remote and credentials).
 22. **Resource and cost management**: configurable CPU/memory/storage,
     scaling with workload, minimal idle cost, usage and cost visibility. —
     **WIP**. Sleeping/reused orbs, `DeleteSession`, and explicit session
@@ -242,7 +258,7 @@ old 3 + 6 → 3, old 4 → 4, old 5 → 5 (continuous validation is now part of
   branches, changed paths, latest verification and cloud credential state
   in one view. New `internal/overview` package with tests.
 
-## Done in the pass before (items 14, 7, 20)
+## Done two passes ago (items 14, 7, 20)
 
 * **Item 14** — `star knowledge add|list|show|remove|path`: durable,
   file-backed project knowledge that survives sessions, with slug-only
@@ -264,7 +280,7 @@ old 3 + 6 → 3, old 4 → 4, old 5 → 5 (continuous validation is now part of
 * All three commands were also re-run against the published `v0.1.141`
   artifact (commit `1022fd03a`): `artifacts/orbs-proof/09-released-commands.txt`.
 
-## Done in the latest pass (items 21, 16)
+## Done in the previous pass (items 21, 16)
 
 * **Item 21 (commit half)** — `star commit`: real commits and branches from
   the reviewed working tree, gated on an explicit message and on approval
@@ -278,13 +294,31 @@ old 3 + 6 → 3, old 4 → 4, old 5 → 5 (continuous validation is now part of
 * Both commands were also re-run against the published `v0.1.143` artifact
   (commit `d465f916d`): `artifacts/orbs-proof/12-released-commit-flake.txt`.
 
+## Done in the latest pass (items 16 coverage, 21 approval)
+
+* **Item 16 (coverage gate)** — `star verify --min-coverage PERCENT`:
+  measured statement coverage from a real coverage profile, an
+  UNDER-COVERED verdict (non-zero exit) for a passing run below the
+  threshold, a COVERAGE-UNAVAILABLE verdict with a named reason when no
+  number is obtainable, and no relabelling of failing or flaky runs.
+  Proof: `artifacts/orbs-proof/13-coverage-gate.txt`
+  (`make-coverage-gate-proof.sh`).
+* **Item 21 (approval gate)** — project policy from `crush.json`
+  (`require_approval`, `protected_branches`, `approver`), `star commit
+  --policy` to inspect it and `--approve` to satisfy it; a refusal happens
+  before staging and leaves the tree and history untouched. Proof:
+  `artifacts/orbs-proof/14-approval-gate.txt`
+  (`make-approval-gate-proof.sh`).
+* Both are reproducible byte-for-byte: each script was re-run after a
+  clean rebuild and produced identical transcripts.
+
 ## Next (unblocked, partially built)
 
 * **Item 7** — port→preview mapping, crash supervision and restart policy;
   both need harness access (blocker 1).
 * **Item 20** — per-workspace scopes and an approval prompt for sensitive
   operations, so one token is not all-or-nothing.
-* **Item 21** — pull-request creation and a configurable approval gate
-  before changes leave the machine.
+* **Item 21** — pull-request creation (needs a remote and credentials);
+  the approval gate itself is done.
 * **Items 22, 23** — per-orb resource and permission surfaces, once the
   harness side is reachable.

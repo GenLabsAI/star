@@ -27,6 +27,9 @@ type Options struct {
 	// IncludeUntracked also stages files git does not track yet. Without
 	// it they block the commit, so new files never slip in unreviewed.
 	IncludeUntracked bool
+	// Approve satisfies a project approval policy that would otherwise
+	// refuse the commit. It is the only way past that gate.
+	Approve bool
 }
 
 // Record is what the commit actually produced: the new hash, the branch
@@ -41,6 +44,17 @@ type Record struct {
 	Message       string         `json:"message"`
 	Files         []changes.File `json:"files"`
 	Stat          string         `json:"stat,omitempty"`
+	Policy        *PolicyRecord  `json:"policy,omitempty"`
+}
+
+// PolicyRecord is the approval policy that applied to this commit.
+type PolicyRecord struct {
+	Path              string   `json:"path,omitempty"`
+	RequireApproval   bool     `json:"require_approval"`
+	ProtectedBranches []string `json:"protected_branches,omitempty"`
+	Approver          string   `json:"approver,omitempty"`
+	ApprovalRequired  bool     `json:"approval_required"`
+	Approved          bool     `json:"approved"`
 }
 
 // Commit stages and commits the working tree of dir.
@@ -76,6 +90,30 @@ func Commit(dir string, opts Options) (*Record, error) {
 			"Refusing to commit %d untracked path(s) without approval: %s (re-run with --include-untracked to add them)",
 			len(untracked), strings.Join(untracked, ", "),
 		)
+	}
+
+	// The approval gate runs before anything is staged, so a refusal leaves
+	// the working tree exactly as it was.
+	policy, err := LoadPolicy(root)
+	if err != nil {
+		return nil, err
+	}
+	target := summary.Branch
+	if opts.Branch != "" {
+		target = opts.Branch
+	}
+	if policy.RequiresApproval(target) && !opts.Approve {
+		return nil, &ApprovalRequiredError{Policy: policy, Branch: target}
+	}
+	if policy.Path != "" {
+		record.Policy = &PolicyRecord{
+			Path:              policy.Path,
+			RequireApproval:   policy.RequireApproval,
+			ProtectedBranches: policy.ProtectedBranches,
+			Approver:          policy.Approver,
+			ApprovalRequired:  policy.RequiresApproval(target),
+			Approved:          opts.Approve,
+		}
 	}
 
 	if opts.Branch != "" && opts.Branch != summary.Branch {
