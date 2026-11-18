@@ -129,6 +129,13 @@ func printEnvManifest(cmd *cobra.Command, m envreport.Manifest) {
 	if len(m.Project.ConfigFiles) > 0 {
 		envLine(cmd, "config", strings.Join(shortPaths(m.Workspace.Dir, m.Project.ConfigFiles), ", "))
 	}
+	if len(m.Knowledge) > 0 {
+		names := make([]string, 0, len(m.Knowledge))
+		for _, entry := range m.Knowledge {
+			names = append(names, entry.Name)
+		}
+		envLine(cmd, "knowledge", strings.Join(names, ", "))
+	}
 
 	section("Hooks")
 	if m.Hooks.Setup == "" && m.Hooks.Resume == "" {
@@ -168,6 +175,11 @@ func printEnvManifest(cmd *cobra.Command, m envreport.Manifest) {
 	envLine(cmd, "user credential", presence(m.Cloud.UserCredential))
 	envLine(cmd, "worker token", presence(m.Cloud.WorkerToken))
 	envLine(cmd, "model", presence(m.Cloud.ModelReady))
+	pairing := presence(m.Pairing.TokenSet)
+	if m.Pairing.Source != "" {
+		pairing += " (" + m.Pairing.Source + ")"
+	}
+	envLine(cmd, "pairing token", pairing)
 
 	if m.Logs.Dir != "" {
 		section("Logs")

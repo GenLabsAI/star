@@ -1,0 +1,72 @@
+# scratch project: /tmp/orbs-pair-proj
+# server: star server --host tcp://127.0.0.1:18999 with STAR_SERVER_TOKEN set
+# token length: 43 (value deliberately not printed)
+# token sha256 prefix: 705b75141bab401e
+
+$ star pair        # generates a token, prints it once, stores nothing
+stdout length: 43 (43 = 32 random bytes, base64url), sha256 prefix: 705b75141bab401e
+exit=0
+stderr: Pass this token to the server (--pair-token) and to each peer (STAR_SERVER_TOKEN). It is not stored anywhere.
+no file was written: 0 token or pairing files in the project
+
+# the server is now listening; three real HTTP requests follow
+$ curl http://127.0.0.1:18999/v1/health          # no credential at all
+unpaired peer -> HTTP 401
+body: {"message":"unauthorized: this server requires a pairing token (see `star pair`)"}
+
+$ curl -H "Authorization: Bearer <wrong>" ...     # wrong credential
+wrong token -> HTTP 401
+body: {"message":"unauthorized: this server requires a pairing token (see `star pair`)"}
+
+$ curl -H "Authorization: Bearer <the paired token>" ...   # authorized peer
+paired peer -> HTTP 200
+body: 
+
+# the paired peer can also use the X-Star-Token header
+paired peer (X-Star-Token) -> HTTP 200
+body: 
+
+# 401 responses are real protocol rejections, not connection failures:
+HTTP/1.1 401 Unauthorized
+Content-Type: application/json
+Date: Wed, 18 Nov 2026 00:27:47 GMT
+Content-Length: 83
+
+# who is listening? the paired server shows up in the port inventory
+$ star ports --all | grep -E "PORT|18999"
+PORT    PID      PROCESS          ADDRESS            CWD
+18999   341753   star9            127.0.0.1          .
+exit=0
+
+# with the token in the environment, star env reports pairing without leaking it
+$ STAR_SERVER_TOKEN=<token> star env | grep -i pair
+  dir               /tmp/orbs-pair-proj
+  pairing token     set (env STAR_SERVER_TOKEN)
+exit=0
+
+$ STAR_SERVER_TOKEN_FILE=<file> star env | grep -i pair
+  dir               /tmp/orbs-pair-proj
+  pairing token     set (/tmp/orbs-pair-token)
+exit=0
+
+# the token file is 0600 and contains only the token
+-rw------- 1 fbf14882b58e53df863a7f0ed6 freebuff 44 Nov 18 00:27 /tmp/orbs-pair-token
+file length: 44 bytes
+
+# stop the server and confirm the port is released
+kill exit=0
+request after shutdown -> connection refused (curl exit 7)
+port inventory: no entry for 18999 any more
+
+# an unpaired server is unchanged: local sockets keep working without a token
+unpaired server, no credential -> HTTP 200
+body: 
+kill exit=0
+
+# the same token file can guard the server instead of the environment
+$ star server --pair-file /tmp/orbs-pair-token
+server with --pair-file, no credential -> HTTP 401
+body: {"message":"unauthorized: this server requires a pairing token (see `star pair`)"}
+server with --pair-file, token from the file (trailing newline trimmed) -> HTTP 200
+body: 
+kill exit=0

@@ -7,20 +7,28 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
 	"github.com/charmbracelet/crush/internal/config"
 	crushlog "github.com/charmbracelet/crush/internal/log"
+	"github.com/charmbracelet/crush/internal/pairing"
 	"github.com/charmbracelet/crush/internal/server"
 	"github.com/charmbracelet/x/term"
 	"github.com/spf13/cobra"
 )
 
-var serverHost string
+var (
+	serverHost      string
+	serverPairToken string
+	serverPairFile  string
+)
 
 func init() {
 	serverCmd.Flags().StringVarP(&serverHost, "host", "H", server.DefaultHost(), "Server host  (HTTP, TCP or Unix socket)")
+	serverCmd.Flags().StringVar(&serverPairToken, "pair-token", "", "Require this pairing token on every request (see `star pair`)")
+	serverCmd.Flags().StringVar(&serverPairFile, "pair-file", "", "Read the pairing token from this file")
 	rootCmd.AddCommand(serverCmd)
 }
 
@@ -72,8 +80,26 @@ at /v1/docs/openapi.json.
 			crushlog.Setup(logFile, debug)
 		}
 
+		token := strings.TrimSpace(serverPairToken)
+		if token == "" && serverPairFile != "" {
+			token, err = pairing.Read(serverPairFile)
+			if err != nil {
+				return err
+			}
+		}
+		tokenSource := "flag"
+		if token == "" {
+			var source string
+			token, source = pairing.Resolve()
+			tokenSource = source
+		}
+
 		srv := server.NewServer(cfg, hostURL.Scheme, hostURL.Host)
 		srv.SetLogger(slog.Default())
+		if token != "" {
+			srv.SetPairToken(token)
+			slog.Info("Pairing required", "token_source", tokenSource)
+		}
 		slog.Info("Starting Star server...", "addr", serverHost)
 
 		errch := make(chan error, 1)

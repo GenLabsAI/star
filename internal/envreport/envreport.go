@@ -23,20 +23,24 @@ import (
 
 	"github.com/charmbracelet/crush/internal/config"
 	"github.com/charmbracelet/crush/internal/gitutil"
+	"github.com/charmbracelet/crush/internal/knowledge"
+	"github.com/charmbracelet/crush/internal/pairing"
 	"github.com/charmbracelet/crush/internal/version"
 )
 
 // Manifest is everything an agent can learn about the machine and the
 // project without guessing.
 type Manifest struct {
-	Workspace Workspace `json:"workspace"`
-	Star      Star      `json:"star"`
-	Git       Git       `json:"git"`
-	Project   Project   `json:"project"`
-	Hooks     Hooks     `json:"hooks"`
-	Runtimes  []Runtime `json:"runtimes"`
-	Cloud     Cloud     `json:"cloud"`
-	Logs      Logs      `json:"logs"`
+	Workspace Workspace         `json:"workspace"`
+	Star      Star              `json:"star"`
+	Git       Git               `json:"git"`
+	Project   Project           `json:"project"`
+	Knowledge []knowledge.Entry `json:"knowledge"`
+	Hooks     Hooks             `json:"hooks"`
+	Runtimes  []Runtime         `json:"runtimes"`
+	Cloud     Cloud             `json:"cloud"`
+	Pairing   Pairing           `json:"pairing"`
+	Logs      Logs              `json:"logs"`
 }
 
 // Workspace lists the directories Star uses, so an agent never has to
@@ -102,6 +106,13 @@ type Runtime struct {
 	RequiredBy []string `json:"required_by,omitempty"`
 }
 
+// Pairing reports whether this machine holds a server pairing token, and
+// where it came from. The token itself is never included.
+type Pairing struct {
+	TokenSet bool   `json:"token_set"`
+	Source   string `json:"source,omitempty"`
+}
+
 // Cloud reports which cloud credentials are present. Values are never
 // included.
 type Cloud struct {
@@ -115,6 +126,13 @@ type Cloud struct {
 type Logs struct {
 	Dir   string   `json:"dir,omitempty"`
 	Files []string `json:"files,omitempty"`
+}
+
+// PairingPresence reports whether a pairing token is configured for this
+// process, and where it came from.
+func PairingPresence() Pairing {
+	token, source := pairing.Resolve()
+	return Pairing{TokenSet: token != "", Source: source}
 }
 
 // CloudPresence reports which cloud credentials the environment has,
@@ -178,12 +196,14 @@ func Build(dir string) (Manifest, error) {
 			OS:      runtime.GOOS,
 			Arch:    runtime.GOARCH,
 		},
-		Git:      Git{Repository: root != "", Root: root, Branch: branch},
-		Project:  detectProject(abs, stacks),
-		Hooks:    detectHooks(abs),
-		Runtimes: readiness(stacks),
-		Cloud:    CloudPresence(),
-		Logs:     detectLogs(abs),
+		Git:       Git{Repository: root != "", Root: root, Branch: branch},
+		Project:   detectProject(abs, stacks),
+		Knowledge: knowledgeEntries(abs),
+		Hooks:     detectHooks(abs),
+		Runtimes:  readiness(stacks),
+		Cloud:     CloudPresence(),
+		Pairing:   PairingPresence(),
+		Logs:      detectLogs(abs),
 	}, nil
 }
 
@@ -242,6 +262,15 @@ func detectLogs(dir string) Logs {
 		logs.Files = append(logs.Files, filepath.Join(logDir, entry.Name()))
 	}
 	return logs
+}
+
+// knowledgeEntries lists the durable knowledge a project has stored.
+func knowledgeEntries(dir string) []knowledge.Entry {
+	entries, err := knowledge.NewStore(dir).List()
+	if err != nil {
+		return nil
+	}
+	return entries
 }
 
 // skills lists project skill directories, which Star loads as reusable

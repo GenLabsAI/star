@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/charmbracelet/crush/internal/config"
+	"github.com/charmbracelet/crush/internal/pairing"
 	"github.com/charmbracelet/crush/internal/proto"
 	"github.com/charmbracelet/crush/internal/server"
 	"github.com/google/uuid"
@@ -29,6 +30,9 @@ type Client struct {
 	network  string
 	addr     string
 	clientID string
+	// token is the pairing token this peer presents, empty when it has
+	// none (the server's socket permissions are then the boundary).
+	token string
 }
 
 // DefaultClient creates a new [Client] connected to the default server address.
@@ -48,6 +52,9 @@ func NewClient(path, network, address string) (*Client, error) {
 	c.network = network
 	c.addr = address
 	c.clientID = uuid.New().String()
+	if token, _ := pairing.Resolve(); token != "" {
+		c.token = token
+	}
 	p := &http.Protocols{}
 	p.SetHTTP1(true)
 	p.SetUnencryptedHTTP2(true)
@@ -287,6 +294,10 @@ func (c *Client) buildReq(ctx context.Context, method, url string, body io.Reade
 
 	for k, v := range headers {
 		r.Header[http.CanonicalHeaderKey(k)] = v
+	}
+
+	if c.token != "" {
+		r.Header.Set("Authorization", "Bearer "+c.token)
 	}
 
 	r.URL.Scheme = "http"

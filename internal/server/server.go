@@ -127,6 +127,9 @@ type Server struct {
 	backend *backend.Backend
 	logger  *slog.Logger
 
+	// Token, when set, is the pairing token every request must present.
+	Token string
+
 	// selfShutdown runs the shutdown the backend asks for at most once.
 	// selfShutdownStarted is set before that shutdown begins and
 	// selfShutdownDone is closed once it has finished, so [Server.Serve]
@@ -221,7 +224,7 @@ func (s *Server) installHandler() {
 	s.cancelRequests = cancel
 	s.h = &http.Server{
 		Protocols:   &p,
-		Handler:     s.recoverHandler(s.loggingHandler(s.crossOriginHandler(mux))),
+		Handler:     s.recoverHandler(s.loggingHandler(s.pairingHandler(s.crossOriginHandler(mux)))),
 		BaseContext: func(net.Listener) context.Context { return baseCtx },
 	}
 }

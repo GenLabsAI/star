@@ -26,7 +26,9 @@ proof. Everything else is ours to finish.
    token authenticates as `ccocks` and reports `permissions.push = true`,
    but every write is denied server-side (`403`); `GenLabsAI/GenlabsAPI`
    is not visible to it at all. Most remaining platform work (items 4, 7,
-   8, 9, 22) lands in the harness image, the workflow, or that API.
+   8, 9, 22) lands in the harness image, the workflow, or that API — for
+   item 7 specifically, the port→preview-URL mapping and crash
+   supervision.
 3. **A decision on item 8 (live previews).** Previously deferred by you;
    it is in this list again, so we need to know whether it is back in
    scope and, if so, what the preview networking should look like
@@ -74,10 +76,17 @@ proof. Everything else is ours to finish.
    headless browsers) plus Star's local toolchain.
 7. **Intelligent environment management**: ports, processes, server
    startup, crashes, dependencies, resource allocation, recovery, without
-   the agent debugging infrastructure. — **WIP**. Background jobs and
+   the agent debugging infrastructure. — **WIP → local half done**. New
+   `star ports [--json] [--all]` (`internal/ports`) answers "what is
+   listening here, whose process is it, and where does it live": kernel
+   socket tables (`/proc/net/tcp{,6}` + inode→pid + cwd) on Linux, `ss`
+   and `lsof` fallbacks, `netstat` on Windows; by default only listeners
+   whose process runs inside the workspace. Proof:
+   `artifacts/orbs-proof/07-ports.txt`. Existing: background jobs and
    streaming via `internal/shell` (`job_output`, `job_kill`, `monitor`),
-   runner self-heal. Missing: a port registry/preview mapping and crash
-   supervision with restart policy; needs item 2's harness access.
+   runner self-heal. Missing: mapping a port to an orb-side preview URL and
+   crash supervision with a restart policy; both need write access to the
+   harness repository (blocker 2).
 8. **Live application previews** exposed as URLs, interactive in the
    browser, shareable, several at once without access to the environment.
    — **SKIPPED** (explicitly deferred by you; see blocker 3).
@@ -109,10 +118,18 @@ proof. Everything else is ours to finish.
     into the local store and continue server-side.
 14. **Persistent project knowledge**: repository instructions, docs,
     architecture notes, skills, scripts and earlier discoveries available
-    across sessions. — **WIP**. Context files (AGENTS.md/CLAUDE.md/CRUSH.md
+    across sessions. — **DONE**. Context files (AGENTS.md/CLAUDE.md/CRUSH.md
     and `.local` variants), builtin and project skills, `search_history`,
-    MCP resources, and `star env` now lists which of these a project has.
-    Missing: a durable store of discoveries shared across sessions.
+    MCP resources, and `star env` lists which of these a project has. New
+    `star knowledge add|list|show|remove|path` stores discoveries as plain
+    markdown files in the project data directory (`.crush/knowledge/`),
+    body returned byte-for-byte, names restricted to slugs so a path can
+    never escape the directory, size-capped, listed with summaries, and
+    surfaced in the `star env` manifest. Because entries are files, they
+    are shared by every session on the machine and can be reviewed,
+    grepped, edited or committed. Proof:
+    `artifacts/orbs-proof/06-knowledge.txt` (write in one process, read
+    back verbatim with matching sha256 in another).
 15. **A complete agent-oriented development interface**: predictable
     filesystem locations, machine-readable environment information,
     documented commands, readiness checks, accessible logs, clear
@@ -120,8 +137,8 @@ proof. Everything else is ours to finish.
     the manifest (paths, git, detected stacks with install/build/test
     commands, lifecycle hooks and their hashes, runtime readiness,
     credential *presence* only), alongside the existing `star dirs`,
-    `star logs`, `crush_info` and `crush_logs`. Missing: port and process
-    inventory, which needs item 7.
+    `star logs`, `crush_info`, `crush_logs`, and now a port inventory
+    (`star ports`, see item 7).
 16. **Autonomous testing and verification** against the real running
     application: reproduce bugs, investigate failures, run regressions,
     iterate until it works. — **WIP → advanced here**. `star verify` runs
@@ -148,10 +165,18 @@ proof. Everything else is ours to finish.
     permissions and human approval for sensitive steps. — **OPEN** (see
     blocker 4).
 20. **Local machine connectivity** when a task needs local hardware, OS
-    specifics or local resources. — **WIP**. Star's client/server split
-    lets a remote client drive a workspace on the machine that runs
-    `star server`; there is no pairing/authorization model or opt-in
-    worker policy yet.
+    specifics or local resources. — **DONE** (authorization half). Star's
+    client/server split lets a remote client drive a workspace on the
+    machine that runs `star server`; that is now an explicit opt-in, not a
+    default: `star pair` mints a 256-bit token (printed once, never
+    stored), the server accepts it via `--pair-token`/`--pair-file` or
+    `STAR_SERVER_TOKEN`/`STAR_SERVER_TOKEN_FILE`, and a middleware rejects
+    every unpaired peer with 401 while the bundled client presents the
+    token automatically. A server started without a token keeps its old
+    local-only behaviour. Proof: `artifacts/orbs-proof/08-pairing.txt`
+    (401 unpaired and wrong-token, 200 paired, token never echoed).
+    Missing: per-workspace scopes and an approval prompt for sensitive
+    operations — one token grants everything that server exposes.
 21. **Complete change management**: track every modification, produce clean
     diffs, commits, branches and pull requests, isolated until review. —
     **WIP → advanced here**. Per-session git worktrees
@@ -191,7 +216,7 @@ old 3 + 6 → 3, old 4 → 4, old 5 → 5 (continuous validation is now part of
 3/4), old 7 → 12, old 8 → 6, old 9 → 17, old 10 → 8, old 11 → 10, old 12
 → 13. Items 7, 9, 11, 14, 15, 16, 18, 19, 20, 21, 22, 23 and 24 are new.
 
-## Done in this pass (proof in `artifacts/orbs-proof/`, verified on v0.1.139)
+## Done in this pass (proof in `artifacts/orbs-proof/`)
 
 * **Item 15 + 4** — `star env [--json]`: the machine-readable environment
   manifest (paths, git, stacks, commands, hooks, readiness, credential
@@ -206,11 +231,31 @@ old 3 + 6 → 3, old 4 → 4, old 5 → 5 (continuous validation is now part of
   branches, changed paths, latest verification and cloud credential state
   in one view. New `internal/overview` package with tests.
 
+## Done in the latest pass (items 14, 7, 20)
+
+* **Item 14** — `star knowledge add|list|show|remove|path`: durable,
+  file-backed project knowledge that survives sessions, with slug-only
+  names, size limits, summaries and `star env` discovery. New
+  `internal/knowledge` + `internal/datadir`. Proof:
+  `artifacts/orbs-proof/06-knowledge.txt`, regenerated by
+  `make-knowledge-proof.sh`.
+* **Item 7 (local half)** — `star ports [--json] [--all]`: kernel-level
+  listener inventory with pid, process, address and working directory,
+  filtered to the workspace by default. New `internal/ports` with parsers
+  for `/proc/net/tcp{,6}`, `ss`, `lsof` and `netstat`. Proof:
+  `artifacts/orbs-proof/07-ports.txt`, regenerated by
+  `make-ports-proof.sh`.
+* **Item 20 (authorization half)** — `star pair` mints a bearer token; the
+  server enforces it on every request and the client presents it. New
+  `internal/pairing` + `internal/server/pairing.go`. Proof:
+  `artifacts/orbs-proof/08-pairing.txt`, regenerated by
+  `make-pairing-proof.sh`.
+
 ## Next (unblocked, partially built)
 
-* **Item 14** — a durable cross-session knowledge pointer, so discoveries
-  survive sessions instead of being rediscovered.
-* **Item 7** — a port and process inventory for background jobs (local
-  half only; the orb-side mapping needs harness access).
+* **Item 7** — port→preview mapping, crash supervision and restart policy;
+  both need harness access (blocker 1).
+* **Item 20** — per-workspace scopes and an approval prompt for sensitive
+  operations, so one token is not all-or-nothing.
 * **Items 22, 23** — per-orb resource and permission surfaces, once the
   harness side is reachable.

@@ -14,7 +14,15 @@ go build -o /tmp/star .
 gh release download v0.1.139 --repo GenLabsAI/star -p 'star-linux-amd64.tar.gz' -D /tmp/rel
 tar -C /tmp/rel -xzf /tmp/rel/star-linux-amd64.tar.gz
 ./artifacts/orbs-proof/make-release-proof.sh /tmp/rel/star-linux-amd64/star-core /tmp/release-proof
+
+# the newest commands, each self-contained (needs python3 and curl):
+./artifacts/orbs-proof/make-knowledge-proof.sh /tmp/star /tmp/proof-out
+./artifacts/orbs-proof/make-ports-proof.sh /tmp/star /tmp/proof-out
+./artifacts/orbs-proof/make-pairing-proof.sh /tmp/star /tmp/proof-out
 ```
+
+Each script rebuilds its scratch project from scratch, starts and stops its
+own processes, and can be re-run in any order.
 
 ## Files
 
@@ -27,7 +35,11 @@ tar -C /tmp/rel -xzf /tmp/rel/star-linux-amd64.tar.gz
 | `03-changes.txt` | `star changes` summarizes the tree (branch, per-file status, diffstat, patch size), emits JSON on stdout for agents, and writes a reviewable patch with `--patch`. |
 | `04-overview.txt` | `star overview` joins tracked workspaces with their branch, changed paths, latest verification verdict and cloud credential state, in text and JSON. Run against a `projects.json` that points at the scratch repo. |
 | `05-released-binary.txt` | The same fail → pass → changes → overview loop run against the **published** `v0.1.139` artifact (`star-linux-amd64.tar.gz` from the GitHub release), which stamps its own version and commit (`bc4e684e8`) into every record. This ties the claims to a shipped binary, not a local build. |
+| `06-knowledge.txt` | `star knowledge` keeps a discovery across **processes**: `list` is empty, `show` on a missing name exits **1**, `add` in one process, then a fresh process reads it back with a byte-identical sha256, prints the JSON listing and the `.md` file it lives in, `star env` reports it, a second entry and a replacement work, and `remove` empties the store again. |
+| `07-ports.txt` | `star ports` reports a real `python3 -m http.server` started by the script: port 18765, its actual pid, `python3`, and the workspace as cwd. A second listener started *outside* the workspace is hidden by default and visible with `--all`. Killing the reported pid removes the entry (`listeners: []`), and an idle workspace prints "No listening sockets". |
+| `08-pairing.txt` | A real `star server` with a pairing token: request with no credential → **401**, wrong token → **401** (real `401 Unauthorized` headers, not a refused connection), correct token → **200**, and the same via `X-Star-Token`. The token is never printed (length + sha256 prefix only), no file is written by `star pair`, `star env` reports the token source without the value, the token file is `0600`, the server appears in `star ports` and its port is gone after shutdown, and a server started *without* a token still answers 200 (unchanged local behaviour). |
 | `make-proof.sh` | The script that produced 01–04, so nothing is hand-edited. |
+| `make-knowledge-proof.sh`, `make-ports-proof.sh`, `make-pairing-proof.sh` | The scripts that produced 06, 07 and 08. |
 | `make-release-proof.sh` | The script that produced 05 against a released binary. |
 
 ## What a skeptic should check
@@ -50,6 +62,21 @@ tar -C /tmp/rel -xzf /tmp/rel/star-linux-amd64.tar.gz
 7. Delete the scratch directory and re-run either script: the files
    regenerate with different timestamps and durations but the same
    verdicts.
+8. In `06-knowledge.txt`, the two sha256 lines under "verbatim check" are
+   equal and the file under `.crush/knowledge/` holds exactly those bytes;
+   the `star env` line lists `ci-count`, so a new session finds it without
+   being told.
+9. In `07-ports.txt`, the pid in the table is the pid the script later
+   kills, and the JSON assertions (`workspace`, `filtered`, `cwd`,
+   `process`, port list) are evaluated by python3, so a mismatch would
+   print a traceback instead of "workspace filter: ...". Re-run the script
+   yourself and compare: the pid differs every time, the port and the
+   verdicts do not.
+10. In `08-pairing.txt`, the three status lines are 401, 401, 200 in that
+   order, the 401 carries an `{"message":"unauthorized: ..."}` body, and
+   the paired request returns the API response. The token's sha256 prefix
+   proves the transcript shows a token was generated without revealing it;
+   regenerate the transcript and the prefix changes, the verdicts do not.
 
 ## What this does NOT prove
 

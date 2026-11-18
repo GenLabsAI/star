@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/charmbracelet/crush/internal/changes"
+	"github.com/charmbracelet/crush/internal/datadir"
 	"github.com/charmbracelet/crush/internal/envreport"
 	"github.com/charmbracelet/crush/internal/shell"
 )
@@ -138,7 +139,7 @@ func Run(ctx context.Context, dir string, specs []Spec, opts Options) (*Result, 
 
 	bundle := opts.OutDir
 	if bundle == "" {
-		bundle = filepath.Join(dir, ".crush", "verify", time.Now().UTC().Format("20060102T150405Z"))
+		bundle = filepath.Join(datadir.Resolve(dir), "verify", time.Now().UTC().Format("20060102T150405Z"))
 	}
 	if err := os.MkdirAll(filepath.Join(bundle, logDirName), 0o755); err != nil {
 		return nil, fmt.Errorf("Failed to create evidence bundle: %w", err)
