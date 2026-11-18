@@ -20,15 +20,19 @@ import (
 )
 
 var (
-	serverHost      string
-	serverPairToken string
-	serverPairFile  string
+	serverHost           string
+	serverPairToken      string
+	serverPairFile       string
+	serverPairWorkspaces []string
+	serverApprovalFile   string
 )
 
 func init() {
 	serverCmd.Flags().StringVarP(&serverHost, "host", "H", server.DefaultHost(), "Server host  (HTTP, TCP or Unix socket)")
 	serverCmd.Flags().StringVar(&serverPairToken, "pair-token", "", "Require this pairing token on every request (see `star pair`)")
 	serverCmd.Flags().StringVar(&serverPairFile, "pair-file", "", "Read the pairing token from this file")
+	serverCmd.Flags().StringArrayVar(&serverPairWorkspaces, "pair-workspace", nil, "Limit the paired peer to this workspace directory (repeatable)")
+	serverCmd.Flags().StringVar(&serverApprovalFile, "pair-approval-file", "", "Require a current approval code from this file before running commands (see `star pair --approval`)")
 	rootCmd.AddCommand(serverCmd)
 }
 
@@ -98,7 +102,13 @@ at /v1/docs/openapi.json.
 		srv.SetLogger(slog.Default())
 		if token != "" {
 			srv.SetPairToken(token)
-			slog.Info("Pairing required", "token_source", tokenSource)
+			srv.SetPairPolicy(server.PairPolicy{
+				Workspaces:   serverPairWorkspaces,
+				ApprovalFile: serverApprovalFile,
+			})
+			slog.Info("Pairing required", "token_source", tokenSource,
+				"scopes", pairing.ScopesOf(token).String(),
+				"workspaces", len(serverPairWorkspaces))
 		}
 		slog.Info("Starting Star server...", "addr", serverHost)
 

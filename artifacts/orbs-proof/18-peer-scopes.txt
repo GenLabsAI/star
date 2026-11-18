@@ -1,0 +1,76 @@
+# scratch state: /tmp/orbs-scope-proof
+# server: star server --host tcp://127.0.0.1:18599 (real process, real HTTP)
+
+## 1. A read-only token
+
+$ star pair --scope read
+stderr: Pass this token to the server (--pair-token) and to each peer (STAR_SERVER_TOKEN). It is not stored anywhere.
+Scopes: read. Requests outside them are answered 403 by the paired server.
+token: length 48, scope prefix 'read' (value not printed)
+two mints: different secrets, same length 48
+
+GET /v1/health                    # reading is allowed
+  -> HTTP 200
+  body: 
+GET /v1/workspaces                # reading is allowed
+  -> HTTP 200
+  body: []
+POST /v1/workspaces               # writing is not
+  -> HTTP 403
+  body: {"message":"forbidden: this pairing token grants \"read\" and POST /v1/workspaces requires \"write\""}
+POST .../shell                    # running is not
+  -> HTTP 403
+  body: {"message":"forbidden: this pairing token grants \"read\" and POST /v1/workspaces/00000000-0000-0000-0000-000000000000/agent/sessions/00000000-0000-0000-0000-00
+
+# the refusal is a real HTTP answer from the policy gate, not a failed connection
+curl exit=0 (0 = the server answered; the answer itself is the refusal above)
+
+# an unpaired peer is still 401, not 403
+GET /v1/health  (no token)        # who, before what
+  -> HTTP 401
+  body: {"message":"unauthorized: this server requires a pairing token (see `star pair`)"}
+
+## 2. Running commands needs an approval code
+
+$ star pair                        # no scope: the whole surface
+token: length 43, no scope prefix (compatible with older tokens)
+
+POST .../shell  (no approval yet)
+  -> HTTP 428
+  body: {"message":"approval required: this server runs commands only with an approval code (mint one with `star pair --approval --out FILE`)"}
+
+$ star pair --approval --out /tmp/orbs-scope-proof/approval.json
+stderr: Approval valid until <expiry>. Start the server with --pair-approval-file /tmp/orbs-scope-proof/approval.json and present this code in the X-Star-Approval header.
+code: length 8 (value not printed), file mode 600
+
+POST .../shell  (wrong code)
+  -> HTTP 428
+  body: {"message":"approval required: present a current approval code in X-Star-Approval"}
+POST .../shell  (the current code)
+  -> HTTP 404
+  body: {"message":"workspace not found"}
+
+$ star pair --approval --out ... --approval-ttl 1s   # then wait for it to lapse
+POST .../shell  (expired code, correct value)
+  -> HTTP 428
+  body: {"message":"approval required: the approval code has expired (mint a new one with `star pair --approval`)"}
+
+# reading is untouched by the approval gate
+GET /v1/health  (no approval)
+  -> HTTP 200
+  body: 
+
+## 3. One pairing, one workspace
+
+POST /v1/workspaces  (outside the grant)
+  -> HTTP 403
+  body: {"message":"forbidden: this pairing may only use the workspace(s) /tmp/orbs-scope-proof/allowed, not /tmp/orbs-scope-proof/other"}
+POST /v1/workspaces  (inside the grant)
+  -> HTTP 200
+
+# the created workspace is usable by id, because it is the granted one
+GET /v1/workspaces/<granted-id>       -> HTTP 200
+
+# a token with no scope prefix keeps the old, unrestricted behaviour
+POST /v1/workspaces  (no restriction)
+  -> HTTP 200
