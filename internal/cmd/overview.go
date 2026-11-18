@@ -3,6 +3,7 @@ package cmd
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/charmbracelet/crush/internal/overview"
@@ -16,10 +17,14 @@ var overviewCmd = &cobra.Command{
 	Short: "One view of every tracked workspace",
 	Long: `Join the local picture: which workspaces Star knows about, the branch
 each is on, how many paths changed, whether the workspace was verified
-and how that went, and which cloud credentials are present.
+and how that went, how many conversations and armed wakeups each holds,
+which previews are listening for it, and which cloud credentials are
+present.
 
 Workspaces come from the same list as "star projects"; verification
-results come from the bundles "star verify" writes.`,
+results come from the bundles "star verify" writes, conversations from
+each workspace's database, schedules from its durable wakeup store, and
+previews from the processes listening inside the workspace directory.`,
 	Example: `
 # Human-readable overview
 star overview
@@ -74,6 +79,9 @@ func printOverview(cmd *cobra.Command, report overview.Report) {
 			verified = entry.Problem
 		}
 		cmd.Printf("  %-10s %-12s %-26s %s\n", branch, state, verified, entry.Path)
+		if details := workspaceDetails(entry); details != "" {
+			cmd.Printf("             %s\n", details)
+		}
 	}
 
 	cmd.Println()
@@ -84,7 +92,32 @@ func printOverview(cmd *cobra.Command, report overview.Report) {
 	envLine(cmd, "model", presence(report.Cloud.ModelReady))
 
 	cmd.Println()
-	cmd.Println("Scheduled work: `star wakeup list`; details: `star env`.")
+	cmd.Println("Activity")
+	cmd.Printf("  conversations    %d\n", report.Sessions)
+	cmd.Printf("  armed wakeups    %d\n", report.Schedules)
+	cmd.Printf("  previews         %d\n", report.Previews)
+	for _, entry := range report.Projects {
+		for _, preview := range entry.Previews {
+			cmd.Printf("    %-14s %s\n", preview.Process, preview.URL)
+		}
+	}
+	cmd.Println("  scheduled work   `star wakeup list`; details: `star env`.")
+}
+
+// workspaceDetails renders the parts of a workspace that are only worth a
+// line when they exist: conversations, armed wakeups and previews.
+func workspaceDetails(entry overview.Entry) string {
+	details := make([]string, 0, 3+len(entry.Previews))
+	if entry.Sessions > 0 {
+		details = append(details, fmt.Sprintf("%d conversation(s)", entry.Sessions))
+	}
+	if entry.Schedules > 0 {
+		details = append(details, fmt.Sprintf("%d armed wakeup(s)", entry.Schedules))
+	}
+	for _, preview := range entry.Previews {
+		details = append(details, "preview "+preview.URL)
+	}
+	return strings.Join(details, " · ")
 }
 
 // age renders how long ago something finished, at a glance.

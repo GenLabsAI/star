@@ -1,0 +1,86 @@
+# scratch workspace: /tmp/orbs-overview-proj (git repository, one commit, clean tree)
+# star state is isolated in XDG_DATA_HOME=/tmp/orbs-overview-state
+# server: star server --host tcp://127.0.0.1:18499, started outside the workspace
+
+## A real workspace, created through the server API
+
+$ POST /v1/workspaces {"path": "/tmp/orbs-overview-proj"} -> HTTP 201, id <workspace-id>
+data dir: /tmp/orbs-overview-proj/.crush (database created by the server)
+
+## Two real conversations
+
+$ POST /v1/workspaces/<workspace-id>/sessions {"title": "investigate the failing build"} -> HTTP 200
+$ POST /v1/workspaces/<workspace-id>/sessions {"title": "draft the release notes"} -> HTTP 200
+$ star session list     # ids and timestamps dropped here
+investigate the failing build
+draft the release notes
+
+## The durable wakeup store
+
+# `star wakeup schedule` needs a model credential this machine lacks, so the
+# store it writes is seeded directly; overview reads that same file.
+$ python3 -c 'json.load(open("/tmp/orbs-overview-proj/.crush/wakeups/schedules.json"))["schedules"]'
+   wake-timed next_fire_unix 4102444800 event ci-finished
+   wake-event next_fire_unix 0 event pr-review
+
+## A real preview inside the workspace
+
+$ curl -o /dev/null -w '%{http_code}' http://127.0.0.1:18422/
+200
+process: python3, cwd: /tmp/orbs-overview-proj
+
+## One view of it all
+
+$ star overview
+Workspaces (1)
+  master     clean        never verified             /tmp/orbs-overview-proj
+             2 conversation(s) · 2 armed wakeup(s) · preview http://127.0.0.1:18422
+
+Cloud
+  api base url      not set
+  user credential   not set
+  worker token      not set
+  model             not set
+
+Activity
+  conversations    2
+  armed wakeups    2
+  previews         1
+    python3        http://127.0.0.1:18422
+  scheduled work   `star wakeup list`; details: `star env`.
+exit=0
+
+$ star overview --json | python3 -c 'selected fields'
+workspace: /tmp/orbs-overview-proj
+branch: master | changed_paths: 0
+sessions: 2
+schedules: 2
+previews: [(18422, 'http://127.0.0.1:18422')]
+totals: 2 conversations, 2 wakeups, 1 previews
+exit=0
+
+## The view follows reality
+
+$ kill $PREVIEW_PID   # the preview process is stopped
+curl after stop -> exit 7 (7 = connection refused)
+sessions: 2 | schedules: 2 | previews: 0
+
+## A removed workspace is reported, not fatal
+
+$ rm -rf /tmp/orbs-overview-proj
+$ star overview
+Workspaces (1)
+  -          clean        workspace directory is missing /tmp/orbs-overview-proj
+
+Cloud
+  api base url      not set
+  user credential   not set
+  worker token      not set
+  model             not set
+
+Activity
+  conversations    0
+  armed wakeups    0
+  previews         0
+  scheduled work   `star wakeup list`; details: `star env`.
+exit=0
