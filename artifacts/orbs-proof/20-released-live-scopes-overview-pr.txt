@@ -1,0 +1,45 @@
+# released binary: /tmp/rel5/star-linux-amd64/star-core
+# repository: /workspace/chats/f14882b58e53df863a7f0ed6
+
+## The release reports this repository's commit
+
+$ star env --json | python3 -c "version and commit"
+version: v0.1.149
+commit:  a8405bfedc563ce9cbd899c6f9efedcc790db624
+repository HEAD: a46d119413cadd27e08c7f57f8962b09816d4c51
+match: the release is an ancestor of HEAD (later commits touch docs and proofs only)
+
+## Item proofs re-run with the released binary
+
+### 16 live application (exit 0)
+  file:      16-live-application.txt
+  committed: 73bc92debf5c8a769ae3b3519db947ef19e46c8aca50bdc0150e28977eaabfb5
+  generated: 73bc92debf5c8a769ae3b3519db947ef19e46c8aca50bdc0150e28977eaabfb5
+  result:    IDENTICAL (the release reproduces the committed transcript)
+
+
+### 17 overview activity (exit 0)
+  file:      17-overview-activity.txt
+  committed: cfbfac94a9114dceaa174541ca08c3d5c85b28e9206103f98d2e04e01ad4ea52
+  generated: cfbfac94a9114dceaa174541ca08c3d5c85b28e9206103f98d2e04e01ad4ea52
+  result:    IDENTICAL (the release reproduces the committed transcript)
+
+
+### 18 peer scopes and approval (exit 0)
+  file:      18-peer-scopes.txt
+  committed: edadae35914d676ffcb689f40e2b872b843b88896f70948f70ea71b5c94d7a4e
+  generated: edadae35914d676ffcb689f40e2b872b843b88896f70948f70ea71b5c94d7a4e
+  result:    IDENTICAL (the release reproduces the committed transcript)
+
+
+### 19 pull requests (exit 0)
+  file:      19-pull-request.txt
+  committed: 0c097c63d7c290e971da9ed748fc927e6ff93caf24afe3d2948de61702abaeb8
+  generated: 0c097c63d7c290e971da9ed748fc927e6ff93caf24afe3d2948de61702abaeb8
+  result:    IDENTICAL (the release reproduces the committed transcript)
+
+
+## The repository afterwards
+
+$ git -C /workspace/chats/f14882b58e53df863a7f0ed6 status --short
+(empty output above means the proofs left nothing behind)

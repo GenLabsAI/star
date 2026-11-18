@@ -28,6 +28,12 @@ tar -C /tmp/rel -xzf /tmp/rel/star-linux-amd64.tar.gz
 ./artifacts/orbs-proof/make-peer-scopes-proof.sh /tmp/star /tmp/proof-out    # needs curl
 ./artifacts/orbs-proof/make-pull-request-proof.sh /tmp/star /tmp/proof-out .  # pushes+deletes throwaway branches
 
+# and all four against a published build (reproduce the transcripts byte
+# for byte; needs a clean tree because the pull-request proof pushes):
+gh release download v0.1.149 --repo GenLabsAI/star -p 'star-linux-amd64.tar.gz' -D /tmp/rel5
+tar -C /tmp/rel5 -xzf /tmp/rel5/star-linux-amd64.tar.gz
+./artifacts/orbs-proof/make-release-latest-proof.sh /tmp/rel5/star-linux-amd64/star-core /tmp/release-proof
+
 # and both against a published build:
 gh release download v0.1.146 --repo GenLabsAI/star -p 'star-linux-amd64.tar.gz' -D /tmp/rel4
 tar -C /tmp/rel4 -xzf /tmp/rel4/star-linux-amd64.tar.gz
@@ -80,7 +86,9 @@ own processes, and can be re-run in any order.
 | `18-peer-scopes.txt` | Three real servers with real tokens. A `--scope read` token: `GET /v1/health` → **200**, `GET /v1/workspaces` → **200**, `POST /v1/workspaces` → **403** (`this pairing token grants \"read\" ... requires \"write\"`), the shell route → **403** (`requires \"exec\"`), while a peer with no token still gets **401** (who, before what). With `--pair-approval-file`: the shell route is **428** with no approval, **428** with a wrong code, then reaches the handler (**404 workspace not found**, not 428) with the current code, and **428** with an expired one; reads need no approval. With `--pair-workspace`: creating a workspace outside the grant is **403**, inside is **200**, and that workspace is readable by id. A token without a scope prefix still creates a workspace anywhere, so older tokens are unchanged. |
 | `19-pull-request.txt` | `star pr` refuses a branch that is not on the remote (`exit=1`, `is not pushed to origin`, and the remote gains no branch). With a recording `gh` on `PATH` it publishes the branch (`--push`), prints `Pull request #4242`, and the recorded invocation is exactly `pr create --repo GenLabsAI/star --head proof/pr-stub --base main --title ... --body ...`. Against the real GitHub CLI the same command pushes for real and then reports GitHub's own answer: `pull request create failed: GraphQL: Resource not accessible by personal access token (createPullRequest)` — this machine's credential may not create pull requests (blocker 5 in `docs/orbs.md`). Afterwards no throwaway branch is left on the remote or locally and `git status --short` is empty. |
 | `make-live-app-proof.sh`, `make-overview-activity-proof.sh`, `make-peer-scopes-proof.sh`, `make-pull-request-proof.sh` | The scripts that produced 16–19. Each was run twice and reproduced its transcript byte-for-byte; the pull-request one pushes and deletes its own throwaway branches and leaves the repository clean. |
+| `20-released-live-scopes-overview-pr.txt` | The four proofs above re-run with the **published** `v0.1.149` artifact, which reports commit `a8405bfed` (this repository's commit): every generated transcript has the same sha256 as the committed one (16 live application, 17 overview activity, 18 peer scopes, 19 pull requests), so the binary users download behaves exactly like the source build. The repository is clean afterwards, with no throwaway branch left on the remote. |
 | `make-release-proof.sh` | The script that produced 05 against a released binary. |
+| `make-release-latest-proof.sh` | The script that produced 20: it runs the four generators with a released binary, compares each transcript with the committed one by sha256, and prints a diff instead of hiding a difference. |
 
 ## What a skeptic should check
 
@@ -164,7 +172,12 @@ own processes, and can be re-run in any order.
    gate, 403/200 for the workspace grant. The 404 on the shell route with a
    valid approval is the proof the gate **released** the request: it
    reached the handler, which then failed on the fake workspace id.
-20. In `19-pull-request.txt`, the recorded `gh` line is the command
+20. In `20-released-live-scopes-overview-pr.txt`, the version and commit are
+   the release's own (`v0.1.149`, `a8405bfed`) and all four `result:` lines
+   say `IDENTICAL`, with the committed and generated sha256 printed side by
+   side. That is the strongest form of this check: a stale proof or a
+   behaviour change in the binary would print `DIFFERS` and a diff.
+21. In `19-pull-request.txt`, the recorded `gh` line is the command
    `star pr` really built (the stub only replaces the binary, not the
    arguments), the pushed branch is listed by `git ls-remote` right after,
    and GitHub's refusal names the missing permission. Re-run it after the
