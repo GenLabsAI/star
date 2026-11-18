@@ -18,6 +18,13 @@ STUB_DIR=$OUT/pr-gh-stub
 STUB_LOG=$OUT/pr-gh-stub-args.txt
 BASE=$(git -C "$REPO" rev-parse --abbrev-ref HEAD)
 
+# GitHub's CLI reports uncommitted files in its output, so a dirty tree
+# would make this transcript describe something else every run.
+if [ -n "$(git -C "$REPO" status --porcelain)" ]; then
+  echo "$REPO has uncommitted changes; commit or stash them first (this proof needs a clean tree)" >&2
+  exit 1
+fi
+
 rm -rf "$STUB_DIR"
 mkdir -p "$STUB_DIR"
 
@@ -87,7 +94,7 @@ EOF
     --title "chore: stubbed pull request" --body "Recorded, not sent." 2>&1
   echo "exit=$?"
   echo
-  echo "\$ cat $STUB_LOG      # the exact gh invocation, one line of arguments"
+  echo "\$ cat <outdir>/pr-gh-stub-args.txt      # the exact gh invocation, one line of arguments"
   cat "$STUB_LOG"
   echo
   echo "the branch really is on the remote now:"

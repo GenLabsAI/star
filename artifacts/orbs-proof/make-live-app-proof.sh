@@ -145,7 +145,7 @@ PY
   echo "## The bug: green tests, broken application"
   echo
   echo '$ go test ./...     # what a test-suite-only verification sees'
-  go test ./... 2>&1 | tail -2 | sed -E 's/[0-9.]+s$/TIME/'
+  go test ./... 2>&1 | tail -2 | sed -E 's/[0-9.]+s$|[\(]cached[\)]$/TIME/'
   echo "exit=${PIPESTATUS[0]}"
   echo
   run_live "buggy" "buggy"
