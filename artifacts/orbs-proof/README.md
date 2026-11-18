@@ -23,6 +23,10 @@ tar -C /tmp/rel -xzf /tmp/rel/star-linux-amd64.tar.gz
 ./artifacts/orbs-proof/make-flake-proof.sh /tmp/star /tmp/proof-out   # needs go on PATH
 ./artifacts/orbs-proof/make-coverage-gate-proof.sh /tmp/star /tmp/proof-out   # needs go on PATH
 ./artifacts/orbs-proof/make-approval-gate-proof.sh /tmp/star /tmp/proof-out
+./artifacts/orbs-proof/make-live-app-proof.sh /tmp/star /tmp/proof-out       # needs go on PATH
+./artifacts/orbs-proof/make-overview-activity-proof.sh /tmp/star /tmp/proof-out   # needs python3, curl
+./artifacts/orbs-proof/make-peer-scopes-proof.sh /tmp/star /tmp/proof-out    # needs curl
+./artifacts/orbs-proof/make-pull-request-proof.sh /tmp/star /tmp/proof-out .  # pushes+deletes throwaway branches
 
 # and both against a published build:
 gh release download v0.1.146 --repo GenLabsAI/star -p 'star-linux-amd64.tar.gz' -D /tmp/rel4
@@ -71,6 +75,11 @@ own processes, and can be re-run in any order.
 | `make-release-coverage-approval-proof.sh` | The script that produced 15: it runs the two scripts above with a released binary and records its version and commit. |
 | `make-coverage-gate-proof.sh`, `make-approval-gate-proof.sh` | The scripts that produced 13 and 14. They report selected JSON fields instead of raw output, so a clean rebuild reproduces the transcripts byte-for-byte (commit hashes are checked against `git rev-parse HEAD` rather than printed). |
 | `make-release-commit-flake-proof.sh` | The script that produced 12: it runs those two with a released binary and records its version and commit. |
+| `16-live-application.txt` | `star verify --app` verifies the **running** application, not just its tests. The scratch Go service has a real nil-map bug: `go test ./...` passes (`ok`), and `star verify --app 'PORT=18111 go run .' --app-url .../items` exits **1** with `verdict: live-fail`, `status_code: 500`, `reason: the application answered 500, expected 200`, the service's own log line `items handler failed: assignment to entry in nil map` kept in the bundle, and nothing listening on the port afterwards (`curl` exit 7, no `star ports` entry). After the one-line fix the same command exits **0** with `status_code: 200` and the real body `{"count":1}`. |
+| `17-overview-activity.txt` | `star overview` shows the activity inside each workspace. A real `star server` creates a real workspace and two real conversations (HTTP 200 each, `star session list` shows both); a durable wakeup store with two schedules is seeded (the CLI needs a model credential this machine lacks); a real `python3 -m http.server` runs inside the workspace and answers 200. The overview then reports `2 conversation(s) · 2 armed wakeup(s) · preview http://127.0.0.1:18422` plus totals, the JSON record carries the same counts, killing the preview drops previews to 0 while sessions and schedules stay, and a deleted workspace is reported as `workspace directory is missing` with `exit=0` instead of failing the report. |
+| `18-peer-scopes.txt` | Three real servers with real tokens. A `--scope read` token: `GET /v1/health` → **200**, `GET /v1/workspaces` → **200**, `POST /v1/workspaces` → **403** (`this pairing token grants \"read\" ... requires \"write\"`), the shell route → **403** (`requires \"exec\"`), while a peer with no token still gets **401** (who, before what). With `--pair-approval-file`: the shell route is **428** with no approval, **428** with a wrong code, then reaches the handler (**404 workspace not found**, not 428) with the current code, and **428** with an expired one; reads need no approval. With `--pair-workspace`: creating a workspace outside the grant is **403**, inside is **200**, and that workspace is readable by id. A token without a scope prefix still creates a workspace anywhere, so older tokens are unchanged. |
+| `19-pull-request.txt` | `star pr` refuses a branch that is not on the remote (`exit=1`, `is not pushed to origin`, and the remote gains no branch). With a recording `gh` on `PATH` it publishes the branch (`--push`), prints `Pull request #4242`, and the recorded invocation is exactly `pr create --repo GenLabsAI/star --head proof/pr-stub --base main --title ... --body ...`. Against the real GitHub CLI the same command pushes for real and then reports GitHub's own answer: `pull request create failed: GraphQL: Resource not accessible by personal access token (createPullRequest)` — this machine's credential may not create pull requests (blocker 5 in `docs/orbs.md`). Afterwards no throwaway branch is left on the remote or locally and `git status --short` is empty. |
+| `make-live-app-proof.sh`, `make-overview-activity-proof.sh`, `make-peer-scopes-proof.sh`, `make-pull-request-proof.sh` | The scripts that produced 16–19. Each was run twice and reproduced its transcript byte-for-byte; the pull-request one pushes and deletes its own throwaway branches and leaves the repository clean. |
 | `make-release-proof.sh` | The script that produced 05 against a released binary. |
 
 ## What a skeptic should check
@@ -138,6 +147,29 @@ own processes, and can be re-run in any order.
    first are the release's own (`v0.1.146`, `7632a0e62`), and the verdict
    lines under them match the source-build transcripts exactly — the gates
    work in the binary users download, not just in a local build.
+17. In `16-live-application.txt`, the `go test` line says `ok` on the same
+   tree where `star verify --app` says `live-fail`, and the 500 is
+   explained by the service's own log line (`assignment to entry in nil
+   map`). The port check afterwards (`curl` exit 7, no `star ports` entry)
+   shows the run cleaned up after itself, and the second run's `status_code:
+   200` with body `{"count":1}` shows the verdict follows the code.
+18. In `17-overview-activity.txt`, the two conversations were created
+   through the server's own HTTP API in the same run, `star session list`
+   shows them, and the preview URL the overview prints answers 200 from
+   `curl` before the overview runs. The counts go to 0 for previews — and
+   only previews — after the preview process is killed, so the view is read
+   live rather than cached.
+19. In `18-peer-scopes.txt`, the statuses tell the whole story: 200/200/403/403
+   for read-only, 401 without a token, 428/428/404/428 for the approval
+   gate, 403/200 for the workspace grant. The 404 on the shell route with a
+   valid approval is the proof the gate **released** the request: it
+   reached the handler, which then failed on the fake workspace id.
+20. In `19-pull-request.txt`, the recorded `gh` line is the command
+   `star pr` really built (the stub only replaces the binary, not the
+   arguments), the pushed branch is listed by `git ls-remote` right after,
+   and GitHub's refusal names the missing permission. Re-run it after the
+   token is granted `Pull requests: write` and the same script will create,
+   inspect and close a real pull request instead.
 
 ## What this does NOT prove
 
@@ -147,3 +179,9 @@ prove the verification and change-management loop, not cloud isolation
 prove behaviour on a stack other than Go; the detection and command plan
 for Node, Rust, Python and Docker Compose are covered by unit tests in
 `internal/envreport` and `internal/verify`.
+
+The pull-request proof records GitHub's refusal because this machine's `gh`
+credential is not allowed to create pull requests; everything up to that
+API call (the branch check, the push, the exact `gh` invocation) is real.
+Grant the token `Pull requests: write` and re-run `make-pull-request-proof.sh`
+to see the same script open and close a real pull request.
