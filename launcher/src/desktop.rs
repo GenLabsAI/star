@@ -1,16 +1,22 @@
 //! Star Desktop bootstrap: keep the desktop app installed without clicks.
 //!
 //! Runs on a background thread at startup. It never blocks the core and never
-//! fails the launch: any error is reported as a single line and forgotten.
-//! Installs are per-user (no admin needed) and version-tracked with a marker
-//! file, so a present, current install costs one fast GitHub API call and
-//! nothing else.
+//! fails the launch. Installs are per-user (no admin needed) and version-tracked
+//! with a marker file, so a present, current install costs one fast GitHub API
+//! call and nothing else.
+//!
+//! Everything here is silent. By the time the network round-trip finishes the
+//! Go core owns the screen, so a message printed now would land on top of the
+//! running UI. Progress and errors are appended to `~/bin/desktop.log`, which is
+//! where to look when the desktop app does not show up.
 //!
 //! Per-OS strategy (silent, no elevation):
 //!
-//! - Windows: NSIS `-setup.exe` with `/S /D=<LocalAppData>\Programs\…`,
-//!   falling back to `msiexec /qn` per-user for `.msi`. The launcher also
-//!   owns the Start Menu shortcut itself, since silent installs do not
+//! - Windows: NSIS `-setup.exe` with `/S`, falling back to `msiexec /qn`
+//!   per-user for `.msi`. The installer picks its own directory (Tauri's
+//!   per-user default is `%LOCALAPPDATA%\<productName>`), so the result is
+//!   found by probing for the executable rather than assumed. The launcher
+//!   also owns the Start Menu shortcut itself, since silent installs do not
 //!   reliably leave one behind.
 //! - macOS: `.app.tar.gz` extracted straight into `~/Applications`
 //!   (no installer UI at all), falling back to a quiet `hdiutil` `.dmg`
@@ -19,21 +25,38 @@
 //!   `.desktop` entry. (A `.deb` needs root, so it is never attempted.)
 
 use std::fs;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use crate::update;
 
 /// Marker file recording the installed desktop version (a release tag).
 const MARKER_FILE: &str = "desktop-version";
+/// Silent setup log, next to the marker. Never printed to the terminal.
+const LOG_FILE: &str = "desktop.log";
 const APP_NAME: &str = "Star Desktop";
 
 /// Kick off the desktop ensure on a background thread. Never blocks.
 pub fn ensure_desktop_async() {
     std::thread::spawn(|| {
+        let install_dir = update::install_dir();
         if let Err(error) = ensure_desktop() {
-            eprintln!("  star desktop: {error} (continuing without it)");
+            log_line(&install_dir, &format!("star desktop: {error}"));
         }
     });
+}
+
+/// Append one line to the silent setup log. Best effort: a log that cannot be
+/// written must never affect the launch, so failures are dropped.
+fn log_line(install_dir: &Path, message: &str) {
+    let _ = fs::create_dir_all(install_dir);
+    if let Ok(mut file) = fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(install_dir.join(LOG_FILE))
+    {
+        let _ = writeln!(file, "{message}");
+    }
 }
 
 fn ensure_desktop() -> Result<(), String> {
@@ -42,10 +65,10 @@ fn ensure_desktop() -> Result<(), String> {
     if marker_version(&install_dir).as_deref() != Some(tag.as_str())
         || !install_present(&install_dir)
     {
-        eprintln!("  Setting up Star Desktop {tag} (one-time setup)...");
+        log_line(&install_dir, &format!("setting up Star Desktop {tag}"));
         install_asset(&install_dir, &asset_name, &asset_url)?;
         write_marker(&install_dir, &tag)?;
-        eprintln!("  Star Desktop {tag} is ready.");
+        log_line(&install_dir, &format!("Star Desktop {tag} is ready"));
     }
     // The silent NSIS install does not reliably leave a Start Menu entry,
     // so the launcher owns the shortcut itself. Cheap once it exists: a
@@ -205,9 +228,7 @@ fn install_present(install_dir: &Path) -> bool {
     #[cfg(target_os = "windows")]
     {
         let _ = install_dir;
-        windows_install_dir()
-            .map(|dir| dir_contains_exe(&dir))
-            .unwrap_or(false)
+        find_desktop_dir().is_some()
     }
     #[cfg(target_os = "macos")]
     {
@@ -232,22 +253,84 @@ fn local_app_data() -> Option<PathBuf> {
         .map(PathBuf::from)
 }
 
+/// Locate the installed desktop app, wherever its installer put it.
+///
+/// The exact folder depends on the installer (Tauri's per-user default,
+/// an older `/D`-style install under `Programs`, or a path restored from a
+/// previous install), so this probes the known layouts and then looks for a
+/// `Star*` folder one level down. Guessing wrong here is what makes the
+/// launcher reinstall a perfectly good app on every launch.
 #[cfg(target_os = "windows")]
-fn windows_install_dir() -> Option<PathBuf> {
-    local_app_data().map(|base| base.join("Programs").join(APP_NAME))
+fn find_desktop_dir() -> Option<PathBuf> {
+    find_desktop_dir_in(&local_app_data()?)
 }
 
-#[cfg(target_os = "windows")]
-fn dir_contains_exe(dir: &Path) -> bool {
-    let Ok(entries) = fs::read_dir(dir) else {
-        return false;
-    };
-    entries.flatten().any(|entry| {
-        entry
-            .path()
-            .extension()
-            .is_some_and(|ext| ext.eq_ignore_ascii_case("exe"))
-    })
+/// Discovery body, taking the base folder so it is testable off Windows.
+/// Compiled out of non-Windows builds except under test.
+#[cfg(any(target_os = "windows", test))]
+fn find_desktop_dir_in(base: &Path) -> Option<PathBuf> {
+    let programs = base.join("Programs");
+    let named = [base.join(APP_NAME), programs.join(APP_NAME)];
+    for dir in &named {
+        if desktop_exe_in(dir).is_some() {
+            return Some(dir.clone());
+        }
+    }
+    for parent in [base, &programs] {
+        let Ok(entries) = fs::read_dir(parent) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let name = entry.file_name().to_string_lossy().to_lowercase();
+            if !path.is_dir() || !name.contains("star") || named.contains(&path) {
+                continue;
+            }
+            if desktop_exe_in(&path).is_some() {
+                return Some(path);
+            }
+        }
+    }
+    None
+}
+
+/// The desktop executable inside `dir`, if that folder is a Star Desktop
+/// install: `<App>.exe` preferred, else any non-uninstaller `.exe` carrying
+/// the product's name. A folder with only unrelated executables is not one.
+/// Compiled out of non-Windows builds except under test.
+#[cfg(any(target_os = "windows", test))]
+fn desktop_exe_in(dir: &Path) -> Option<PathBuf> {
+    let wanted = format!("{APP_NAME}.exe").to_lowercase();
+    let product = APP_NAME
+        .split(' ')
+        .next()
+        .unwrap_or(APP_NAME)
+        .to_lowercase();
+    let mut fallback: Option<PathBuf> = None;
+    for entry in fs::read_dir(dir).ok()?.flatten() {
+        let path = entry.path();
+        if !path.is_file()
+            || !path
+                .extension()
+                .is_some_and(|ext| ext.eq_ignore_ascii_case("exe"))
+        {
+            continue;
+        }
+        let name = path
+            .file_name()
+            .map(|name| name.to_string_lossy().to_lowercase())
+            .unwrap_or_default();
+        if name.starts_with("uninst") {
+            continue;
+        }
+        if name == wanted {
+            return Some(path);
+        }
+        if fallback.is_none() && name.contains(&product) {
+            fallback = Some(path);
+        }
+    }
+    fallback
 }
 
 #[cfg(target_os = "macos")]
@@ -318,29 +401,46 @@ fn install_asset(install_dir: &Path, asset_name: &str, asset_url: &str) -> Resul
     Err(format!("no silent install path for {asset_name}"))
 }
 
-/// NSIS install, silent and per-user. `/D` must be the last argument.
+/// NSIS install, silent and per-user.
+///
+/// No `/D`: the Tauri template decides the folder itself (and may ignore or
+/// mangle an override containing spaces), so the install is run plainly and
+/// the result is located afterwards rather than assumed.
 #[cfg(target_os = "windows")]
 fn install_nsis(installer_bytes: &[u8]) -> Result<(), String> {
-    let dir = windows_install_dir()
-        .ok_or_else(|| "could not locate the local app-data directory".to_string())?;
     let staging =
         std::env::temp_dir().join(format!("star-desktop-setup-{}.exe", std::process::id()));
     fs::write(&staging, installer_bytes)
         .map_err(|e| format!("could not stage the desktop installer: {e}"))?;
-    let dir_arg = format!("/D={}", dir.to_string_lossy());
     let status = std::process::Command::new(&staging)
         .arg("/S")
-        .arg(&dir_arg)
         .status()
         .map_err(|e| format!("could not run the desktop installer: {e}"))?;
     let _ = fs::remove_file(&staging);
     if !status.success() {
         return Err("desktop installer reported failure".to_string());
     }
-    if !dir_contains_exe(&dir) {
-        return Err("desktop installer finished but the app is not where expected".to_string());
+    if find_desktop_dir().is_none() {
+        return Err(format!(
+            "desktop installer finished but no Star Desktop app was found in {}",
+            probed_dirs()
+        ));
     }
     Ok(())
+}
+
+/// The folders a search covers, for the error message only.
+#[cfg(target_os = "windows")]
+fn probed_dirs() -> String {
+    let base = match local_app_data() {
+        Some(base) => base,
+        None => return "the local app-data directory (not set)".to_string(),
+    };
+    format!(
+        "{} or {}",
+        base.join(APP_NAME).display(),
+        base.join("Programs").display()
+    )
 }
 
 /// MSI install, silent and per-user (`MSIINSTALLPERUSER` needs no elevation).
@@ -385,8 +485,8 @@ fn ensure_windows_shortcut() -> Result<(), String> {
     if link.is_file() {
         return Ok(());
     }
-    let dir = windows_install_dir()
-        .ok_or_else(|| "could not locate the local app-data directory".to_string())?;
+    let dir = find_desktop_dir()
+        .ok_or_else(|| "desktop app folder has no executable to link".to_string())?;
     let target = pick_main_exe(&dir, APP_NAME)
         .ok_or_else(|| "desktop app folder has no executable to link".to_string())?;
     if let Some(parent) = link.parent() {
@@ -641,6 +741,18 @@ fn install_appimage(install_dir: &Path, bytes: &[u8]) -> Result<(), String> {
 mod tests {
     use super::*;
 
+    /// A fresh, empty stand-in for `%LOCALAPPDATA%`.
+    fn temp_base(label: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "star-desktop-{label}-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).expect("create base");
+        dir
+    }
+
     const RELEASE_JSON: &str = r#"{
         "tag_name": "v0.1.115",
         "assets": [
@@ -786,6 +898,48 @@ mod tests {
                 .join("Star Desktop")
                 .join("Star Desktop.lnk")
         );
+    }
+
+    /// Tauri's per-user NSIS install lands in `%LOCALAPPDATA%\<productName>`,
+    /// not under `Programs`. Missing that made the launcher report a
+    /// successful install as "app is not where expected" forever.
+    #[test]
+    fn finds_app_in_tauri_default_folder() {
+        let base = temp_base("tauri-default");
+        let dir = base.join("Star Desktop");
+        fs::create_dir_all(&dir).expect("create dir");
+        fs::write(dir.join("Star Desktop.exe"), b"x").expect("write");
+        assert_eq!(find_desktop_dir_in(&base), Some(dir));
+        let _ = fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn finds_app_installed_under_programs() {
+        let base = temp_base("programs");
+        let dir = base.join("Programs").join("Star Desktop");
+        fs::create_dir_all(&dir).expect("create dir");
+        fs::write(dir.join("Star Desktop.exe"), b"x").expect("write");
+        assert_eq!(find_desktop_dir_in(&base), Some(dir));
+        let _ = fs::remove_dir_all(&base);
+    }
+
+    /// An install whose folder was renamed by the installer still counts, and
+    /// unrelated folders that merely contain executables never do.
+    #[test]
+    fn finds_renamed_folder_but_ignores_unrelated_exes() {
+        let base = temp_base("renamed");
+        let other = base.join("SomeOtherTool");
+        fs::create_dir_all(&other).expect("create dir");
+        fs::write(other.join("tool.exe"), b"x").expect("write");
+        assert_eq!(find_desktop_dir_in(&base), None);
+
+        let dir = base.join("Star Desktop 0.1.122");
+        fs::create_dir_all(&dir).expect("create dir");
+        fs::write(dir.join("Uninstall Star Desktop.exe"), b"x").expect("write");
+        assert_eq!(find_desktop_dir_in(&base), None, "uninstaller is not the app");
+        fs::write(dir.join("Star Desktop.exe"), b"x").expect("write");
+        assert_eq!(find_desktop_dir_in(&base), Some(dir));
+        let _ = fs::remove_dir_all(&base);
     }
 
     #[test]
