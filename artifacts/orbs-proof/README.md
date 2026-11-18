@@ -9,6 +9,11 @@ Reproduce it yourself:
 ```sh
 go build -o /tmp/star .
 ./artifacts/orbs-proof/make-proof.sh /tmp/star /tmp/proof-out
+
+# and against a published build:
+gh release download v0.1.139 --repo GenLabsAI/star -p 'star-linux-amd64.tar.gz' -D /tmp/rel
+tar -C /tmp/rel -xzf /tmp/rel/star-linux-amd64.tar.gz
+./artifacts/orbs-proof/make-release-proof.sh /tmp/rel/star-linux-amd64/star-core /tmp/release-proof
 ```
 
 ## Files
@@ -21,7 +26,9 @@ go build -o /tmp/star .
 | `02-pass-bundle/` | The passing bundle, including a patch that matches the working tree at the time of the run. |
 | `03-changes.txt` | `star changes` summarizes the tree (branch, per-file status, diffstat, patch size), emits JSON on stdout for agents, and writes a reviewable patch with `--patch`. |
 | `04-overview.txt` | `star overview` joins tracked workspaces with their branch, changed paths, latest verification verdict and cloud credential state, in text and JSON. Run against a `projects.json` that points at the scratch repo. |
-| `make-proof.sh` | The script that produced all of the above, so nothing is hand-edited. |
+| `05-released-binary.txt` | The same fail → pass → changes → overview loop run against the **published** `v0.1.139` artifact (`star-linux-amd64.tar.gz` from the GitHub release), which stamps its own version and commit (`bc4e684e8`) into every record. This ties the claims to a shipped binary, not a local build. |
+| `make-proof.sh` | The script that produced 01–04, so nothing is hand-edited. |
+| `make-release-proof.sh` | The script that produced 05 against a released binary. |
 
 ## What a skeptic should check
 
@@ -37,8 +44,12 @@ go build -o /tmp/star .
 5. In `04-overview.txt`, the overview reports the verification the previous
    command just ran (`pass`, 2 steps, 0 failed) and 2 changed paths, which
    matches `02-pass-bundle/verify.json`.
-6. Delete the scratch directory and re-run the script: the files regenerate
-   with different timestamps and durations but the same verdicts.
+6. In `05-released-binary.txt`, `star env --json` reports `v0.1.139` and
+   commit `bc4e684e8` — the release artifact is running the code in this
+   repository, and the verdicts match the source-build transcript.
+7. Delete the scratch directory and re-run either script: the files
+   regenerate with different timestamps and durations but the same
+   verdicts.
 
 ## What this does NOT prove
 

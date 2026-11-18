@@ -191,7 +191,7 @@ old 3 + 6 → 3, old 4 → 4, old 5 → 5 (continuous validation is now part of
 3/4), old 7 → 12, old 8 → 6, old 9 → 17, old 10 → 8, old 11 → 10, old 12
 → 13. Items 7, 9, 11, 14, 15, 16, 18, 19, 20, 21, 22, 23 and 24 are new.
 
-## Done in this pass (proof in `artifacts/orbs-proof/`)
+## Done in this pass (proof in `artifacts/orbs-proof/`, verified on v0.1.139)
 
 * **Item 15 + 4** — `star env [--json]`: the machine-readable environment
   manifest (paths, git, stacks, commands, hooks, readiness, credential

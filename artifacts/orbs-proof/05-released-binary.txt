@@ -1,0 +1,148 @@
+$ /tmp/starrel3/star-linux-amd64/star-core env --json    # which version is being verified
+version: v0.1.139
+commit: bc4e684e843ff2ae0318e19878d01a772bb9c8be
+exit=0
+
+$ /tmp/starrel3/star-linux-amd64/star-core verify        # broken expectation, must fail
+Verification: FAIL
+  workspace         /tmp/orbs-release-proj
+  branch            main
+  duration          257ms
+  bundle            /tmp/orbs-release-bundles/fail
+
+Steps
+  pass     build  go build ./...                         18ms
+  fail(1)  test   go test ./...                         239ms
+    --- FAIL: TestSum (0.00s)
+        sum_test.go:7: Sum(2, 2) = 4, want 5
+    FAIL
+    FAIL	example.com/releaseproof	0.003s
+    FAIL
+
+Changes
+  working tree clean
+
+Evidence: /tmp/orbs-release-bundles/fail/summary.md
+          
+   ERROR  
+          
+  Verification failed: 1 of 2 steps failed (evidence: /tmp/orbs-release-bundles/fail).                                
+
+exit=1
+
+# Verification summary
+
+- Verdict: **fail**
+- Started: 2026-11-18T00:17:28Z
+- Duration: 257ms
+- Workspace: `/tmp/orbs-release-proj`
+- Star: v0.1.139 (linux/amd64)
+- Branch: main
+
+## Steps
+
+| step | command | result | duration |
+| --- | --- | --- | --- |
+| build | `go build ./...` | pass | 18ms |
+| test | `go test ./...` | fail (exit 1) | 239ms |
+
+## Changes
+
+Working tree clean.
+
+## Logs
+
+- [logs/01-build.log](logs/01-build.log)
+- [logs/02-test.log](logs/02-test.log)
+$ /tmp/starrel3/star-linux-amd64/star-core verify        # fixed expectation, must pass
+Verification: PASS
+  workspace         /tmp/orbs-release-proj
+  branch            main
+  duration          99ms
+  bundle            /tmp/orbs-release-bundles/pass
+
+Steps
+  pass     build  go build ./...                         17ms
+  pass     test   go test ./...                          81ms
+
+Changes
+  2 path(s), patch 620 bytes
+
+Evidence: /tmp/orbs-release-bundles/pass/summary.md
+exit=0
+
+$ /tmp/starrel3/star-linux-amd64/star-core verify --json | python3 -c 'summary'
+verdict: pass
+star: v0.1.139
+steps: [('build', 0, 'logs/01-build.log'), ('test', 0, 'logs/02-test.log')]
+changes: [('M', 'sum.go'), ('M', 'sum_test.go')]
+exit=0
+
+$ /tmp/starrel3/star-linux-amd64/star-core changes --json | python3 -c 'summary'
+branch: main
+changed: [('M', 'sum.go'), ('M', 'sum_test.go')]
+patch_bytes: 620
+exit=0
+
+diff --git a/sum.go b/sum.go
+index 6995ac8..4511224 100644
+--- a/sum.go
++++ b/sum.go
+@@ -2,3 +2,6 @@ package releaseproof
+ 
+ // Sum adds two integers.
+ func Sum(a, b int) int { return a + b }
++
++// Double returns twice n.
++func Double(n int) int { return Sum(n, n) }
+diff --git a/sum_test.go b/sum_test.go
+index 0783561..010cc5b 100644
+--- a/sum_test.go
++++ b/sum_test.go
+@@ -3,7 +3,7 @@ package releaseproof
+ import "testing"
+ 
+ func TestSum(t *testing.T) {
+-	if got := Sum(2, 2); got != 5 {
+-		t.Fatalf("Sum(2, 2) = %d, want 5", got)
++	if got := Sum(2, 2); got != 4 {
++		t.Fatalf("Sum(2, 2) = %d, want 4", got)
+ 	}
+ }
+
+$ /tmp/starrel3/star-linux-amd64/star-core verify        # default bundle, so the overview can see it
+Verification: PASS
+  workspace         /tmp/orbs-release-proj
+  branch            main
+  duration          100ms
+  bundle            /tmp/orbs-release-proj/.crush/verify/20261118T001729Z
+
+Steps
+  pass     build  go build ./...                         18ms
+  pass     test   go test ./...                          80ms
+
+Changes
+  2 path(s), patch 620 bytes
+
+Evidence: /tmp/orbs-release-proj/.crush/verify/20261118T001729Z/summary.md
+exit=0
+
+$ XDG_DATA_HOME=/tmp/orbs-release-state /tmp/starrel3/star-linux-amd64/star-core overview
+Workspaces (1)
+  main       2 changed    pass just now              /tmp/orbs-release-proj
+
+Cloud
+  api base url      not set
+  user credential   not set
+  worker token      not set
+  model             not set
+
+Scheduled work: `star wakeup list`; details: `star env`.
+exit=0
+
+$ XDG_DATA_HOME=/tmp/orbs-release-state /tmp/starrel3/star-linux-amd64/star-core overview --json | python3 -c 'summary'
+workspace: /tmp/orbs-release-proj
+branch: main
+changed_paths: 2
+verification: pass steps= 2 failed= 0
+exit=0
