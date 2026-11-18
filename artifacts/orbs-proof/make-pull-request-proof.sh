@@ -18,6 +18,9 @@ STUB_DIR=$OUT/pr-gh-stub
 STUB_LOG=$OUT/pr-gh-stub-args.txt
 BASE=$(git -C "$REPO" rev-parse --abbrev-ref HEAD)
 
+# The marker belongs to an interrupted earlier run of this script.
+rm -f "$REPO/.pr-proof-marker"
+
 # GitHub's CLI reports uncommitted files in its output, so a dirty tree
 # would make this transcript describe something else every run.
 if [ -n "$(git -C "$REPO" status --porcelain)" ]; then
@@ -38,6 +41,8 @@ cleanup() {
     git -C "$REPO" branch -D "$branch" > /dev/null 2>&1
     git -C "$REPO" push -q origin --delete "$branch" > /dev/null 2>&1
   done
+  # The marker only exists on the throwaway branches.
+  rm -f "$REPO/.pr-proof-marker"
 }
 trap cleanup EXIT
 
@@ -57,7 +62,6 @@ commit_marker() {
   git -C "$REPO" add .pr-proof-marker
   git -C "$REPO" -c user.email=proof@example.com -c user.name=proof \
     commit -q -m "chore: temporary commit for the pull-request proof"
-  rm -f "$REPO/.pr-proof-marker"
 }
 
 {
@@ -134,6 +138,7 @@ EOF
     git -C "$REPO" branch -D "$branch" > /dev/null 2>&1 || true
     git -C "$REPO" push -q origin --delete "$branch" > /dev/null 2>&1 || true
   done
+  rm -f "$REPO/.pr-proof-marker"
   echo "\$ git -C $REPO branch --list 'proof/*'     # throwaway branches are gone"
   git -C "$REPO" branch --list 'proof/*'
   echo "\$ git -C $REPO ls-remote --heads origin 'refs/heads/proof/*'"
