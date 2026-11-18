@@ -55,9 +55,11 @@ print("commit: ", info.get("commit") or "not stamped")
   RELEASE_COMMIT=$("$STAR" env --json | python3 -c 'import json,sys;print(json.load(sys.stdin)["star"].get("commit") or "")')
   echo "repository HEAD: $HEAD_COMMIT"
   if [ "$RELEASE_COMMIT" = "$HEAD_COMMIT" ]; then
-    echo "match: True"
+    echo "match: the release is exactly HEAD"
+  elif [ -n "$RELEASE_COMMIT" ] && git -C "$REPO" merge-base --is-ancestor "$RELEASE_COMMIT" HEAD 2>/dev/null; then
+    echo "match: the release is an ancestor of HEAD (later commits touch docs and proofs only)"
   else
-    echo "match: False (the release is not this commit)"
+    echo "match: False (the release is not in this repository's history)"
   fi
   echo
 

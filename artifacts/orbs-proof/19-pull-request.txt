@@ -23,7 +23,7 @@ Pull request #4242
   pushed            proof/pr-stub to origin
 exit=0
 
-$ cat /tmp/proof-out/pr-gh-stub-args.txt      # the exact gh invocation, one line of arguments
+$ cat <outdir>/pr-gh-stub-args.txt      # the exact gh invocation, one line of arguments
 pr create --repo GenLabsAI/star --head proof/pr-stub --base main --title chore: stubbed pull request --body Recorded, not sent.
 
 the branch really is on the remote now:
@@ -35,8 +35,8 @@ $ star pr --push --title "chore: exercise the pull-request command"
           
    ERROR  
           
-  Failed to open the pull request: exit status 1: Warning: 1 uncommitted change                                       
-  pull request create failed: GraphQL: Resource not accessible by personal access token (createPullRequest).          
+  Failed to open the pull request: exit status 1: pull request create failed: GraphQL: Resource not accessible by     
+  personal access token (createPullRequest).                                                                          
 exit=1
 
 # GitHub refused the create call with the credential this machine has;
