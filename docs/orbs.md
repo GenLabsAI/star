@@ -190,8 +190,14 @@ proof. Everything else is ours to finish.
     upstream divergence, every touched path, diffstat and patch size, JSON
     for agents, and `--patch FILE` to hand a reviewer a real diff. `star
     verify` bundles carry the same patch, so a diff never travels without
-    the run that produced it. Missing: commit/branch/PR creation in Star
-    and an approval gate before changes leave the orb.
+    the run that produced it. `star commit [-m MESSAGE] [--branch NAME]
+    [--include-untracked] [--json]` is the other half: it stages tracked
+    changes, refuses to touch untracked files until they are approved, needs
+    an explicit message, optionally creates the branch it commits on, and
+    reports the resulting hash; it never pushes. Proof:
+    `artifacts/orbs-proof/10-commit.txt`. Missing: pull-request creation
+    (needs a remote and credentials) and a configurable approval gate
+    before anything leaves the machine.
 22. **Resource and cost management**: configurable CPU/memory/storage,
     scaling with workload, minimal idle cost, usage and cost visibility. —
     **WIP**. Sleeping/reused orbs, `DeleteSession`, and explicit session
@@ -236,7 +242,7 @@ old 3 + 6 → 3, old 4 → 4, old 5 → 5 (continuous validation is now part of
   branches, changed paths, latest verification and cloud credential state
   in one view. New `internal/overview` package with tests.
 
-## Done in the latest pass (items 14, 7, 20)
+## Done in the pass before (items 14, 7, 20)
 
 * **Item 14** — `star knowledge add|list|show|remove|path`: durable,
   file-backed project knowledge that survives sessions, with slug-only
