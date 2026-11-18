@@ -146,7 +146,7 @@ func TestLeavingYeehawClearsTheStaleHorseCells(t *testing.T) {
 	m.setYeehawMode(true)
 	require.True(t, m.yeehawActive)
 
-	// Paint the lane the way a real frame does, into the reusable canvas.
+	// Paint the lane the way a real frame does, into the compose canvas.
 	m.width, m.height = 100, 30
 	canvas := m.frameCanvas()
 	uv.NewStyledString(m.yeehawHorseView(90)).Draw(canvas, image.Rect(0, 20, 100, 27))
@@ -157,6 +157,8 @@ func TestLeavingYeehawClearsTheStaleHorseCells(t *testing.T) {
 	m.switchYeehawSession("A", "B")
 	yeehawProbe(m, "B", permission.ModeNormal)
 	require.False(t, m.yeehawActive)
+	// Every frame composes onto a blank canvas, so the next frame cannot
+	// inherit the cells the lane used to occupy.
 	require.NotContains(t, m.frameCanvas().Render(), yeehawBadgeText)
 }
 

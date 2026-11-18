@@ -3,7 +3,7 @@ package acp
 import (
 	"log/slog"
 
-	"charm.land/catwalk/pkg/catwalk"
+	"charm.land/catwalk/v3/pkg/catwalk"
 	"github.com/charmbracelet/crush/internal/agent/hyper"
 	"github.com/charmbracelet/crush/internal/agent/tools/mcp"
 	"github.com/charmbracelet/crush/internal/commands"
@@ -94,12 +94,12 @@ func (s *Sink) builtinCommands() []acp.AvailableCommand {
 
 	providerCfg := cfg.GetProviderForModel(agentCfg.Model)
 	model := cfg.GetModelByType(agentCfg.Model)
-	if providerCfg == nil || model == nil || !model.CanReason {
+	if providerCfg == nil || model == nil || !model.CanReason() {
 		return commands
 	}
 
 	// Anthropic/Hyper models: thinking toggle.
-	if providerCfg.Type == catwalk.TypeAnthropic || providerCfg.Type == catwalk.Type(hyper.Name) {
+	if providerCfg.Type == catwalk.TypeMessages || providerCfg.Type == catwalk.Type(hyper.Name) {
 		commands = append(commands, acp.AvailableCommand{
 			Name:        "toggle_thinking",
 			Description: "Toggle extended thinking for reasoning-capable models",
@@ -107,7 +107,7 @@ func (s *Sink) builtinCommands() []acp.AvailableCommand {
 	}
 
 	// OpenAI-style models: reasoning effort selection.
-	if len(model.ReasoningLevels) > 0 {
+	if len(model.ReasoningEffortLevels()) > 0 {
 		commands = append(commands, acp.AvailableCommand{
 			Name:        "set_reasoning_effort",
 			Description: "Set reasoning effort level (low, medium, high)",

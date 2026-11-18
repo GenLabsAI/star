@@ -41,12 +41,11 @@ const (
 
 // Session is a session selector dialog.
 type Session struct {
-	com                *common.Common
-	help               help.Model
-	list               *list.FilterableList
-	input              textinput.Model
-	selectedSessionInx int
-	sessions           []session.Session
+	com      *common.Common
+	help     help.Model
+	list     *list.FilterableList
+	input    textinput.Model
+	sessions []session.Session
 
 	// busySpinner animates the braille indicator drawn left of the title for
 	// sessions with a run in flight, including a yeehaw session still
@@ -56,11 +55,11 @@ type Session struct {
 	// lastBusyRefresh throttles re-probing the sessions drawn as busy.
 	lastBusyRefresh time.Time
 
-	sessionsMode  sessionsMode
-	bodyArea      image.Rectangle
-	mouseScrolled bool
-	lastClickTime time.Time
-	lastClickID   string
+	sessionsMode        sessionsMode
+	bodyArea            image.Rectangle
+	scrolledToSelection bool
+	lastClickTime       time.Time
+	lastClickID         string
 
 	keyMap struct {
 		Select        key.Binding
@@ -91,9 +90,10 @@ func NewSessions(com *common.Common, selectedSessionID string) (*Session, error)
 
 	s.sessions = sessions
 	s.busySpinner = spinner.New(spinner.WithSpinner(spinner.MiniDot))
+	var selectedInx int
 	for i, sess := range sessions {
 		if sess.ID == selectedSessionID {
-			s.selectedSessionInx = i
+			selectedInx = i
 			break
 		}
 	}
@@ -104,7 +104,7 @@ func NewSessions(com *common.Common, selectedSessionID string) (*Session, error)
 	s.help = help
 	s.list = list.NewFilterableList(sessionItems(com.Styles, sessionsModeNormal, s.isSessionBusy, sessions...)...)
 	s.list.Focus()
-	s.list.SetSelected(s.selectedSessionInx)
+	s.list.SetSelected(selectedInx)
 
 	s.input = textinput.New()
 	s.input.SetVirtualCursor(false)
@@ -172,7 +172,6 @@ func (s *Session) HandleMsg(msg tea.Msg) Action {
 			case key.Matches(msg, s.keyMap.ConfirmDelete):
 				action := s.confirmDeleteSession()
 				s.setListItems(sessionsModeNormal)
-				s.list.SelectFirst()
 				s.list.ScrollToSelected()
 				return action
 			case key.Matches(msg, s.keyMap.CancelDelete):
@@ -275,7 +274,6 @@ func (s *Session) HandleMsg(msg tea.Msg) Action {
 	case common.CoalescedWheelMsg:
 		if image.Pt(msg.Mouse.X, msg.Mouse.Y).In(s.sessionListArea()) {
 			s.list.ScrollBy(int(msg.DeltaY))
-			s.mouseScrolled = true
 		}
 	case tea.MouseClickMsg:
 		return s.handleMouseClick(msg)
@@ -335,11 +333,8 @@ func (s *Session) Draw(scr uv.Screen, area uv.Rectangle) *tea.Cursor {
 	// Hide the timestamps uniformly when the widest would crowd the title.
 	applyInfoColumnVisibility(s.list.FilteredItems(), listWidth, sessionInfoMaxPercent)
 
-	// This makes it so we do not scroll the list if we don't have to
-	start, end := s.list.VisibleItemIndices()
-
-	// if selected index is outside visible range, scroll to it
-	if !s.mouseScrolled && (s.selectedSessionInx < start || s.selectedSessionInx > end) {
+	if !s.scrolledToSelection {
+		s.scrolledToSelection = true
 		s.list.ScrollToSelected()
 	}
 

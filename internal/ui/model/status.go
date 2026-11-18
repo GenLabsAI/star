@@ -7,6 +7,7 @@ import (
 	"charm.land/bubbles/v2/help"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/crush/internal/permission"
 	"github.com/charmbracelet/crush/internal/ui/common"
 	"github.com/charmbracelet/crush/internal/ui/util"
 	uv "github.com/charmbracelet/ultraviolet"
@@ -29,17 +30,19 @@ type Status struct {
 	msg      util.InfoMsg
 	helpBlit styledBlit
 	msgBlit  styledBlit
-	msgShown bool
 
 	// msgSeq identifies the message on screen; expiry timers carry it.
 	msgSeq uint64
 
 	// inputMode, yolo and yeehaw drive the mode badge shown before the help
 	// hints. Yeehaw is a distinct badge from YOLO so an unattended yeehaw
-	// run is visually obvious when you return.
+	// run is visually obvious when you return, and the upstream three-mode
+	// protocol is tracked alongside for sysadmin.
 	inputMode uiInputMode
 	yolo      bool
 	yeehaw    bool
+	cloud     bool
+	permMode  permission.Mode
 }
 
 // NewStatus creates a new status bar and help model.
@@ -74,10 +77,18 @@ func (s *Status) ClearInfoMsg(seq uint64) {
 	}
 }
 
-// SetMode sets the input mode and YOLO state used for the mode badge.
-func (s *Status) SetMode(mode uiInputMode, yolo bool) {
+// SetMode sets the input mode and permission mode used for the mode badge.
+func (s *Status) SetMode(mode uiInputMode, permMode permission.Mode) {
 	s.inputMode = mode
-	s.yolo = yolo
+	s.permMode = permMode
+	s.yolo = permMode == permission.ModeYolo && !s.yeehaw
+	s.yeehaw = permMode == permission.ModeYeehaw
+}
+
+// SetCloudMode reports whether the current session's prompts run on a
+// cloud machine; when true the status bar shows a CLOUD badge.
+func (s *Status) SetCloudMode(cloud bool) {
+	s.cloud = cloud
 }
 
 // SetYeehaw sets the yeehaw state used for the mode badge. It is orthogonal
@@ -93,16 +104,26 @@ func (s *Status) modeBadge() string {
 	// Mirror the editor prompt precedence: planning wins over YOLO, which
 	// can be carried into plan mode. Yeehaw is its own badge so an
 	// unattended run is visually obvious when you return.
+	// Cloud mode composes with every other badge: a yolo cloud run shows
+	// both, so the remote-execution state is never hidden by the
+	// autonomy state.
+	cloud := ""
+	if s.cloud {
+		cloud = t.Status.ModeBadgeCloud.String()
+	}
 	if s.inputMode == uiInputModePlan {
-		return t.Status.ModeBadgePlan.String()
+		return t.Status.ModeBadgePlan.String() + cloud
 	}
-	if s.yeehaw {
-		return t.Status.ModeBadgeYeehaw.String()
+	if s.yeehaw || s.permMode == permission.ModeYeehaw {
+		return t.Status.ModeBadgeYeehaw.String() + cloud
 	}
-	if s.yolo {
-		return t.Status.ModeBadgeYolo.String()
+	if s.yolo || s.permMode == permission.ModeYolo {
+		return t.Status.ModeBadgeYolo.String() + cloud
 	}
-	return ""
+	if s.permMode == permission.ModeSysadmin {
+		return t.Status.ModeBadgeSysadmin.String() + cloud
+	}
+	return cloud
 }
 
 // SetWidth sets the width of the status bar and help view.
@@ -129,13 +150,6 @@ func (s *Status) SetHideHelp(hideHelp bool) {
 
 // Draw draws the status bar onto the screen.
 func (s *Status) Draw(scr uv.Screen, area uv.Rectangle) {
-	// A banner paints over the help hints; once it expires the help has to
-	// be repainted, even though its own text never changed.
-	if s.msg.IsEmpty() && s.msgShown {
-		s.helpBlit.invalidate()
-		s.msgShown = false
-	}
-
 	if !s.hideHelp {
 		helpStyle := s.com.Styles.Status.Help
 		helpWidth := area.Dx() - helpStyle.GetPaddingLeft() - helpStyle.GetPaddingRight()
@@ -177,6 +191,10 @@ func (s *Status) Draw(scr uv.Screen, area uv.Rectangle) {
 		indStyle = s.com.Styles.Status.ModeBannerYoloBadge
 		msgStyle = s.com.Styles.Status.ModeBannerYolo
 		indInset = badgeLeftInset
+	case util.InfoTypeSysadmin:
+		indStyle = s.com.Styles.Status.ModeBannerSysadminBadge
+		msgStyle = s.com.Styles.Status.ModeBannerSysadmin
+		indInset = badgeLeftInset
 	case util.InfoTypeError:
 		indStyle = s.com.Styles.Status.ErrorIndicator
 		msgStyle = s.com.Styles.Status.ErrorMessage
@@ -207,7 +225,6 @@ func (s *Status) Draw(scr uv.Screen, area uv.Rectangle) {
 
 	// Draw the info message over the help view
 	s.msgBlit.draw(scr, area, strings.Repeat(" ", indInset)+ind+info)
-	s.msgShown = true
 }
 
 // clearInfoMsgCmd returns a command that clears the info message after the

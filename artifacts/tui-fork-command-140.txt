@@ -6,13 +6,13 @@
                                                                                                             ╰──╮  │  ├──┤ ├─┬╯ ╱╱╱╱╱╱╱╱╱╱
  │ The duplicate charges all share the same idempotency key prefix. Check the queue consumer too.           ╰──╯  ╵  ╵  ╵ ╵ ╰╴ ╱╱╱╱╱╱╱╱╱╱
                                                                                                             ╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱
-   Found it: the consumer re-enqueues on any timeout, including attempts that already committed. I'll add 
-   an idempotency guard keyed by the charge ID.                                                           
+   Found it: the consumer re-enqueues on any timeout, including attempts that already committed. I'll add
+   an idempotency guard keyed by the charge ID.                                                          
 
  │ Good. Add a regression test with╭────────────────────────────────────────────────────────────────────╮   /tmp/crush-test
                                    │ Commands ╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱ │
- ▌ Added the guard and a test that │                                                                    │d  ◇
- ▌ charge and skips the retry. All │ > fork                                                             │ 
+ ▌ Added the guard and a test that │                                                                    │   ◇
+ ▌ recorded charge and skips the re│ > fork                                                             │
                                    │                                                                    │   Modified Files ──────────────
                                    │ Fork From...                                                       │
                                    │                                                                    │   None
@@ -41,4 +41,4 @@
  ┃                                                                                                         
  ┃                                                                                                         
 
- tab focus editor • shift+tab mode • ctrl+p commands • ctrl+l models • ctrl+b toggle sidebar • ↑↓ scroll • shift+↑↓ scroll one item …
+ tab focus editor • shift+tab mode • ctrl+p commands • ctrl+l models • ctrl+b toggle sidebar • ↑↓ scroll • 

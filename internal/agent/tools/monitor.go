@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"charm.land/fantasy"
+	"github.com/charmbracelet/crush/internal/config"
 	"github.com/charmbracelet/crush/internal/pubsub"
 	"github.com/charmbracelet/crush/internal/shell"
 )
@@ -49,7 +50,7 @@ func NewMonitorTool(wakeups pubsub.Publisher[pubsub.WakeupEvent]) fantasy.AgentT
 			bgManager := shell.GetBackgroundShellManager()
 
 			// Start the process in the background.
-			bgShell, err := bgManager.Start(context.Background(), params.WorkingDir, nil, params.Command, params.Description, 0)
+			bgShell, err := bgManager.Start(context.Background(), nil, params.WorkingDir, nil, params.Command, params.Description, config.DefaultMaxBackgroundJobs)
 			if err != nil {
 				return fantasy.ToolResponse{}, fmt.Errorf("failed to start monitor: %w", err)
 			}

@@ -1,0 +1,26 @@
+# binary: /tmp/rel3/star-linux-amd64/star-core
+$ star env --json        # the artifact reports its own version and commit
+version: v0.1.143
+commit:  d465f916d0dfd16db1290e8fe25ac89672965bb1
+
+=== item proof: commit, run with the released binary ===
+commits: 1
+commits: 1
+record hash matches git HEAD: 4dc828f
+# nothing was pushed: this repository has no remote at all
+
+=== item proof: flake, run with the released binary ===
+Verification: PASS
+Verification: FLAKY
+    runs: pass, pass, pass
+    runs: pass, fail, pass
+verdict: flaky
+attempts: [0, 1, 0] | failing log exists: True
+Verification: PASS
+    runs: pass, pass, pass
+    runs: pass, pass, pass
+Verification: FAIL
+    runs: pass, pass
+    runs: fail, fail
+verdict: fail | attempts: [1, 1] | flaky: no
+

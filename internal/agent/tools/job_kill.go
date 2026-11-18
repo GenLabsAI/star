@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	_ "embed"
+	"errors"
 	"fmt"
 
 	"charm.land/fantasy"
@@ -48,12 +49,22 @@ func NewJobKillTool() fantasy.AgentTool {
 				Description: bgShell.Description,
 			}
 
-			err := bgManager.Kill(params.ShellID)
-			if err != nil {
+			// Bound the wait on the turn's context: a job whose process tree
+			// outlives the kill (a detached child holding its output pipe
+			// open) would otherwise block this tool, and a tool that ignores
+			// cancellation leaves the turn stuck with no way to stop it.
+			err := bgManager.KillContext(ctx, params.ShellID)
+			if err != nil && !errors.Is(err, shell.ErrJobStillRunning) {
 				return fantasy.NewTextErrorResponse(err.Error()), nil
 			}
 
 			result := fmt.Sprintf("Background shell %s terminated successfully", params.ShellID)
+			if err != nil {
+				// The job is untracked and was signalled; only its exit is
+				// unconfirmed. Reporting this as a failure would send the
+				// model chasing a job that no longer exists.
+				result = fmt.Sprintf("Background shell %s was signalled to stop and is no longer tracked; some of its processes have not exited yet", params.ShellID)
+			}
 			return fantasy.WithResponseMetadata(fantasy.NewTextResponse(result), metadata), nil
 		},
 	)

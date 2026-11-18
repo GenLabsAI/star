@@ -1,0 +1,14 @@
+enrolled ok
+session: {"relay_url": "wss://api.genlabs.dev/terminal/browser/6a34b795-7da3-4574-9e05-7ace8207afc3", "reused": true, "session_id": "6a34b795-7da3-4574-9e05-7ace8207afc3", "workflow": "acp-session.yml"}
+no ready frame (reused idle runner); proceeding: TimeoutError
+initialized
+agent session: sess-cloud-1
+chunk: 
+[orb] resume check ok
+
+chunk: CODE WAS: ORB5
+prompt result: {"jsonrpc": "2.0", "id": 3, "result": {"stopReason": "end_turn"}}
+ELAPSED=7s
+FULLTEXT:
+[orb] resume check ok
+CODE WAS: ORB5

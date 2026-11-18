@@ -2,7 +2,9 @@ package cmd
 
 import (
 	"fmt"
+	"log/slog"
 
+	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/crush/internal/event"
 	"github.com/charmbracelet/crush/internal/session"
@@ -22,6 +24,11 @@ type splashReadyMsg struct {
 
 type launcherReleasedMsg struct{}
 
+// splashQuitKey quits from the splash screen. Ctrl+C is a request to leave
+// even before the UI exists; dropping it there made the splash eat a press
+// that the quit dialog never saw.
+var splashQuitKey = key.NewBinding(key.WithKeys("ctrl+c"))
+
 type splashModel struct {
 	cmd               *cobra.Command
 	sessionID         string
@@ -37,6 +44,11 @@ type splashModel struct {
 	rendered          bool
 	pendingReady      *splashReadyMsg
 	launcherReleased  bool
+	// launcherOwnsAltScreen is true when the Rust launcher entered the
+	// alternate screen and will leave it after the core exits. The core must
+	// not request the same screen again: a second DECSET 1049 can restore the
+	// saved splash buffer on top of the UI.
+	launcherOwnsAltScreen bool
 }
 
 func newSplashModel(cmd *cobra.Command, sessionID string, continueLast bool) *splashModel {
@@ -61,6 +73,10 @@ func (m *splashModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.height = msg.Height
 		if m.launcherReleased && m.pendingReady != nil && m.width > 0 && m.height > 0 {
 			return m, m.transitionToUI(m.pendingReady)
+		}
+	case tea.KeyPressMsg:
+		if key.Matches(msg, splashQuitKey) {
+			return m, tea.Quit
 		}
 	case splashReadyMsg:
 		if msg.err != nil {
@@ -101,10 +117,10 @@ func (m *splashModel) View() tea.View {
 	}
 
 	var v tea.View
-	// The launcher keeps the alternate screen active through the handoff.
-	// Taking it here as well is a no-op on the same buffer, and ensures a
-	// directly launched core still gets a full-screen UI.
-	v.AltScreen = true
+	// A directly launched core owns the terminal and needs the alternate
+	// screen. A launcher-driven core must leave it alone: the launcher already
+	// entered it and will restore it when the core exits.
+	v.AltScreen = !m.launcherOwnsAltScreen
 	v.MouseMode = tea.MouseModeCellMotion
 	v.WindowTitle = "Star"
 	v.Content = ""
@@ -114,6 +130,7 @@ func (m *splashModel) View() tea.View {
 func (m *splashModel) transitionToUI(ready *splashReadyMsg) tea.Cmd {
 	m.pendingReady = nil
 	m.model = ready.model
+	m.model.SetAltScreen(!m.launcherOwnsAltScreen)
 	m.ws = ready.ws
 	m.cleanup = ready.cleanup
 	if m.program != nil {
@@ -139,6 +156,14 @@ func (m *splashModel) initialize() splashReadyMsg {
 			return splashReadyMsg{err: err}
 		}
 		sessionID = sess.ID
+	}
+
+	// Long-lived TUI hosts the durable wakeup timers; one-shot
+	// commands must never arm them (see ArmWakeupTimers).
+	if appWs, ok := ws.(*workspace.AppWorkspace); ok {
+		if err := appWs.ArmWakeupTimers(m.cmd.Context()); err != nil {
+			slog.Warn("Failed to arm saved wakeups", "error", err)
+		}
 	}
 
 	event.AppInitialized()

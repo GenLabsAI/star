@@ -1,0 +1,57 @@
+# scratch workspace: /tmp/orbs-ports-proj
+# a python http.server is listening on 18765 in this directory
+# another one is listening on 18766 in /tmp/orbs-ports-outside (outside the workspace)
+
+$ star ports        # only listeners whose process lives in this workspace
+PORT    PID      PROCESS          ADDRESS            CWD
+18765   340501   python3          127.0.0.1          .
+exit=0
+
+$ star ports --json
+{
+  "workspace": "/tmp/orbs-ports-proj",
+  "filtered": true,
+  "listeners": [
+    {
+      "port": 18765,
+      "address": "127.0.0.1",
+      "pid": 340501,
+      "process": "python3",
+      "cwd": "/tmp/orbs-ports-proj",
+      "workspace": true
+    }
+  ]
+}
+exit=0
+
+# machine-readable assertions, checked with python3 rather than by eye
+workspace filter: only port 18765 from pid 340501 in /tmp/orbs-ports-proj
+outside listener on 18766 correctly hidden
+exit=0
+
+$ star ports --all | grep -E "PORT|<the two scratch ports>"
+PORT    PID      PROCESS          ADDRESS            CWD
+18765   340501   python3          127.0.0.1          .
+18766   340507   python3          127.0.0.1          ../orbs-ports-outside
+exit=0
+
+# kill the reported pid (340501) and look again
+$ kill 340501
+exit=0
+$ star ports
+No listening sockets from processes inside /tmp/orbs-ports-proj.
+exit=0
+$ star ports --json
+{
+  "workspace": "/tmp/orbs-ports-proj",
+  "filtered": true,
+  "listeners": []
+}
+exit=0
+no listeners remain: the killed process is gone from the inventory
+exit=0
+
+# process-lookup failure case: nothing in this workspace is listening
+$ star ports
+No listening sockets from processes inside /tmp/orbs-ports-proj.
+exit=0

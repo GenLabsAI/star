@@ -1,0 +1,142 @@
+=== capture notes ===
+after start: 3 chunks
+after /cloud: 6 chunks
+prompt sent: 7 chunks
+
+=== screen: startup ===
+                                                                                                                                            
+  ╱╱╱╱╱╱ ╱╱╱╱╱╱╱╱╱╱╱╱╱de el ╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱  
+  ╱╱╱╱╱╱ ╭──╮╶─┬─╴╭──╮ ╭──╮ ╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱   
+  ╱╱╱╱╱╱ ╰──╮  │  ├──┤ ├─┬╯ ╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱    
+  ╱╱╱╱╱╱ ╰──╯  ╵  ╵  ╵ ╵ ╰╴ ╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱     
+                                                                                                                                            
+  ~/work                                                                                                                                    
+                                                                                                                                            
+  ◇ Cloud Demo via Local Mock                                                                                                               
+                                                                                                                                            
+  LSPs                           MCPs                           Skills                                                                      
+                                                                                                                                            
+  None                           None                           ● crush-config                                                              
+                                                                ● crush-hooks                                                               
+                                                                ● jq                                                                        
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+   > Ready!                                                                                                                                 
+ :::                                                                                                                                        
+ :::                                                                                                                                        
+                                                                                                                                            
+ tab change focus • / or ctrl+p commands • shift+tab mode • ctrl+l models • ctrl+j newline • ctrl+c quit • ctrl+g more
+
+=== screen: cloud mode toggled ===
+                                                                                                                                            
+                                                                                                            ╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱   
+                                                                                                            ╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱   
+                                                                                                            de el ╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱   
+                                                                                                            ╭──╮╶─┬─╴╭──╮ ╭──╮ ╱╱╱╱╱╱╱╱╱╱   
+                                                                                                            ╰──╮  │  ├──┤ ├─┬╯ ╱╱╱╱╱╱╱╱╱╱   
+                                                                                                            ╰──╯  ╵  ╵  ╵ ╵ ╰╴ ╱╱╱╱╱╱╱╱╱╱   
+                                                                                                            ╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱   
+                                                                                                                                            
+                                                                                                            New Session                     
+                                                                                                                                            
+                                                                                                            ~/work                          
+                                                                                                                                            
+                                                                                                            ◇ Cloud Demo via Local Mock     
+                                                                                                              0% (0) $0.00                  
+                                                                                                                                            
+                                                                                                            Modified Files ──────────────   
+                                                                                                                                            
+                                                                                                            None                            
+                                                                                                                                            
+                                                                                                            LSPs ────────────────────────   
+                                                                                                                                            
+                                                                                                            None                            
+                                                                                                                                            
+                                                                                                            MCPs ────────────────────────   
+                                                                                                                                            
+                                                                                                            None                            
+                                                                                                                                            
+                                                                                                            Skills ──────────────────────   
+                                                                                                                                            
+                                                                                                            ● crush-config                  
+                                                                                                            ● crush-hooks                   
+                                                                                                            ● jq                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+   > Ready!                                                                                                                                 
+ :::                                                                                                                                        
+ :::                                                                                                                                        
+                                                                                                                                            
+ OKAY!  Cloud mode on — prompts run on a cloud machine
+
+=== screen: last screen ===
+                                                                                                                                            
+ │ Run a quick check on the cloud machine and tell me what you see.                                         ╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱   
+                                                                                                            ╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱   
+   ✓ Ran 1 command (double-click to expand)                                                                 de el ╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱   
+                                                                                                            ╭──╮╶─┬─╴╭──╮ ╭──╮ ╱╱╱╱╱╱╱╱╱╱   
+   ✓ Ran 1 command (double-click to expand)                                                                 ╰──╮  │  ├──┤ ├─┬╯ ╱╱╱╱╱╱╱╱╱╱   
+                                                                                                            ╰──╯  ╵  ╵  ╵ ╵ ╰╴ ╱╱╱╱╱╱╱╱╱╱   
+   Here's what I see on the cloud machine:                                                                  ╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱   
+                                                                                                                                            
+   System                                                                                                   New Session                     
+                                                                                                                                            
+   • Ubuntu 24.04 on AWS (kernel 7.0.0-1014-aws), x86_64                                                    ~/work                          
+   • User:                                                                                                                                  
+   • Disk: 145G total, 89G free (39% used)                                                                  ◇ Cloud Demo via Local Mock     
+   • Memory: 15Gi total, ~14Gi available                                                                      0% (0) $0.00                  
+                                                                                                                                            
+   Working directory:                                                                                       Modified Files ──────────────   
+                                                                                                                                            
+   • Git repo, branch  , clean tree, up to date with                                                        None                            
+   • Last commit:                                                                                                                           
+   • Contents — looks like a GitHub Action harness for running agents:                                      LSPs ────────────────────────   
+     •  ,  ,                                                                                                                                
+     • Python:  ,  ,   (~18KB), plus tests  ,                                                               None                            
+                                                                                                                                            
+     •   for git auth,   workflows                                                                          MCPs ────────────────────────   
+                                                                                                                                            
+                                                                                                            None                            
+   Everything's in order and ready for work. What would you like me to do?                                                                  
+                                                                                                            Skills ──────────────────────   
+   ◇ Cloud Demo via Local Mock in 28s ────────────────────────────────────────────────────────────────────                                  
+                                                                                                            ● crush-config                  
+                                                                                                            ● crush-hooks                   
+                                                                                                            ● jq                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+   > Ready!                                                                                                                                 
+ :::                                                                                                                                        
+ :::                                                                                                                                        
+                                                                                                                                            
+  CLOUD   tab focus chat • shift+tab mode • / or ctrl+p commands • ctrl+l models • ctrl+b toggle sidebar • ctrl+j newline • ctrl+c quit …

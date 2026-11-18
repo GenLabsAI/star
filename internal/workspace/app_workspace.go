@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"sync"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -19,12 +20,14 @@ import (
 	"github.com/charmbracelet/crush/internal/message"
 	"github.com/charmbracelet/crush/internal/oauth"
 	"github.com/charmbracelet/crush/internal/permission"
+	"github.com/charmbracelet/crush/internal/pinentry"
 	"github.com/charmbracelet/crush/internal/proto"
 	"github.com/charmbracelet/crush/internal/question"
 	"github.com/charmbracelet/crush/internal/search"
 	"github.com/charmbracelet/crush/internal/session"
 	"github.com/charmbracelet/crush/internal/shell"
 	"github.com/charmbracelet/crush/internal/skills"
+	"github.com/charmbracelet/crush/internal/sshaskpass"
 )
 
 // AppWorkspace implements the Workspace interface by delegating
@@ -33,6 +36,9 @@ import (
 type AppWorkspace struct {
 	app   *app.App
 	store *config.ConfigStore
+	// cloudMu guards cloudRuns: at most one cloud turn per session.
+	cloudMu   sync.Mutex
+	cloudRuns map[string]context.CancelFunc
 }
 
 // NewAppWorkspace creates a new AppWorkspace wrapping the given app
@@ -47,7 +53,7 @@ func NewAppWorkspace(a *app.App, store *config.ConfigStore) *AppWorkspace {
 // -- Sessions --
 
 func (w *AppWorkspace) CreateSession(ctx context.Context, title string) (session.Session, error) {
-	return w.app.Sessions.Create(ctx, title)
+	return w.app.CreateSession(ctx, title)
 }
 
 func (w *AppWorkspace) ForkSession(ctx context.Context, sessionID, upToMessageID string) (session.Session, error) {
@@ -191,6 +197,12 @@ func (w *AppWorkspace) AgentRunShellCommand(ctx context.Context, sessionID, comm
 }
 
 func (w *AppWorkspace) AgentCancel(sessionID string) {
+	w.cloudMu.Lock()
+	cancel, ok := w.cloudRuns[sessionID]
+	w.cloudMu.Unlock()
+	if ok && cancel != nil {
+		cancel()
+	}
 	if w.app.AgentCoordinator != nil {
 		w.app.AgentCoordinator.Cancel(sessionID)
 	}
@@ -203,6 +215,9 @@ func (w *AppWorkspace) AgentWakeupCancel(sessionID string) {
 }
 
 func (w *AppWorkspace) AgentIsBusy() bool {
+	if w.AgentIsCloudBusy() {
+		return true
+	}
 	if w.app.AgentCoordinator == nil {
 		return false
 	}
@@ -210,6 +225,9 @@ func (w *AppWorkspace) AgentIsBusy() bool {
 }
 
 func (w *AppWorkspace) AgentIsSessionBusy(sessionID string) bool {
+	if w.AgentIsCloudSessionBusy(sessionID) {
+		return true
+	}
 	if w.app.AgentCoordinator == nil {
 		return false
 	}
@@ -320,6 +338,15 @@ func (w *AppWorkspace) PermissionDeny(perm permission.PermissionRequest) bool {
 	return w.app.Permissions.Deny(perm)
 }
 
+// -- Host context --
+
+func (w *AppWorkspace) HostContext(_ context.Context) (proto.HostContext, error) {
+	if w.app.AgentCoordinator == nil {
+		return proto.HostContext{}, nil
+	}
+	return w.app.AgentCoordinator.HostContext(), nil
+}
+
 func (w *AppWorkspace) PermissionSkipRequests() bool {
 	return w.app.Permissions.SkipRequests()
 }
@@ -354,12 +381,32 @@ func (w *AppWorkspace) PermissionSetSessionMode(sessionID string, mode permissio
 
 // -- Questions --
 
-func (w *AppWorkspace) QuestionAnswer(responses []question.Answer) bool {
-	return w.app.Questions.Answer(responses)
+func (w *AppWorkspace) QuestionAnswer(batchID string, responses []question.Answer) bool {
+	return w.app.Questions.Answer(batchID, responses)
 }
 
-func (w *AppWorkspace) QuestionCancel() bool {
-	return w.app.Questions.Cancel()
+func (w *AppWorkspace) QuestionCancel(batchID string) bool {
+	return w.app.Questions.Cancel(batchID)
+}
+
+// -- Pinentry --
+
+func (w *AppWorkspace) PinentryRespond(id, secret string) bool {
+	return pinentry.DefaultPrompts().Respond(id, secret)
+}
+
+func (w *AppWorkspace) PinentryCancel(id string) bool {
+	return pinentry.DefaultPrompts().Cancel(id)
+}
+
+// -- SSH prompts --
+
+func (w *AppWorkspace) SSHRespond(id, secret string) bool {
+	return sshaskpass.DefaultPrompts().Respond(id, secret)
+}
+
+func (w *AppWorkspace) SSHCancel(id string) bool {
+	return sshaskpass.DefaultPrompts().Cancel(id)
 }
 
 // -- FileTracker --
@@ -568,7 +615,7 @@ func (w *AppWorkspace) DisableDockerMCP() error {
 
 // MCPServersDisabled returns the MCP servers disabled for this
 // repository. The override set is shared by every session, including
-// sub-agent sessions.
+// subagent sessions.
 func (w *AppWorkspace) MCPServersDisabled(ctx context.Context) ([]string, error) {
 	return w.app.Sessions.MCPDisabledServers(ctx)
 }
@@ -606,6 +653,28 @@ func (w *AppWorkspace) MCPSetServerConfigDisabled(ctx context.Context, name stri
 // never touched.
 func (w *AppWorkspace) MCPStartServer(ctx context.Context, name string) error {
 	return mcptools.InitializeSingleForced(ctx, name, w.store)
+}
+
+// SkillsDisabled returns the skills disabled for this repository.
+func (w *AppWorkspace) SkillsDisabled(ctx context.Context) ([]string, error) {
+	return w.app.Sessions.SkillsDisabled(ctx)
+}
+
+// SkillsEnabled returns the skills with a repository-scoped enabled
+// override (config-disabled skills re-enabled here).
+func (w *AppWorkspace) SkillsEnabled(ctx context.Context) ([]string, error) {
+	return w.app.Sessions.SkillsEnabled(ctx)
+}
+
+// SkillSetDisabled adds or removes a repository-scoped skill override.
+func (w *AppWorkspace) SkillSetDisabled(ctx context.Context, name string, disabled bool) error {
+	return w.app.Sessions.SetSkillDisabled(ctx, name, disabled, w.store.SkillConfigDisabled(name))
+}
+
+// SkillSetConfigDisabled toggles a skill's disabled flag in the global
+// config's options.disabled_skills list.
+func (w *AppWorkspace) SkillSetConfigDisabled(ctx context.Context, name string, disabled bool) error {
+	return w.store.SetSkillDisabledConfig(config.ScopeGlobal, name, disabled)
 }
 
 func (w *AppWorkspace) MCPAuthenticate(ctx context.Context, name string) error {

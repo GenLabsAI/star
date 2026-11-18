@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"charm.land/catwalk/pkg/catwalk"
+	"charm.land/catwalk/v3/pkg/catwalk"
 	"charm.land/fantasy"
 	"github.com/charmbracelet/crush/internal/agent/notify"
 	"github.com/charmbracelet/crush/internal/message"
@@ -94,7 +94,6 @@ func TestRun_QueuedRunIDPromptRunsRecursivelyAndPublishesRunComplete(t *testing.
 			Model{Model: large, CatwalkCfg: catwalk.Model{ContextWindow: 200000, DefaultMaxTokens: 10000}},
 			Model{Model: small, CatwalkCfg: catwalk.Model{ContextWindow: 200000, DefaultMaxTokens: 10000}},
 		),
-		IsYolo:      true,
 		Sessions:    env.sessions,
 		Messages:    env.messages,
 		RunComplete: broker,
@@ -124,7 +123,7 @@ func TestRun_QueuedRunIDPromptRunsRecursivelyAndPublishesRunComplete(t *testing.
 	case <-time.After(5 * time.Second):
 		t.Fatal("main run never entered Stream")
 	}
-	require.True(t, sa.IsSessionBusy(sess.ID), "main run must be active before enqueueing the follow-up")
+	require.True(t, sa.HasActiveTurn(sess.ID), "main run must be active before enqueueing the follow-up")
 
 	// Enqueue a RunID-bearing follow-up behind the busy session.
 	res, err := sa.Run(t.Context(), SessionAgentCall{

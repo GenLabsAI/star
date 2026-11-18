@@ -5,7 +5,7 @@
 **Star** is a rebranded fork of [Crush](https://github.com/charmbracelet/crush) (by [Charm](https://charm.land)), built as a terminal-based AI coding assistant.
 
 ### Key Differences from Crush
-- **Rust Launcher**: The entry point is a Rust binary (`star.exe`) in the `launcher/` directory that displays the splash banner (a breathing star mark, the STAR wordmark that a light sweeps across as it ignites, a shimmering hairline, and a twinkling starfield). Frames are composed into a cell buffer and diffed against the previous frame, so only changed cells are written — see `launcher/src/splash.rs`. It hands the terminal to the Go UI via a file-based handshake once the core reports it is ready, and coordinates in-place self-updates across every running instance via `launcher/src/coord.rs`.
+- **Rust Launcher**: The entry point is a Rust binary (`star.exe`) in the `launcher/` directory that displays the splash banner (the STAR wordmark that a light sweeps across as it ignites, a shimmering hairline, and a twinkling starfield). Frames are composed into a cell buffer and diffed against the previous frame, so only changed cells are written — see `launcher/src/splash.rs`. It hands the terminal to the Go UI via a file-based handshake once the core reports it is ready, and coordinates in-place self-updates across every running instance via `launcher/src/coord.rs`.
 - **Binary Names**: Deploys as `star.exe` (the launcher) and `star-core.exe` (the Go core).
 
 ### Committing and Pushing
@@ -33,6 +33,21 @@ verification fails, diagnose, fix, commit, push, and repeat until it works.
 Do not claim a feature works based only on source inspection, local tests, or
 a locally built binary. Provide the user with concrete proof from the released
 version.
+
+The release pipeline publishes a bundle per OS, so verify with the artifact
+that matches the machine you are running on rather than assuming Windows:
+
+- Linux: `star-linux-amd64.tar.gz` or `star-linux-arm64.tar.gz`, which
+  unpack to `star` and `star-core`.
+- macOS: `star-darwin-amd64.tar.gz` or `star-darwin-arm64.tar.gz`.
+- Windows: `star-windows-amd64.zip`, which contains `star.exe` and
+  `star-core.exe`.
+
+You are allowed to run the released binary for whatever OS your environment
+is, and you should: download the matching artifact, run it in a pty, and
+report the observed behavior. Only fall back to reporting unverified if no
+artifact for your OS exists or the binary genuinely cannot run there (no
+pty, missing runtime, etc.) — and say exactly which step was blocked.
 
 ---
 
@@ -72,6 +87,10 @@ internal/
   lsp/                             LSP client manager, auto-discovery, on-demand startup
   ui/                              Bubble Tea v2 TUI (see internal/ui/AGENTS.md)
   permission/                      Tool permission checking and allow-lists
+  pinentry/                        GPG pinentry: terminal handover watcher, plus the integrated
+                                   pinentry (native passphrase dialogs via loopback pinentry)
+  sshaskpass/                      Integrated SSH askpass: OpenSSH credential prompts and security key
+                                   touches rendered as native dialogs and warnings
   skills/                          Skill file discovery and loading
   shell/                           Bash command execution with background job support
   event/                           Telemetry (PostHog)
@@ -238,7 +257,7 @@ three layers:
   constructs a `Styles` struct from `quickStyleOpts` — a palette of
   design tokens (primary, secondary, fgBase, bgBase, success, error, etc.).
   `quickStyle` must be fully token-driven: never hardcode specific
-  `charmtone.*` colors here (except Chroma syntax highlighting, which is
+  `tone.*` colors here (except Chroma syntax highlighting, which is
   pending tokenization). This lets any theme reuse the base without
   inheriting Charmtone-specific colors.
 - **`themes.go`**: Defines concrete themes. Each theme function (e.g.
@@ -258,8 +277,8 @@ func CharmtonePantera() Styles {
 
 	// Override only the colors that differ from the token defaults.
 	s.Editor.PromptBangIconFocused = s.Editor.PromptBangIconFocused.
-		Foreground(charmtone.Salt).
-		Background(charmtone.Hazy)
+		Foreground(tone.Salt).
+		Background(tone.Hazy)
 
 	return s
 }

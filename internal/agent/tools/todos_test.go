@@ -35,6 +35,10 @@ func (m *mockSessionService) CreateTaskSession(ctx context.Context, toolCallID, 
 	return session.Session{}, nil
 }
 
+func (m *mockSessionService) Fork(ctx context.Context, sourceSessionID, upToMessageID, title string) (session.Session, error) {
+	return session.Session{}, nil
+}
+
 func (m *mockSessionService) Get(ctx context.Context, id string) (session.Session, error) {
 	return m.sessions[id], nil
 }
@@ -77,6 +81,18 @@ func (m *mockSessionService) SetMCPServerDisabled(ctx context.Context, name stri
 }
 
 func (m *mockSessionService) MCPServersEnabled(ctx context.Context) ([]string, error) {
+	return nil, nil
+}
+
+func (m *mockSessionService) SkillsDisabled(context.Context) ([]string, error) {
+	return nil, nil
+}
+
+func (m *mockSessionService) SetSkillDisabled(context.Context, string, bool, bool) error {
+	return nil
+}
+
+func (m *mockSessionService) SkillsEnabled(context.Context) ([]string, error) {
 	return nil, nil
 }
 

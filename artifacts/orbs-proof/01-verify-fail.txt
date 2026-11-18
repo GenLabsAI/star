@@ -1,0 +1,58 @@
+$ star verify        # first run: the test is wrong on purpose
+Verification: FAIL
+  workspace         /tmp/orbs-proof-proj
+  branch            main
+  duration          286ms
+  bundle            /tmp/proof-out/01-fail-bundle
+
+Steps
+  pass     build  go build ./...                         20ms
+  fail(1)  test   go test ./...                         265ms
+    --- FAIL: TestSum (0.00s)
+        sum_test.go:7: Sum(2, 2) = 4, want 5
+    FAIL
+    FAIL	example.com/proof	0.004s
+    FAIL
+
+Changes
+  working tree clean
+
+Evidence: /tmp/proof-out/01-fail-bundle/summary.md
+          
+   ERROR  
+          
+  Verification failed: 1 of 2 steps failed (evidence: /tmp/proof-out/01-fail-bundle).                                 
+
+exit=1
+
+--- bundle contents ---
+01-fail-bundle/logs/01-build.log
+01-fail-bundle/logs/02-test.log
+01-fail-bundle/summary.md
+01-fail-bundle/verify.json
+
+--- summary.md ---
+# Verification summary
+
+- Verdict: **fail**
+- Started: 2026-11-17T23:59:39Z
+- Duration: 286ms
+- Workspace: `/tmp/orbs-proof-proj`
+- Star: devel (linux/amd64)
+- Branch: main
+
+## Steps
+
+| step | command | result | duration |
+| --- | --- | --- | --- |
+| build | `go build ./...` | pass | 20ms |
+| test | `go test ./...` | fail (exit 1) | 265ms |
+
+## Changes
+
+Working tree clean.
+
+## Logs
+
+- [logs/01-build.log](logs/01-build.log)
+- [logs/02-test.log](logs/02-test.log)

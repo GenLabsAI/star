@@ -1,6 +1,8 @@
 package cmd
 
 import (
+	"fmt"
+
 	"github.com/charmbracelet/crush/internal/acp"
 	"github.com/charmbracelet/crush/internal/event"
 	"github.com/charmbracelet/crush/internal/workspace"
@@ -22,7 +24,16 @@ streaming updates about agent activity.`,
 		}
 		defer cleanup()
 
-		appInstance := ws.(*workspace.AppWorkspace).App()
+		appWs, ok := ws.(*workspace.AppWorkspace)
+		if !ok {
+			return fmt.Errorf("Wakeups need a local workspace")
+		}
+		// The ACP loop is long-lived: host the durable wakeup timers.
+		if err := appWs.ArmWakeupTimers(cmd.Context()); err != nil {
+			return err
+		}
+
+		appInstance := appWs.App()
 
 		if shouldEnableMetrics(appInstance.Config()) {
 			event.Init()

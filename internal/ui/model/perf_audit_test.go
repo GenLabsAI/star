@@ -195,15 +195,11 @@ func TestFrameContentMatchesLegacy(t *testing.T) {
 	}
 }
 
-// fullFrame composes the current state the way View used to: a fresh buffer,
-// a full draw and a full render.
+// fullFrame composes the current state from scratch: a fresh buffer, a full
+// draw and a full render.
 func fullFrame(u *UI) string {
 	scr := uv.NewScreenBuffer(u.width, u.height)
-	u.invalidateBlits()
 	_ = u.Draw(scr, scr.Bounds())
-	// The draw above painted a scratch buffer, not the View canvas, so the
-	// blits must not claim the real canvas is up to date.
-	u.invalidateBlits()
 	return frameContent(scr.Render())
 }
 
@@ -264,7 +260,7 @@ func BenchmarkAuditPartsBottomUp(b *testing.B) {
 	run("sidebar_scroll_state", func(u *UI, c uv.ScreenBuffer) { u.updateSidebarScrollState() })
 	run("status_draw", func(u *UI, c uv.ScreenBuffer) { u.status.Draw(c, u.layout.status) })
 	run("editor_render", func(u *UI, c uv.ScreenBuffer) { _ = u.renderEditorView(u.layout.editor.Dx()) })
-	run("rows_render", func(u *UI, c uv.ScreenBuffer) { _ = u.rows.render(c) })
+	run("rows_render", func(u *UI, c uv.ScreenBuffer) { _ = u.rows.render(c, uv.ScreenBuffer{}) })
 }
 
 // BenchmarkAuditKeypressLatency is the felt cost: one keypress through Update
@@ -295,41 +291,6 @@ func BenchmarkAuditKeypressLatency(b *testing.B) {
 			reportHeap(b, u)
 		})
 	}
-}
-
-// TestChatBlitSkipsUnchangedFrame proves the steady-state frame does not
-// repaint the chat: once the decoded buffer is on screen, drawing the same
-// content again must leave every cell untouched so the row cache can reuse it.
-func TestChatBlitSkipsUnchangedFrame(t *testing.T) {
-	u := auditUI(t, 20)
-	canvas := u.frameCanvas()
-	u.chat.Draw(canvas, u.layout.main) // paint the chat once
-
-	clearTouched(canvas)
-	u.chat.Draw(canvas, u.layout.main)
-	require.Zero(t, dirtyRows(canvas), "an unchanged chat must not repaint any row")
-
-	// Scrolling changes the content, so the chat has to repaint.
-	u.chat.ScrollToTop()
-	clearTouched(canvas)
-	u.chat.Draw(canvas, u.layout.main)
-	require.NotZero(t, dirtyRows(canvas), "scrolling must repaint the chat")
-}
-
-func clearTouched(canvas uv.ScreenBuffer) {
-	for i := range canvas.Touched {
-		canvas.Touched[i] = nil
-	}
-}
-
-func dirtyRows(canvas uv.ScreenBuffer) int {
-	dirty := 0
-	for _, touched := range canvas.Touched {
-		if touched != nil {
-			dirty++
-		}
-	}
-	return dirty
 }
 
 // TestSidebarMemoTracksInputs guards the sidebar content memo: identical

@@ -4,6 +4,7 @@ import (
 	"context"
 	"image"
 	"strings"
+	"time"
 
 	"charm.land/bubbles/v2/help"
 	"charm.land/bubbles/v2/key"
@@ -17,6 +18,31 @@ import (
 
 // SearchID is the identifier for the search dialog.
 const SearchID = "search"
+
+const (
+	// searchMinQueryLen is the shortest query worth running.
+	searchMinQueryLen = 3
+	// searchDebounce is how long the query must sit still before it is
+	// searched, so typing a word runs one search instead of one per key.
+	searchDebounce = 150 * time.Millisecond
+	// searchResultLimit caps the results fetched per search.
+	searchResultLimit = 50
+)
+
+// searchDebounceMsg fires once the query has been quiet for
+// [searchDebounce].
+type searchDebounceMsg struct {
+	generation uint64
+	query      string
+}
+
+// searchResultsMsg carries the outcome of a search run off the Update
+// goroutine.
+type searchResultsMsg struct {
+	generation uint64
+	results    []search.Result
+	err        error
+}
 
 // messageSearcher is implemented by workspaces that can search message
 // history. It is intentionally optional so that workspaces without search
@@ -32,6 +58,11 @@ type SearchDialog struct {
 	list *list.FilterableList
 
 	input textinput.Model
+
+	// searchGeneration identifies the latest query. Results and debounce
+	// ticks carrying an older generation are stale, so they are dropped
+	// instead of overwriting the newer query's results.
+	searchGeneration uint64
 
 	bodyArea image.Rectangle
 	errText  string
@@ -102,43 +133,33 @@ func (s *SearchDialog) ID() string {
 	return SearchID
 }
 
-func (s *SearchDialog) performSearch() {
+// scheduleSearch invalidates any in-flight search and starts a debounced one
+// for the current query. It returns nil when the query is too short to run.
+func (s *SearchDialog) scheduleSearch() tea.Cmd {
+	s.searchGeneration++
+	generation := s.searchGeneration
+
 	query := strings.TrimSpace(s.input.Value())
-	if len(query) < 3 {
+	if len(query) < searchMinQueryLen {
 		s.errText = ""
 		s.list.SetItems()
-		return
+		return nil
 	}
 
-	searcher, ok := s.com.Workspace.(messageSearcher)
-	if !ok {
-		s.errText = "Search is unavailable in this workspace."
-		s.list.SetItems()
-		return
-	}
+	return tea.Tick(searchDebounce, func(time.Time) tea.Msg {
+		return searchDebounceMsg{generation: generation, query: query}
+	})
+}
 
-	results, err := searcher.SearchMessages(
-		context.Background(), query, search.SearchOpts{Limit: 50},
-	)
-	if err != nil {
-		s.errText = "Search unavailable: " + err.Error()
-		s.list.SetItems()
-		return
+// searchCmd searches the workspace off the Update goroutine and reports the
+// results back as a [searchResultsMsg].
+func (s *SearchDialog) searchCmd(searcher messageSearcher, generation uint64, query string) tea.Cmd {
+	return func() tea.Msg {
+		results, err := searcher.SearchMessages(
+			context.Background(), query, search.SearchOpts{Limit: searchResultLimit},
+		)
+		return searchResultsMsg{generation: generation, results: results, err: err}
 	}
-	s.errText = ""
-
-	items := make([]list.FilterableItem, len(results))
-	for i, r := range results {
-		items[i] = &SearchItem{
-			Versioned: list.NewVersioned(),
-			Result:    r,
-			t:         s.com.Styles,
-			cache:     make(map[int]string),
-		}
-	}
-	s.list.SetItems(items...)
-	s.list.SetSelected(0)
-	s.list.ScrollToTop()
 }
 
 // Cursor returns the cursor position relative to the dialog.
@@ -185,10 +206,38 @@ func (s *SearchDialog) HandleMsg(msg tea.Msg) Action {
 			var cmd tea.Cmd
 			s.input, cmd = s.input.Update(msg)
 			if s.input.Value() != prevValue {
-				s.performSearch()
+				cmd = tea.Batch(cmd, s.scheduleSearch())
 			}
 			return ActionCmd{Cmd: cmd}
 		}
+
+	case searchDebounceMsg:
+		if msg.generation != s.searchGeneration {
+			return nil
+		}
+		searcher, ok := s.com.Workspace.(messageSearcher)
+		if !ok {
+			s.errText = "Search is unavailable in this workspace."
+			s.list.SetItems()
+			return nil
+		}
+		return ActionCmd{Cmd: s.searchCmd(searcher, msg.generation, msg.query)}
+
+	case searchResultsMsg:
+		if msg.generation != s.searchGeneration {
+			return nil
+		}
+		if msg.err != nil {
+			s.errText = "Search unavailable: " + msg.err.Error()
+			s.list.SetItems()
+			return nil
+		}
+		s.errText = ""
+		s.list.SetItems(newSearchItems(s.com.Styles, msg.results)...)
+		if s.list.Len() > 0 {
+			s.list.SetSelected(0)
+		}
+		s.list.ScrollToTop()
 
 	case common.CoalescedWheelMsg:
 		if image.Pt(msg.Mouse.X, msg.Mouse.Y).In(s.bodyArea) {

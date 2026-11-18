@@ -82,7 +82,7 @@ func setupForkButton(u *UI) {
 func setupForkCommand(u *UI) {
 	seedForkMessages(u, forkChatMessages())
 	u.com.Config().Options.TUI = &config.TUIOptions{}
-	commands, err := dialog.NewCommands(u.com, "sess-1", true, false, false, nil, nil)
+	commands, err := dialog.NewCommands(u.com, "sess-1", true, false, false, false, nil, nil)
 	if err != nil {
 		panic(err)
 	}

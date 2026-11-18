@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/charmbracelet/crush/internal/config"
+	"github.com/charmbracelet/crush/internal/pairing"
 	"github.com/charmbracelet/crush/internal/proto"
 	"github.com/charmbracelet/crush/internal/server"
 	"github.com/google/uuid"
@@ -29,6 +30,9 @@ type Client struct {
 	network  string
 	addr     string
 	clientID string
+	// token is the pairing token this peer presents, empty when it has
+	// none (the server's socket permissions are then the boundary).
+	token string
 }
 
 // DefaultClient creates a new [Client] connected to the default server address.
@@ -48,6 +52,9 @@ func NewClient(path, network, address string) (*Client, error) {
 	c.network = network
 	c.addr = address
 	c.clientID = uuid.New().String()
+	if token, _ := pairing.Resolve(); token != "" {
+		c.token = token
+	}
 	p := &http.Protocols{}
 	p.SetHTTP1(true)
 	p.SetUnencryptedHTTP2(true)
@@ -199,6 +206,14 @@ func (c *Client) RetireClient(ctx context.Context) error {
 	return nil
 }
 
+// CloseIdleConnections closes the kept-alive connections the client is not
+// using, so its next request dials the server address afresh. A caller
+// that has replaced the server at that address needs this: a pooled
+// connection still leads to the old process.
+func (c *Client) CloseIdleConnections() {
+	c.h.CloseIdleConnections()
+}
+
 // Dial opens a connection to the server using the same scheme-aware
 // logic the client uses for its HTTP transport. Exposed so callers can
 // reuse the dialer when they need to construct sibling HTTP transports
@@ -207,6 +222,11 @@ func (c *Client) Dial(ctx context.Context, network, address string) (net.Conn, e
 	return c.dialer(ctx, network, address)
 }
 
+// dialer connects to the server. Unix sockets and named pipes live at
+// predictable addresses that another local user can claim before our
+// server does, and requests carry secrets (creating a workspace sends the
+// whole environment), so a server that does not run as the current user
+// is refused before anything is sent. TCP offers no such identity.
 func (c *Client) dialer(ctx context.Context, network, address string) (net.Conn, error) {
 	d := net.Dialer{
 		Timeout:   30 * time.Second,
@@ -218,7 +238,15 @@ func (c *Client) dialer(ctx context.Context, network, address string) (net.Conn,
 		defer cancel()
 		return dialPipeContext(ctx, c.addr)
 	case "unix":
-		return d.DialContext(ctx, "unix", c.addr)
+		conn, err := d.DialContext(ctx, "unix", c.addr)
+		if err != nil {
+			return nil, err
+		}
+		if err := verifyUnixPeer(conn, c.addr); err != nil {
+			conn.Close()
+			return nil, err
+		}
+		return conn, nil
 	default:
 		return d.DialContext(ctx, network, address)
 	}
@@ -266,6 +294,10 @@ func (c *Client) buildReq(ctx context.Context, method, url string, body io.Reade
 
 	for k, v := range headers {
 		r.Header[http.CanonicalHeaderKey(k)] = v
+	}
+
+	if c.token != "" {
+		r.Header.Set("Authorization", "Bearer "+c.token)
 	}
 
 	r.URL.Scheme = "http"

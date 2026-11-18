@@ -1,0 +1,86 @@
+# scratch Go project: /tmp/orbs-coverage-proj
+# calc.go has 3 one-statement functions; calc_test.go only calls Add
+
+# the project's own toolchain agrees on the number the gate must see
+$ go test -coverprofile=/tmp/orbs-coverage-tmp/cover.out ./... && go tool cover -func=/tmp/orbs-coverage-tmp/cover.out | tail -1
+total:					(statements)	33.3%
+exit=0
+
+# a passing run below the threshold exits non-zero and names the number
+$ star verify --min-coverage 90 --json --out /tmp/orbs-coverage-bundles/under
+exit=1
+          
+   ERROR  
+          
+  Coverage gate failed: 33.3% measured, 90.0% required (1 of 3 statements; evidence: /tmp/orbs-coverage-              
+  bundles/under).                                                                                                     
+
+verdict: under-covered | steps: build=0, test=0
+coverage: 33.3% (1 of 3 statements), required 90.0%, passed=False
+
+# the same measured number, in the bundle a reviewer keeps
+$ sed -n "/## Coverage/,/## Changes/p" /tmp/orbs-coverage-bundles/under/summary.md
+## Coverage
+
+- Required: 90.0% of statements
+- Measured: 33.3% (1 of 3 statements)
+- Gate: failed
+- Command: `go test -coverprofile="/tmp/orbs-coverage-bundles/under/coverage.out" ./...`
+- Profile: `coverage.out`
+
+## Changes
+
+# the same project, a threshold it does meet: the run passes
+$ star verify --min-coverage 20 --json --out /tmp/orbs-coverage-bundles/over
+exit=0
+verdict: pass | steps: build=0, test=0
+coverage: 33.3% (1 of 3 statements), required 20.0%, passed=True
+
+# below a threshold the measurement still reports the real number, not the threshold
+$ star verify --min-coverage 100 --json --out /tmp/orbs-coverage-bundles/all
+exit=1
+verdict: under-covered | steps: build=0, test=0
+coverage: 33.3% (1 of 3 statements), required 100.0%, passed=False
+
+# without the flag nothing changes: no coverage gate, same pass as before
+$ star verify --json --out /tmp/orbs-coverage-bundles/plain
+exit=0
+verdict: pass | steps: build=0, test=0
+coverage: absent (no gate requested)
+
+# a failing test stays a failure: the gate never relabels it as coverage
+$ star verify --min-coverage 90 --json --out /tmp/orbs-coverage-bundles/broken
+exit=1
+verdict: fail | steps: build=0, test=1
+coverage: 33.3% (1 of 3 statements), required 90.0%, passed=False
+
+# restore the correct code before the next scenario
+# a project with no coverage provider says so, instead of passing or guessing
+$ cd /tmp/orbs-coverage-node && star verify --min-coverage 80 --json --out /tmp/orbs-coverage-bundles/node
+exit=1
+          
+   ERROR  
+          
+  Coverage gate cannot be evaluated: no coverage provider is known for the detected stack(s): Node (evidence:         
+  /tmp/orbs-coverage-bundles/node).                                                                                   
+
+verdict: coverage-unavailable | steps: test=0
+coverage: unavailable -> no coverage provider is known for the detected stack(s): Node
+
+# a flaky test under a coverage gate is still FLAKY, not quietly re-labelled
+$ cd /tmp/orbs-coverage-flake && star verify --repeat 3 --min-coverage 10 --json --out /tmp/orbs-coverage-bundles/flake
+exit=1
+verdict: flaky | steps: build=0, test=0
+Traceback (most recent call last):
+  File "<stdin>", line 12, in <module>
+KeyError: 'covered'
+attempt exit codes: [0, 1, 0] | flaky: True
+
+# an impossible threshold is rejected instead of being treated as 0
+$ star verify --min-coverage 120
+          
+   ERROR  
+          
+  Invalid --min-coverage: 120, want a percentage between 0 and 100.                                                   
+
+exit=1

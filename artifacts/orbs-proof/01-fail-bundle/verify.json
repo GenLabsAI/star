@@ -1,0 +1,109 @@
+{
+  "verdict": "fail",
+  "started_at": "2026-11-17T23:59:39.433371245Z",
+  "duration_ms": 286,
+  "workspace": {
+    "workspace": {
+      "dir": "/tmp/orbs-proof-proj",
+      "config_dir": "/workspace/homes/f14882b58e53df863a7f0ed6/.config/crush",
+      "state_dir": "/workspace/homes/f14882b58e53df863a7f0ed6/.local/share/crush"
+    },
+    "star": {
+      "version": "devel",
+      "os": "linux",
+      "arch": "amd64"
+    },
+    "git": {
+      "repository": true,
+      "root": "/tmp/orbs-proof-proj",
+      "branch": "main"
+    },
+    "project": {
+      "stacks": [
+        {
+          "name": "Go",
+          "manifests": [
+            "/tmp/orbs-proof-proj/go.mod"
+          ],
+          "runtimes": [
+            "go"
+          ],
+          "commands": [
+            {
+              "kind": "install",
+              "command": "go mod download"
+            },
+            {
+              "kind": "build",
+              "command": "go build ./..."
+            },
+            {
+              "kind": "test",
+              "command": "go test ./..."
+            }
+          ]
+        }
+      ],
+      "context_files": null,
+      "skills": null,
+      "config_files": null
+    },
+    "hooks": {
+      "setup_executable": false
+    },
+    "runtimes": [
+      {
+        "name": "git",
+        "found": true,
+        "path": "/usr/bin/git"
+      },
+      {
+        "name": "go",
+        "found": true,
+        "path": "/workspace/homes/f14882b58e53df863a7f0ed6/sdk/go/bin/go",
+        "required_by": [
+          "Go"
+        ]
+      },
+      {
+        "name": "sh",
+        "found": true,
+        "path": "/usr/bin/sh"
+      }
+    ],
+    "cloud": {
+      "api_base_url_set": false,
+      "user_credential": false,
+      "worker_token": false,
+      "model_ready": false
+    },
+    "logs": {}
+  },
+  "changes": {
+    "repository": true,
+    "root": "/tmp/orbs-proof-proj",
+    "branch": "main",
+    "ahead": 0,
+    "behind": 0,
+    "files": [],
+    "patch_bytes": 0
+  },
+  "steps": [
+    {
+      "kind": "build",
+      "command": "go build ./...",
+      "exit_code": 0,
+      "duration_ms": 20,
+      "log": "logs/01-build.log"
+    },
+    {
+      "kind": "test",
+      "command": "go test ./...",
+      "exit_code": 1,
+      "duration_ms": 265,
+      "log": "logs/02-test.log",
+      "output_tail": "--- FAIL: TestSum (0.00s)\n    sum_test.go:7: Sum(2, 2) = 4, want 5\nFAIL\nFAIL\texample.com/proof\t0.004s\nFAIL\n"
+    }
+  ],
+  "bundle": "/tmp/proof-out/01-fail-bundle"
+}

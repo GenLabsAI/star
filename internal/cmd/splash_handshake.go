@@ -1,11 +1,23 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
 	"time"
 )
+
+// restoreTerminalSeq hands the terminal back after a launch we interrupted
+// ourselves. It mirrors the launcher's own restore sequence.
+const restoreTerminalSeq = "\x1b[?1049l\x1b[?25h\x1b[0m\x1b[r"
+
+// restoreTerminal leaves the alternate screen and shows the cursor again.
+// Used when an interrupt ends the launch before Bubble Tea or the launcher
+// could restore the terminal, so the user is not stranded on the splash.
+func restoreTerminal() {
+	fmt.Fprint(os.Stdout, restoreTerminalSeq)
+}
 
 // launcherHandshake coordinates with the Rust launcher (star binary) so
 // that Bubble Tea never touches the terminal until the launcher's splash
@@ -43,16 +55,24 @@ func touchFile(path string) error {
 	return f.Close()
 }
 
-func waitForFile(path string) {
-	// Core blocks here until the Rust launcher signals it has released the terminal.
-	// We must not timeout here, otherwise we proceed to render Bubble Tea before
-	// the launcher has exited the alt-screen, breaking the terminal state.
+// waitForFile blocks until the launcher creates the sentinel file, or ctx is
+// done. It never times out on its own: proceeding to render Bubble Tea before
+// the launcher released the terminal breaks the terminal state. Cancellation
+// is different — an interrupt means nobody is going to hand anything over, so
+// waiting would only hang the process on the splash.
+func waitForFile(ctx context.Context, path string) error {
+	ticker := time.NewTicker(10 * time.Millisecond)
+	defer ticker.Stop()
 	for {
 		if _, err := os.Stat(path); err == nil {
 			_ = os.Remove(path)
-			return
+			return nil
 		}
-		time.Sleep(10 * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+		}
 	}
 }
 
@@ -72,12 +92,14 @@ func (h *launcherHandshake) signalReady() error {
 // awaitRelease blocks until the launcher has stopped animating and given up
 // ownership of the terminal. It must be called before tea.NewProgram/Run so
 // bubbletea never writes to the terminal while the launcher still owns it.
-func (h *launcherHandshake) awaitRelease() error {
+// It returns ctx.Err() when the context is cancelled first, which is how a
+// Ctrl+C pressed while the splash is up ends the launch instead of being
+// swallowed.
+func (h *launcherHandshake) awaitRelease(ctx context.Context) error {
 	if !h.active {
 		return nil
 	}
-	waitForFile(h.releasePath)
-	return nil
+	return waitForFile(ctx, h.releasePath)
 }
 
 // notifyRendered tells the launcher that bubbletea has produced its first

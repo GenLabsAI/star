@@ -5,16 +5,23 @@ import (
 )
 
 type WakeupEvent struct {
-	SessionID string
-	Reason    string
-	Prompt    string
+	SessionID  string
+	ScheduleID string
+	Reason     string
+	Prompt     string
+	Event      string
+	Cloud      bool
 }
 
 type WakeupScheduledEvent struct {
-	SessionID string
-	Reason    string
-	Prompt    string
-	EndTime   time.Time
+	SessionID  string
+	ScheduleID string
+	Reason     string
+	Prompt     string
+	Event      string
+	Cloud      bool
+	Repeat     string
+	EndTime    time.Time
 }
 
 type WakeupCanceledEvent struct {

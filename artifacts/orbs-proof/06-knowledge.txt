@@ -1,0 +1,70 @@
+$ star knowledge list        # nothing stored yet
+No knowledge entries yet.
+exit=0
+
+$ star knowledge show ci-count   # missing entry is an error, not silence
+          
+   ERROR  
+          
+  No knowledge entry named "ci-count".                                                                                
+
+exit=1
+
+# process A: record the discovery (a separate OS process)
+$ star knowledge add ci-count --body "<the discovery>"
+Added ci-count (135 bytes)
+exit=0
+
+# process B: a fresh process with no shared memory reads it back
+$ star knowledge show ci-count > /tmp/knowledge-readback.md
+exit=0
+
+--- readback ---
+# CI quirk
+
+CI runs go test with -count=1, so a cached result cannot hide a failure.
+The database container listens on 5433, not 5432.
+--- verbatim check ---
+sha256(source)   = dd2f88d335853d5b9c279ed63f26d5e261d399bc4645ba6365b1ef2d6b24bbe3
+sha256(readback) = dd2f88d335853d5b9c279ed63f26d5e261d399bc4645ba6365b1ef2d6b24bbe3
+identical: yes
+
+$ star knowledge list
+  ci-count                 CI quirk
+
+$ star knowledge list --json
+[
+  {
+    "name": "ci-count",
+    "path": "/tmp/orbs-knowledge-proj/.crush/knowledge/ci-count.md",
+    "size": 135,
+    "updated": "2026-11-18T00:26:18.777080245Z",
+    "summary": "CI quirk"
+  }
+]
+
+$ star knowledge path && ls -l
+/tmp/orbs-knowledge-proj/.crush/knowledge
+total 4
+-rw-r--r-- 1 fbf14882b58e53df863a7f0ed6 freebuff 135 Nov 18 00:26 ci-count.md
+
+$ star env | grep -i knowledge   # agents discover it from the manifest
+  dir               /tmp/orbs-knowledge-proj
+  knowledge         ci-count
+
+# a second entry, and a replacement of the first
+$ printf "5433, from the compose file" | star knowledge add db-port
+Added db-port (28 bytes)
+exit=0
+$ star knowledge add ci-count --body "corrected: -count=1 is set in Taskfile.yaml"
+Added ci-count (44 bytes)
+exit=0
+$ star knowledge show ci-count
+corrected: -count=1 is set in Taskfile.yaml
+exit=0
+
+$ star knowledge remove ci-count && star knowledge list
+Removed ci-count
+exit=0
+  db-port                  5433, from the compose file
+exit=0

@@ -1,0 +1,21 @@
+enrolled ok
+session: {"relay_url": "wss://api.genlabs.dev/terminal/browser/d6cc355c-852a-403b-8cf9-0ee0e93eda75", "reused": false, "session_id": "d6cc355c-852a-403b-8cf9-0ee0e93eda75", "workflow": "acp-session.yml"}
+no ready frame (reused idle runner); proceeding: TimeoutError
+chunk: 
+[orb] workspace snapshot restored (setup 927711f5); setup skipped.
+
+initialized
+agent session: sess-cloud-1
+chunk: 
+[orb] resume check ok
+
+chunk: CODE WAS: ORB5
+SETUP STILL SAYS: SETUP_TOKEN_5 2026-11-16T23:42:08Z
+prompt result: {"jsonrpc": "2.0", "id": 3, "result": {"stopReason": "end_turn"}}
+ELAPSED=19s
+FULLTEXT:
+[orb] workspace snapshot restored (setup 927711f5); setup skipped.
+
+[orb] resume check ok
+CODE WAS: ORB5
+SETUP STILL SAYS: SETUP_TOKEN_5 2026-11-16T23:42:08Z

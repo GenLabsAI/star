@@ -1,0 +1,31 @@
+Live render captured over the prod relay (session 6fe8e926) after Star
+sent 2x DOWN + ENTER into the cloud PTY. ANSI stripped.
+
+=== input sent; collecting response ===
+[>4m[>4;2m[>1u[1 q
+  ╱╱╱╱╱╱  Charm™v0.101.0 ╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱
+  ╱╱╱╱╱╱ ▄▀▀▀▀▀▀▀ █▀▀▀▄ █   █ ▄▀▀▀▀ █   █ ╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱
+  ╱╱╱╱╱╱ █        █▀▀▀▄ █   █ ▀▀▀▀█ █▀▀▀█ ╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱
+ To start, let's choose a provider and model.╱╱╱╱
+ > Find your fave
+ Charm Hyper  ────────────────────────────────────────────────────────┃
+ Prism │
+ Prism Core │
+ Prism Flash │
+ DeepSeek V4.1 Flash 1017 │
+ DeepSeek V4.1 Flash 1017 (Basic) │
+ DeepSeek V4 Pro 0813 │
+ Kimi K3.1 Pro │
+ Kimi K3 │
+ GLM 5.3 │
+ GLM 5.3 Flash │
+ MiniMax M3 │
+ Inkling │
+ Qwen3.8-Max │
+ ↑/↓ choose • enter confirm[?1004$p[>q
+=== attempt 1 ended: ConnectionClosedOK: received 1000 (OK); then sent 1000 (OK) ===
+=== attempt 2 attached ===
+=== attempt 2 ended: ConnectionClosedOK: received 1000 (OK); then sent 1000 (OK) ===
+=== attempt 3 attached ===
+=== attempt 3 ended: ConnectionClosedOK: received 1000 (OK); then sent 1000 (OK) ===
+=== attempt 4 a

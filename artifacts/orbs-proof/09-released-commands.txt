@@ -1,0 +1,21 @@
+# binary: /tmp/rel2/star-linux-amd64/star-core
+$ star env --json        # the artifact reports its own version and commit
+version: v0.1.141
+commit:  1022fd03a55768b553efb371bcdca0eda5468bdb
+
+=== item proof: knowledge, run with the released binary ===
+identical: yes
+
+=== item proof: ports, run with the released binary ===
+workspace filter: only port 18765 from pid 345853 in /tmp/orbs-ports-proj
+outside listener on 18766 correctly hidden
+no listeners remain: the killed process is gone from the inventory
+
+=== item proof: pairing, run with the released binary ===
+no file was written: 0 token or pairing files in the project
+unpaired peer -> HTTP 401
+wrong token -> HTTP 401
+paired peer -> HTTP 200
+port inventory: no entry for 18999 any more
+server with --pair-file, token from the file (trailing newline trimmed) -> HTTP 200
+

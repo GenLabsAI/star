@@ -1,0 +1,1 @@
+echo "RESUME_TOKEN $(date -u +%FT%TZ) workspace=$(ls | head -3 | tr '\n' ',')"

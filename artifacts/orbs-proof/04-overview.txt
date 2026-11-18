@@ -1,0 +1,37 @@
+$ star verify        # default bundle, kept in the project data dir
+Verification: PASS
+  workspace         /tmp/orbs-proof-proj
+  branch            main
+  duration          105ms
+  bundle            /tmp/orbs-proof-proj/.crush/verify/20261117T235940Z
+
+Steps
+  pass     build  go build ./...                         16ms
+  pass     test   go test ./...                          88ms
+
+Changes
+  2 path(s), patch 606 bytes
+
+Evidence: /tmp/orbs-proof-proj/.crush/verify/20261117T235940Z/summary.md
+exit=0
+
+$ XDG_DATA_HOME=/tmp/orbs-proof-state star overview
+Workspaces (1)
+  main       2 changed    pass just now              /tmp/orbs-proof-proj
+
+Cloud
+  api base url      not set
+  user credential   not set
+  worker token      not set
+  model             not set
+
+Scheduled work: `star wakeup list`; details: `star env`.
+exit=0
+
+$ XDG_DATA_HOME=/tmp/orbs-proof-state star overview --json | python3 -c 'summary'
+workspace: /tmp/orbs-proof-proj
+branch: main
+changed_paths: 2
+verification: pass 2 steps 0 failed
+cloud: {'api_base_url_set': False, 'user_credential': False, 'worker_token': False, 'model_ready': False}
+exit=0

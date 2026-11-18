@@ -1,0 +1,52 @@
+$ star changes
+  repository        /tmp/orbs-proof-proj
+  branch            main
+  paths             2 changed
+  M   sum.go
+  M   sum_test.go
+  patch             606 bytes
+exit=0
+
+$ star changes --json | python3 -c 'summary'
+repository: True
+branch: main
+patch_bytes: 606
+files: [('M', 'sum.go'), ('M', 'sum_test.go')]
+exit=0
+
+$ star changes --patch /tmp/orbs-review.patch
+  repository        /tmp/orbs-proof-proj
+  branch            main
+  paths             2 changed
+  M   sum.go
+  M   sum_test.go
+  patch             606 bytes
+  written           606 bytes written to /tmp/orbs-review.patch
+exit=0
+
+--- /tmp/orbs-review.patch ---
+diff --git a/sum.go b/sum.go
+index da216cf..429ccd6 100644
+--- a/sum.go
++++ b/sum.go
+@@ -2,3 +2,6 @@ package proof
+ 
+ // Sum adds two integers.
+ func Sum(a, b int) int { return a + b }
++
++// Double returns twice n.
++func Double(n int) int { return Sum(n, n) }
+diff --git a/sum_test.go b/sum_test.go
+index bbebbcd..b7ba31e 100644
+--- a/sum_test.go
++++ b/sum_test.go
+@@ -3,7 +3,7 @@ package proof
+ import "testing"
+ 
+ func TestSum(t *testing.T) {
+-	if got := Sum(2, 2); got != 5 {
+-		t.Fatalf("Sum(2, 2) = %d, want 5", got)
++	if got := Sum(2, 2); got != 4 {
++		t.Fatalf("Sum(2, 2) = %d, want 4", got)
+ 	}
+ }

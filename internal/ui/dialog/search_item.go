@@ -25,6 +25,29 @@ var (
 	_ list.Focusable      = (*SearchItem)(nil)
 )
 
+// newSearchItems builds the list rows for the given results, keeping one row
+// per distinct visible result. The same text regularly ends up indexed in many
+// messages (forks, repeated tool output, retries), and dozens of rows reading
+// exactly the same are useless to pick from.
+func newSearchItems(sty *styles.Styles, results []search.Result) []list.FilterableItem {
+	items := make([]list.FilterableItem, 0, len(results))
+	seen := make(map[string]struct{}, len(results))
+	for _, result := range results {
+		key := sanitizeLine(result.SessionTitle) + "\x00" + sanitizeLine(result.Snippet)
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		items = append(items, &SearchItem{
+			Versioned: list.NewVersioned(),
+			Result:    result,
+			t:         sty,
+			cache:     make(map[int]string),
+		})
+	}
+	return items
+}
+
 // Filter returns the filterable value.
 func (s *SearchItem) Filter() string {
 	return s.Result.Snippet
@@ -35,13 +58,32 @@ func (s *SearchItem) ID() string {
 	return s.Result.MessageID
 }
 
+// sanitizeLine makes text safe to draw on a single dialog row.
+//
+// Tabs matter most: terminals expand them to the next tab stop, but width
+// measurement counts them differently, so a row containing one overflows the
+// width it was truncated to and wraps. Newlines split a row in two, other
+// control characters corrupt it, and ANSI escapes from indexed tool output
+// would leak colors into the dialog, so all of them are stripped or folded
+// into single spaces.
+func sanitizeLine(text string) string {
+	text = ansi.Strip(text)
+	text = strings.Map(func(r rune) rune {
+		switch {
+		case r == '\t' || r == '\n' || r == '\r' || r == '\v' || r == '\f':
+			return ' '
+		case r < 0x20 || r == 0x7f:
+			return -1
+		}
+		return r
+	}, text)
+	return strings.Join(strings.Fields(text), " ")
+}
+
 // Render returns the string representation of the search item.
 func (s *SearchItem) Render(width int) string {
-	snippet := strings.ReplaceAll(s.Result.Snippet, "\n", " ")
-	snippet = strings.ReplaceAll(snippet, "\r", " ")
-	snippet = strings.TrimSpace(snippet)
-
-	info := s.Result.SessionTitle
+	snippet := sanitizeLine(s.Result.Snippet)
+	info := sanitizeLine(s.Result.SessionTitle)
 
 	style := s.t.Dialog.NormalItem
 	if s.focused {

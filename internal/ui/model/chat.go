@@ -9,6 +9,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/crush/internal/config"
+	"github.com/charmbracelet/crush/internal/message"
 	"github.com/charmbracelet/crush/internal/ui/anim"
 	"github.com/charmbracelet/crush/internal/ui/chat"
 	"github.com/charmbracelet/crush/internal/ui/common"
@@ -100,6 +101,10 @@ type Chat struct {
 	list     *list.List
 	idInxMap map[string]int // Map of message IDs to their indices in the list
 
+	// externalAnimation is set when something outside the list is animating
+	// and needs the shared clock, such as the header's subagent spinner.
+	externalAnimation bool
+
 	// animRunning is true while the shared animation clock has a tick
 	// outstanding. The clock stops itself when no visible item is spinning
 	// and is re-armed by EnsureAnimating once one is. animGen identifies
@@ -145,14 +150,6 @@ type Chat struct {
 	// rendered output. Benchmarks read it to prove steady-state frames hit
 	// the decoded buffer instead of re-parsing ANSI.
 	drawDecodes int
-
-	// blitGood reports that drawCache.buf is already painted on screen at
-	// blitArea. While it holds, Draw skips the per-cell copy: the cells are
-	// already what the buffer would write, and copying them would mark every
-	// chat row dirty for no visual change. Anything that paints over the
-	// chat area must call InvalidateBlit so the next frame repaints.
-	blitGood bool
-	blitArea image.Rectangle
 
 	// scrollbarBlit caches the scrollbar cells. Drawing it with a fresh
 	// StyledString cleared the reserved column on every frame, dirtying
@@ -306,10 +303,10 @@ func (m *Chat) Draw(scr uv.Screen, area uv.Rectangle) {
 		if changed {
 			m.drawDecodes++
 		}
-		if changed || !m.blitGood || m.blitArea != listArea {
-			drawCachedBuffer(scr, listArea, buf, changed)
-			m.blitGood, m.blitArea = true, listArea
-		}
+		// Blit the decoded cells every frame. View composes onto a blank
+		// canvas, so nothing has to be cleared first and no cell of an
+		// earlier frame can leak through.
+		buf.Draw(scr, listArea)
 	}
 
 	// Draw scrollbar if visible and needed. Only reached when not resizing
@@ -381,13 +378,6 @@ func (m *Chat) drawForkButton(scr uv.Screen, area, listArea image.Rectangle) {
 		rect.Max.Y-area.Min.Y,
 	)
 	m.forkButtonMsgID = msgID
-}
-
-// InvalidateBlit forces the next Draw to repaint the chat cells. Call it
-// whenever something else writes over the chat area (a dialog, an overlay) or
-// the screen is cleared underneath it.
-func (m *Chat) InvalidateBlit() {
-	m.blitGood = false
 }
 
 // decodeCache assembles the decoded screen for rendered, reusing the rows the
@@ -491,23 +481,6 @@ func renderedBounds(rendered string, method ansi.Method) (w, h int) {
 	return w, h
 }
 
-// drawCachedBuffer blits a previously-decoded buffer into scr at area,
-// mirroring uv.StyledString.Draw's screen-mode behavior for the default
-// Wrap=false, Tail="" case. The clear loop matches StyledString.Draw line
-// 51-56; the buf.Draw call replaces the per-cell ANSI decode that printString
-// does on every uncached frame with a pure cell copy.
-func drawCachedBuffer(scr uv.Screen, area uv.Rectangle, buf uv.ScreenBuffer, decoded bool) {
-	// Clear the area only when the buffer content changed: leftover cells
-	// from a previous frame outside the new content must be zeroed, because
-	// Buffer.Draw skips empty cells (it doesn't clear). Reusing the previous
-	// buffer needs no clear at all, and skipping it keeps every unchanged
-	// row untouched so View can reuse its rendered text.
-	if decoded {
-		clearScreenArea(scr, area)
-	}
-	buf.Draw(scr, area)
-}
-
 // BeginResize marks the chat as actively resizing so the next draws skip
 // the full-height scan (and the scrollbar), reflowing only the visible
 // items. It returns a command that, once resizing settles, starts warming
@@ -538,27 +511,27 @@ func (m *Chat) WarmStep(seq int) (cmd tea.Cmd, done bool) {
 
 // SetSize sets the size of the chat view port.
 func (m *Chat) SetSize(width, height int) {
-	// Reserve a column for the scrollbar when content overflows, decided
-	// with a cheap bounded overflow check rather than the O(N) total height.
-	// The final width is applied in a single SetSize so that an unchanged
-	// width is a no-op — critical after warming, where re-setting the same
-	// width would otherwise drop the freshly warmed cache and reintroduce
-	// the blocking full render.
 	// Capture whether we should stay pinned to the bottom *before* the size
 	// change. A width change rewraps every item, so the list's line offsets
 	// (offsetIdx/offsetLine) become stale and AtBottom() can no longer be
 	// trusted afterward. follow short-circuits the AtBottom() walk in the
 	// common streaming case.
 	wasFollowing := m.follow || m.AtBottom()
-	listWidth := width
-	if m.list.Overflows(height) {
-		listWidth = max(0, width-1)
-	}
-	m.list.SetSize(listWidth, height)
+	m.list.SetSize(max(0, width-m.scrollbarCols()), height)
 	// Re-anchor to bottom if we were pinned there before the resize.
 	if wasFollowing {
 		m.ScrollToBottom()
 	}
+}
+
+// scrollbarCols is the width reserved for the scrollbar. It does not depend
+// on overflow, so the list width (and every cached render) never flips as
+// the transcript crosses the viewport height.
+func (m *Chat) scrollbarCols() int {
+	if m.scrollbarMode == config.ScrollbarNever {
+		return 0
+	}
+	return 1
 }
 
 // Len returns the number of items in the chat list.
@@ -566,30 +539,16 @@ func (m *Chat) Len() int {
 	return m.list.Len()
 }
 
-// InvalidateRenderCaches drops cached rendered output on every message
-// item so the next draw re-renders with the current styles.
-func (m *Chat) InvalidateRenderCaches() {
-	items := make([]chat.MessageItem, 0, m.list.Len())
-	for i := range m.list.Len() {
-		if item, ok := m.list.ItemAt(i).(chat.MessageItem); ok {
-			items = append(items, item)
+// Restyle drops cached rendered output on every message item so it
+// re-renders with the current styles once drawn. Styles never change
+// layout, so the list keeps its heights and only visible items render on
+// the next frame.
+func (m *Chat) Restyle() {
+	m.list.Restyle(func(item list.Item) {
+		if msg, ok := item.(chat.MessageItem); ok {
+			chat.ClearItemCache(msg)
 		}
-	}
-	chat.ClearItemCaches(items)
-}
-
-// InvalidateVisibleRenderCaches drops cached rendered output on the
-// message items currently visible in the viewport, so the next draw
-// re-renders them with the current styles. Items outside the viewport
-// keep their cached output, which keeps theme previews fast in large
-// sessions; they are re-rendered by a later full invalidation.
-func (m *Chat) InvalidateVisibleRenderCaches() {
-	start, end := m.list.VisibleItemIndices()
-	for i := start; i <= end; i++ {
-		if item, ok := m.list.ItemAt(i).(chat.MessageItem); ok {
-			chat.ClearItemCaches([]chat.MessageItem{item})
-		}
-	}
+	})
 }
 
 // SetMessages sets the chat messages to the provided list of message items.
@@ -639,6 +598,17 @@ func (m *Chat) AppendMessages(msgs ...chat.MessageItem) {
 	m.list.AppendItems(items...)
 }
 
+// LastPromptID returns the id of the last stored prompt in view, or "".
+func (m *Chat) LastPromptID() string {
+	for i := m.list.Len() - 1; i >= 0; i-- {
+		item, ok := m.list.ItemAt(i).(*chat.UserMessageItem)
+		if ok && item.ID() != chat.PendingUserID && item.Message().IsPrompt() {
+			return item.ID()
+		}
+	}
+	return ""
+}
+
 // containsMessage reports whether any of msgs carries the given id.
 func containsMessage(msgs []chat.MessageItem, id string) bool {
 	return slices.ContainsFunc(msgs, func(msg chat.MessageItem) bool {
@@ -676,21 +646,6 @@ func (m *Chat) UpdateNestedToolIDs(containerID string) {
 // was armed for.
 type animTickMsg struct{ gen uint64 }
 
-// HasLiveSpinner reports whether any item, on screen or not, is spinning
-// with the animation clock allowed. A frozen spinner is a ghost left by a
-// killed run, not progress.
-func (m *Chat) HasLiveSpinner() bool {
-	if !m.animAllowed {
-		return false
-	}
-	for idx := m.list.Len() - 1; idx >= 0; idx-- {
-		if animatable, ok := m.list.ItemAt(idx).(chat.Animatable); ok && animatable.Spinning() {
-			return true
-		}
-	}
-	return false
-}
-
 // hasVisibleAnimation reports whether any item in the viewport is spinning.
 func (m *Chat) hasVisibleAnimation() bool {
 	if m.list.Len() == 0 {
@@ -723,6 +678,14 @@ func (m *Chat) SetAnimationsAllowed(allowed bool) {
 // every message so any change that puts a spinner on screen (new message,
 // tool update, scroll, session load) starts the clock without per-call-site
 // wiring. It is the only place a tick is armed apart from Tick itself.
+// SetExternalAnimation records whether something outside the transcript is
+// animating, such as the header's subagent spinner. The clock is shared, and
+// its gate otherwise only looks at items currently on screen, so an animation
+// living in the chrome would never keep it running.
+func (m *Chat) SetExternalAnimation(animating bool) {
+	m.externalAnimation = animating
+}
+
 func (m *Chat) EnsureAnimating() tea.Cmd {
 	if !m.animAllowed {
 		m.animRunning = false
@@ -731,7 +694,7 @@ func (m *Chat) EnsureAnimating() tea.Cmd {
 	if m.animRunning && m.now().Sub(m.animArmedAt) < animClockLostAfter {
 		return nil
 	}
-	if !m.hasVisibleAnimation() {
+	if !m.hasVisibleAnimation() && !m.externalAnimation {
 		m.animRunning = false
 		return nil
 	}
@@ -1121,6 +1084,16 @@ func (m *Chat) RemoveMessage(id string) {
 		return
 	}
 
+	// Drop the nested IDs the removed item owned so a stale lookup cannot
+	// resolve into an unrelated item at the same index later.
+	if item, ok := m.list.ItemAt(idx).(chat.MessageItem); ok {
+		if container, ok := item.(chat.NestedToolContainer); ok {
+			for _, nested := range container.NestedTools() {
+				delete(m.idInxMap, nested.ID())
+			}
+		}
+	}
+
 	// Remove from list
 	m.list.RemoveItem(idx)
 
@@ -1131,7 +1104,104 @@ func (m *Chat) RemoveMessage(id string) {
 	for i := idx; i < m.list.Len(); i++ {
 		if item, ok := m.list.ItemAt(i).(chat.MessageItem); ok {
 			m.idInxMap[item.ID()] = i
+			if container, ok := item.(chat.NestedToolContainer); ok {
+				for _, nested := range container.NestedTools() {
+					m.idInxMap[nested.ID()] = i
+				}
+			}
 		}
+	}
+}
+
+// RegroupToolItems folds consecutive groupable tool calls in msg into summary
+// rows. Edits, writes, and subagent runs break a run and stay on their own.
+func (m *Chat) RegroupToolItems(msg *message.Message) bool {
+	if m == nil || msg == nil {
+		return false
+	}
+	calls := msg.ToolCalls()
+	if len(calls) == 0 {
+		return false
+	}
+
+	items := make([]chat.ToolMessageItem, len(calls))
+	var hosts []chat.MessageItem
+	seen := make(map[string]struct{}, len(calls))
+	for i, tc := range calls {
+		host := m.MessageItem(tc.ID)
+		if host == nil {
+			return false
+		}
+		item := resolveToolItem(host, tc.ID)
+		if item == nil {
+			return false
+		}
+		items[i] = item
+		if _, ok := seen[host.ID()]; !ok {
+			seen[host.ID()] = struct{}{}
+			hosts = append(hosts, host)
+		}
+	}
+
+	grouped := make([]chat.MessageItem, 0, len(items))
+	for i := 0; i < len(items); {
+		if !chat.GroupableTool(items[i].ToolCall().Name) || !items[i].Finished() {
+			grouped = append(grouped, items[i])
+			i++
+			continue
+		}
+		j := i
+		for j < len(items) && chat.GroupableTool(items[j].ToolCall().Name) && items[j].Finished() {
+			j++
+		}
+		grouped = append(grouped, chat.NewToolGroupItem(m.com.Styles, items[i:j]))
+		i = j
+	}
+
+	if len(hosts) == len(grouped) {
+		same := true
+		for i := range grouped {
+			if hosts[i].ID() != grouped[i].ID() {
+				same = false
+				break
+			}
+		}
+		if same {
+			return false
+		}
+	}
+
+	for _, host := range hosts {
+		m.RemoveMessage(host.ID())
+	}
+	m.AppendMessages(grouped...)
+	return true
+}
+
+// RemoveStaleToolCalls removes the tool items of message messageID whose
+// calls are not in keep, as a retried response drops what its failed attempt
+// streamed. Only the live message is retried, so only the tail is scanned.
+func (m *Chat) RemoveStaleToolCalls(messageID string, keep []message.ToolCall) {
+	var stale []string
+	for i := m.list.Len() - 1; i >= 0; i-- {
+		item, ok := m.list.ItemAt(i).(chat.MessageItem)
+		if !ok {
+			break
+		}
+		tool, isTool := item.(chat.ToolMessageItem)
+		switch {
+		case isTool && tool.MessageID() == messageID:
+			id := tool.ToolCall().ID
+			if !slices.ContainsFunc(keep, func(tc message.ToolCall) bool { return tc.ID == id }) {
+				stale = append(stale, id)
+			}
+		case item.ID() == messageID || item.ID() == chat.AssistantInfoID(messageID):
+		default:
+			i = 0
+		}
+	}
+	for _, id := range stale {
+		m.RemoveMessage(id)
 	}
 }
 
@@ -1142,6 +1212,19 @@ func (m *Chat) MessageItem(id string) chat.MessageItem {
 		return nil
 	}
 	item, ok := m.list.ItemAt(idx).(chat.MessageItem)
+	if !ok {
+		return nil
+	}
+	return item
+}
+
+// MessageItemAt returns the message item at index i, or nil if i is out of
+// range or the item is not a [chat.MessageItem].
+func (m *Chat) MessageItemAt(i int) chat.MessageItem {
+	if i < 0 || i >= m.list.Len() {
+		return nil
+	}
+	item, ok := m.list.ItemAt(i).(chat.MessageItem)
 	if !ok {
 		return nil
 	}
@@ -1254,6 +1337,17 @@ func (m *Chat) HandleMouseDown(x, y int) (bool, tea.Cmd) {
 			}
 		})
 	case 2:
+		// Items that own a double-click gesture (like the Bash group)
+		// consume it instead of selecting a word.
+		if handler, ok := m.list.ItemAt(itemIdx).(chat.MouseDoubleClickHandler); ok {
+			if handler.HandleDoubleClick(x, itemY) {
+				m.clickCount = 0
+				if m.follow {
+					m.ScrollToBottom()
+				}
+				break
+			}
+		}
 		// Double click - select word (no delayed action)
 		m.selectWord(itemIdx, x, itemY)
 	case 3:
