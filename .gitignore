@@ -53,6 +53,11 @@ Thumbs.db
 /crush
 /tmp/
 
+# Locally built Star binaries (go build . / go build -o star-core). The .exe
+# variants are covered by *.exe above; these cover the extensionless builds.
+/star
+/star-core
+
 manpages/
 completions/crush.*sh
 .prettierignore

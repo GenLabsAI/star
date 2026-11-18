@@ -321,14 +321,15 @@ alt screen and shows "⠈ Star" in gold, then exec's the Go core. The Go
 ### Build
 
 ```sh
-# Build Go core
-go build -o star-core.exe ./main.go
+# Build Go core (bin/ is gitignored, so build output never lands in the tree)
+go build -o bin/star-core.exe ./main.go
 
 # Build Rust launcher
 cd launcher && cargo build --release
 # Output: launcher/target/release/star.exe
 
 # Deploy: place star.exe and star-core.exe side by side
+# (bin/star-core.exe next to star.exe)
 ```
 
 ### Important Notes
