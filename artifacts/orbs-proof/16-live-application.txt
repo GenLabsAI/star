@@ -1,0 +1,74 @@
+# scratch service: /tmp/orbs-live-proj (Go, one handler, one trivial test)
+# service: PORT=18111 go run .   probe: GET http://127.0.0.1:18111/items, expected 200
+
+## The bug: green tests, broken application
+
+$ go test ./...     # what a test-suite-only verification sees
+ok  	example.com/liveapp	TIME
+exit=0
+
+$ star verify --app 'PORT=18111 go run .' --app-url http://127.0.0.1:18111/items --app-expect 200
+exit=1
+verdict: live-fail
+  step build: exit 0
+  step test: exit 0
+live.command: PORT=18111 go run .
+live.url: http://127.0.0.1:18111/items
+live.expected_status: [200]
+live.ready: True
+live.status_code: 500
+live.passed: False
+live.reason: the application answered 500, expected 200
+app log, first line: listening on 18111
+response body: items handler failed
+bundle files: logs, summary.md, verify.json
+
+# the service log is kept in the bundle, next to the record
+$ head -5 /tmp/orbs-live-bundles/buggy/logs/90-app.log
+$ PORT=18111 go run .
+# url: http://127.0.0.1:18111/items
+# ready: true
+# status: 500
+# reason: the application answered 500, expected 200
+
+# the service's own log lines (shown without log.Printf's timestamp)
+listening on 18111
+items handler failed: assignment to entry in nil map
+
+# summary.md carries the same failure for a reviewer who reads prose
+- Result: **failed**
+- Reason: the application answered 500, expected 200
+- Body: `items handler failed`
+
+# the failure is real, and the process is gone: nothing answers that port
+curl after the run -> exit 7 (7 = connection refused)
+$ star ports --all | grep 18111
+no listener on port 18111 after the run
+
+## The fix
+
+$ sed -i "s/a := &app{}/a := \&app{items: map[string]int{}}/" app.go
+38:	a := &app{items: map[string]int{}}
+
+$ star verify --app 'PORT=18111 go run .' --app-url http://127.0.0.1:18111/items --app-expect 200
+exit=0
+verdict: pass
+  step build: exit 0
+  step test: exit 0
+live.command: PORT=18111 go run .
+live.url: http://127.0.0.1:18111/items
+live.expected_status: [200]
+live.ready: True
+live.status_code: 200
+live.passed: True
+live.reason: (none)
+app log, first line: listening on 18111
+response body: {"count":1}
+bundle files: logs, summary.md, verify.json
+
+# the recorded body is the real response, not a health-check echo
+- Result: pass
+- Body: `{"count":1}`
+
+# and again nothing is left listening
+curl after the run -> exit 7 (7 = connection refused)

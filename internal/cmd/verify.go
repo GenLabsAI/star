@@ -12,12 +12,16 @@ import (
 )
 
 var (
-	verifyJSON     bool
-	verifyInstall  bool
-	verifyTimeout  string
-	verifyOut      string
-	verifyRepeat   int
-	verifyCoverage float64
+	verifyJSON      bool
+	verifyInstall   bool
+	verifyTimeout   string
+	verifyOut       string
+	verifyRepeat    int
+	verifyCoverage  float64
+	verifyApp       string
+	verifyAppURL    string
+	verifyAppExpect string
+	verifyAppReady  string
 )
 
 var verifyCmd = &cobra.Command{
@@ -39,7 +43,15 @@ With --min-coverage PERCENT the run also measures statement coverage and
 fails when it is below the threshold, so green tests on thin coverage do
 not pass the gate. Coverage is measured for Go projects today. When no
 number can be measured the run exits non-zero and says why, because a
-gate that silently passes when it could not measure is not a gate.`,
+gate that silently passes when it could not measure is not a gate.
+
+With --app COMMAND the run also starts the application itself, waits for
+it to answer on --app-url, and checks the status it answered with
+(--app-expect, 200 by default). The application's own log is kept in the
+bundle, so a failure can be reproduced and read instead of guessed at,
+and the run exits non-zero when the application never answered, exited
+first, or answered with the wrong status. Nothing is left running
+afterwards.`,
 	Example: `
 # Build and test, keeping an evidence bundle
 star verify
@@ -74,6 +86,23 @@ star verify --min-coverage 80
 		if verifyCoverage < 0 || verifyCoverage > 100 {
 			return fmt.Errorf("Invalid --min-coverage: %g, want a percentage between 0 and 100", verifyCoverage)
 		}
+		if verifyApp == "" && (verifyAppURL != "" || cmd.Flags().Changed("app-expect")) {
+			return fmt.Errorf("Invalid --app-url/--app-expect: they need --app to start the application")
+		}
+		if verifyApp != "" && verifyAppURL == "" {
+			return fmt.Errorf("Invalid --app: starting an application needs --app-url to probe")
+		}
+		expect, err := verify.ParseStatusList(verifyAppExpect)
+		if err != nil {
+			return err
+		}
+		var readyTimeout time.Duration
+		if verifyAppReady != "" {
+			readyTimeout, err = time.ParseDuration(verifyAppReady)
+			if err != nil {
+				return fmt.Errorf("Invalid --app-ready-timeout: %w", err)
+			}
+		}
 
 		var timeout time.Duration
 		if verifyTimeout != "" {
@@ -85,10 +114,14 @@ star verify --min-coverage 80
 
 		specs := verify.Plan(envreport.DetectStacks(dir), verifyInstall)
 		result, err := verify.Run(cmd.Context(), dir, specs, verify.Options{
-			Timeout:     timeout,
-			OutDir:      verifyOut,
-			Repeat:      verifyRepeat,
-			MinCoverage: verifyCoverage,
+			Timeout:          timeout,
+			OutDir:           verifyOut,
+			Repeat:           verifyRepeat,
+			MinCoverage:      verifyCoverage,
+			LiveCommand:      verifyApp,
+			LiveURL:          verifyAppURL,
+			LiveExpect:       expect,
+			LiveReadyTimeout: readyTimeout,
 		})
 		if err != nil {
 			return err
@@ -118,6 +151,9 @@ star verify --min-coverage 80
 				return fmt.Errorf("Coverage gate failed: %.1f%% measured, %.1f%% required (%d of %d statements; evidence: %s)", coverage.Percent, coverage.Threshold, coverage.Covered, coverage.Statements, result.Bundle)
 			}
 		}
+		if live := result.Live; live != nil && !live.Passed {
+			return fmt.Errorf("Live verification failed: %s (evidence: %s)", live.Reason, result.Bundle)
+		}
 		if result.Failed() {
 			return fmt.Errorf("Verification failed: %d of %d steps failed (evidence: %s)", result.FailedSteps(), len(result.Steps), result.Bundle)
 		}
@@ -132,6 +168,10 @@ func init() {
 	verifyCmd.Flags().StringVar(&verifyOut, "out", "", "Evidence bundle directory")
 	verifyCmd.Flags().IntVar(&verifyRepeat, "repeat", 1, "Run every command N times to detect flaky results")
 	verifyCmd.Flags().Float64Var(&verifyCoverage, "min-coverage", 0, "Fail unless statement coverage is at least this percent")
+	verifyCmd.Flags().StringVar(&verifyApp, "app", "", "Start this command and verify the running application")
+	verifyCmd.Flags().StringVar(&verifyAppURL, "app-url", "", "Address to probe the started application on")
+	verifyCmd.Flags().StringVar(&verifyAppExpect, "app-expect", "200", "Statuses that count as a healthy answer, e.g. 200,204")
+	verifyCmd.Flags().StringVar(&verifyAppReady, "app-ready-timeout", "30s", "How long the application may take to answer")
 }
 
 func printVerifySummary(cmd *cobra.Command, result *verify.Result) {
@@ -186,6 +226,28 @@ func printVerifySummary(cmd *cobra.Command, result *verify.Result) {
 		}
 	}
 
+	if live := result.Live; live != nil {
+		cmd.Println()
+		cmd.Println("Live application")
+		outcome := "pass"
+		if !live.Passed {
+			outcome = "FAIL"
+		}
+		answered := "no answer"
+		if live.Ready {
+			answered = fmt.Sprintf("%d after %s", live.StatusCode, (time.Duration(live.ReadyMS) * time.Millisecond).String())
+		}
+		cmd.Printf("  %-8s %s\n", outcome, live.URL)
+		cmd.Printf("  probed   %s (expected %s)\n", answered, statusesText(live.Expected))
+		cmd.Printf("  command  %s\n", live.Command)
+		if live.Reason != "" {
+			cmd.Println("  reason: " + live.Reason)
+		}
+		for _, line := range lastLines(live.OutputTail, 4) {
+			cmd.Println("  | " + line)
+		}
+	}
+
 	if result.Changes.Repository {
 		cmd.Println()
 		cmd.Println("Changes")
@@ -199,6 +261,15 @@ func printVerifySummary(cmd *cobra.Command, result *verify.Result) {
 
 	cmd.Println()
 	cmd.Println("Evidence: " + result.Bundle + "/summary.md")
+}
+
+// statusesText renders the expected statuses for the terminal.
+func statusesText(codes []int) string {
+	parts := make([]string, 0, len(codes))
+	for _, code := range codes {
+		parts = append(parts, fmt.Sprint(code))
+	}
+	return strings.Join(parts, " or ")
 }
 
 // flakyList names the commands whose attempts disagreed.
