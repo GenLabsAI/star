@@ -34,6 +34,13 @@ cleanup() {
 }
 trap cleanup EXIT
 
+# An interrupted earlier run may have left throwaway branches behind; a
+# leftover branch on the remote would reject this run's push.
+for branch in proof/pr-unsent proof/pr-stub proof/pr-creation; do
+  git -C "$REPO" push -q origin --delete "$branch" > /dev/null 2>&1 || true
+  git -C "$REPO" branch -D "$branch" > /dev/null 2>&1 || true
+done
+
 # commit_marker BRANCH -- a real change on a throwaway branch, so the pull
 # request would describe a real diff.
 commit_marker() {
