@@ -31,8 +31,8 @@ pushed; the commit is local, and the remote stays untouched.
 A third gate can come from the project itself: a "commit" block in the
 project's crush.json or .crush.json can require approval for every commit
 or for protected branches. Such a commit is refused, leaving the tree and
-the history untouched, until it is re-run with --approve. "star commit
---policy" prints the effective policy.
+the history untouched, until it is re-run with --approve. Run star
+commit --policy to print the effective policy.
 
 With --branch the commit lands on that branch, which is created when it
 does not exist yet, so work stays isolated until review.`,
