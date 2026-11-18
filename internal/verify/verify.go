@@ -28,6 +28,9 @@ const (
 	VerdictPass = "pass"
 	// VerdictFail means at least one selected command failed or timed out.
 	VerdictFail = "fail"
+	// VerdictFlaky means a command passed and failed across repeated
+	// runs, so its result cannot be trusted either way.
+	VerdictFlaky = "flaky"
 	// VerdictNoCommands means the project had nothing to run.
 	VerdictNoCommands = "no-commands"
 )
@@ -47,6 +50,15 @@ type Spec struct {
 	Command string
 }
 
+// Attempt is one execution of a step, kept only when a run is repeated
+// often enough that the same command can disagree with itself.
+type Attempt struct {
+	ExitCode   int    `json:"exit_code"`
+	DurationMS int64  `json:"duration_ms"`
+	TimedOut   bool   `json:"timed_out,omitempty"`
+	Log        string `json:"log,omitempty"`
+}
+
 // Step records the outcome of one command.
 type Step struct {
 	Kind       string `json:"kind"`
@@ -59,6 +71,30 @@ type Step struct {
 	// OutputTail is the end of the command's output, so a reader does
 	// not have to open the log to see the failure.
 	OutputTail string `json:"output_tail,omitempty"`
+	// Attempts lists every execution when the run was repeated.
+	Attempts []Attempt `json:"attempts,omitempty"`
+	// Flaky marks a command whose attempts disagreed with each other.
+	Flaky bool `json:"flaky,omitempty"`
+}
+
+// Outcomes renders the attempt exit codes in order, e.g. "pass, fail,
+// pass", so a reader can see the disagreement without opening the JSON.
+func (s Step) Outcomes() string {
+	if len(s.Attempts) < 2 {
+		return ""
+	}
+	parts := make([]string, 0, len(s.Attempts))
+	for _, attempt := range s.Attempts {
+		switch {
+		case attempt.TimedOut:
+			parts = append(parts, "timeout")
+		case attempt.ExitCode != 0:
+			parts = append(parts, "fail")
+		default:
+			parts = append(parts, "pass")
+		}
+	}
+	return strings.Join(parts, ", ")
 }
 
 // Result is the full record of a verification run. Its JSON form is the
@@ -83,11 +119,29 @@ type Options struct {
 	// TailBytes bounds each step's OutputTail in the JSON record. Zero
 	// uses a small default.
 	TailBytes int
+	// Repeat runs every command this many times so a test that passes
+	// and fails across runs is reported as flaky instead of a pass. Zero
+	// or one runs everything once. Repeating also sets GOFLAGS=-count=1,
+	// because Go's test cache would otherwise answer a second run with
+	// the first run's result and hide exactly what repeat mode looks for.
+	Repeat int
 }
 
-// Failed reports whether the verdict is a failure.
+// Failed reports whether the verdict is a failure. A flaky run fails:
+// something that only sometimes works is not something to ship.
 func (r Result) Failed() bool {
-	return r.Verdict == VerdictFail
+	return r.Verdict == VerdictFail || r.Verdict == VerdictFlaky
+}
+
+// FlakySteps returns the commands whose attempts disagreed.
+func (r Result) FlakySteps() []Step {
+	var flaky []Step
+	for _, step := range r.Steps {
+		if step.Flaky {
+			flaky = append(flaky, step)
+		}
+	}
+	return flaky
 }
 
 // FailedSteps counts the steps that failed or timed out.
@@ -162,10 +216,27 @@ func Run(ctx context.Context, dir string, specs []Spec, opts Options) (*Result, 
 		Bundle:    bundle,
 	}
 
-	for i, spec := range specs {
-		step := runStep(ctx, dir, spec, timeout, tailBytes, bundle, i+1)
-		result.Steps = append(result.Steps, step)
+	repeat := opts.Repeat
+	if repeat < 1 {
+		repeat = 1
 	}
+	steps := make([]Step, len(specs))
+	outputs := make([][]attemptOutput, len(specs))
+	for i, spec := range specs {
+		steps[i] = Step{Kind: spec.Kind, Command: spec.Command}
+	}
+	env := repeatEnv(repeat)
+	for round := 1; round <= repeat; round++ {
+		for i, spec := range specs {
+			attempt, output := runAttempt(ctx, dir, spec, timeout, bundle, env, i+1, round, repeat)
+			steps[i].Attempts = append(steps[i].Attempts, attempt)
+			outputs[i] = append(outputs[i], output)
+		}
+	}
+	for i := range steps {
+		finalize(&steps[i], outputs[i], tailBytes)
+	}
+	result.Steps = steps
 	result.DurationMS = time.Since(started).Milliseconds()
 	result.Verdict = verdictFor(result.Steps)
 
@@ -175,10 +246,75 @@ func Run(ctx context.Context, dir string, specs []Spec, opts Options) (*Result, 
 	return result, nil
 }
 
-func runStep(ctx context.Context, dir string, spec Spec, timeout time.Duration, tailBytes int, bundle string, index int) Step {
-	step := Step{Kind: spec.Kind, Command: spec.Command}
+// attemptOutput keeps one attempt's captured output so a failure can be
+// quoted even when a later attempt passed.
+type attemptOutput struct {
+	log    string
+	output string
+	failed bool
+}
+
+// finalize folds a command's attempts into the single step a reader sees:
+// the last attempt's numbers, a flaky mark when they disagreed, and the
+// output of the attempt that failed.
+func finalize(step *Step, outputs []attemptOutput, tailBytes int) {
+	if len(outputs) == 0 {
+		return
+	}
+	last := outputs[len(outputs)-1]
+	final := step.Attempts[len(step.Attempts)-1]
+	step.ExitCode = final.ExitCode
+	step.DurationMS = final.DurationMS
+	step.TimedOut = final.TimedOut
+	step.Log = last.log
+
+	quoted := last
+	for _, output := range outputs {
+		if output.failed {
+			quoted = output
+		}
+	}
+	step.OutputTail = tail(quoted.output, tailBytes)
+
+	outcomes := make(map[bool]struct{}, 2)
+	for _, attempt := range step.Attempts {
+		outcomes[attempt.ExitCode != 0 || attempt.TimedOut] = struct{}{}
+	}
+	step.Flaky = len(outcomes) > 1
+}
+
+// repeatEnv is the environment a repeated run executes in. With more than
+// one round it adds -count=1 to GOFLAGS so the Go test cache cannot answer
+// a repeat with a cached result; without that, a flaky Go test looks
+// stable and the whole point of repeating is lost. Other stacks ignore the
+// variable, and a single run inherits the environment untouched.
+func repeatEnv(repeat int) []string {
+	env := os.Environ()
+	if repeat <= 1 {
+		return env
+	}
+	value := "-count=1"
+	if current := os.Getenv("GOFLAGS"); current != "" {
+		value = current + " -count=1"
+	}
+	out := make([]string, 0, len(env)+1)
+	for _, entry := range env {
+		if strings.HasPrefix(entry, "GOFLAGS=") {
+			continue
+		}
+		out = append(out, entry)
+	}
+	return append(out, "GOFLAGS="+value)
+}
+
+func runAttempt(ctx context.Context, dir string, spec Spec, timeout time.Duration, bundle string, env []string, index, round, repeat int) (Attempt, attemptOutput) {
+	attempt := Attempt{}
 	slug := strings.ReplaceAll(strings.ToLower(spec.Kind), " ", "-")
-	step.Log = filepath.ToSlash(filepath.Join(logDirName, fmt.Sprintf("%02d-%s.log", index, slug)))
+	logName := fmt.Sprintf("%02d-%s.log", index, slug)
+	if repeat > 1 {
+		logName = fmt.Sprintf("%02d-%s-run%d.log", index, slug, round)
+	}
+	attempt.Log = filepath.ToSlash(filepath.Join(logDirName, logName))
 
 	stepCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
@@ -187,58 +323,84 @@ func runStep(ctx context.Context, dir string, spec Spec, timeout time.Duration, 
 	captured, err := shell.RunAndCapture(stepCtx, shell.RunOptions{
 		Command: spec.Command,
 		Cwd:     dir,
+		Env:     env,
 	})
-	step.DurationMS = time.Since(started).Milliseconds()
-	step.TimedOut = stepCtx.Err() != nil
+	attempt.DurationMS = time.Since(started).Milliseconds()
+	attempt.TimedOut = stepCtx.Err() != nil
 
 	output := captured.Output
-	step.ExitCode = captured.ExitCode
+	attempt.ExitCode = captured.ExitCode
 	if err != nil {
 		// Execution could not start at all (parse or setup failure). That
-		// is a failed step with the reason kept as evidence.
-		step.ExitCode = 1
+		// is a failed attempt with the reason kept as evidence.
+		attempt.ExitCode = 1
 		output = strings.TrimSpace(output + "\n" + err.Error())
 	}
-	if step.TimedOut {
-		step.ExitCode = 1
+	if attempt.TimedOut {
+		attempt.ExitCode = 1
 		output = strings.TrimSpace(output + fmt.Sprintf("\nTimed out after %s", timeout))
 	}
 
-	step.OutputTail = tail(output, tailBytes)
-	writeLog(bundle, step, output)
-	return step
+	writeLog(bundle, attempt.Log, spec.Kind, spec.Command, attempt, output)
+	return attempt, attemptOutput{
+		log:    attempt.Log,
+		output: output,
+		failed: attempt.ExitCode != 0 || attempt.TimedOut,
+	}
 }
 
+// verdictFor reports the worst thing that happened. A command that fails
+// every time is a failure; one that passes and fails across runs is
+// flaky, which is its own verdict because a retry would have hidden it.
 func verdictFor(steps []Step) string {
 	if len(steps) == 0 {
 		return VerdictNoCommands
 	}
+	flaky := false
 	for _, step := range steps {
+		if step.Flaky {
+			flaky = true
+			continue
+		}
 		if step.ExitCode != 0 || step.TimedOut {
 			return VerdictFail
 		}
 	}
+	if flaky {
+		return VerdictFlaky
+	}
 	return VerdictPass
 }
 
-// writeLog persists a command's full output next to the JSON record. A
-// log that cannot be written is not worth failing the run over: the
-// output tail is in verify.json either way.
-func writeLog(bundle string, step Step, output string) {
+// writeLog persists a command attempt's full output next to the JSON
+// record. A log that cannot be written is not worth failing the run over:
+// the output tail is in verify.json either way.
+func writeLog(bundle, log, kind, command string, attempt Attempt, output string) {
 	var b strings.Builder
-	fmt.Fprintf(&b, "$ %s\n", step.Command)
-	fmt.Fprintf(&b, "# kind: %s\n", step.Kind)
-	fmt.Fprintf(&b, "# exit: %d\n", step.ExitCode)
-	fmt.Fprintf(&b, "# duration_ms: %d\n\n", step.DurationMS)
+	fmt.Fprintf(&b, "$ %s\n", command)
+	fmt.Fprintf(&b, "# kind: %s\n", kind)
+	fmt.Fprintf(&b, "# exit: %d\n", attempt.ExitCode)
+	fmt.Fprintf(&b, "# duration_ms: %d\n\n", attempt.DurationMS)
 	b.WriteString(output)
 	if !strings.HasSuffix(output, "\n") {
 		b.WriteString("\n")
 	}
-	_ = os.WriteFile(filepath.Join(bundle, filepath.FromSlash(step.Log)), []byte(b.String()), 0o644)
+	_ = os.WriteFile(filepath.Join(bundle, filepath.FromSlash(log)), []byte(b.String()), 0o644)
 }
 
 // tail keeps the end of output, where failures live, and marks what was
 // dropped.
+// runsOf reports how many times the commands were executed.
+func runsOf(steps []Step) int {
+	runs := 0
+	for _, step := range steps {
+		if len(step.Attempts) > runs {
+			runs = len(step.Attempts)
+		}
+	}
+	return runs
+}
+
 func tail(output string, limit int) string {
 	if len(output) <= limit {
 		return output
@@ -311,6 +473,9 @@ func SummaryMarkdown(result Result) string {
 	fmt.Fprintf(&b, "- Duration: %s\n", time.Duration(result.DurationMS)*time.Millisecond)
 	fmt.Fprintf(&b, "- Workspace: `%s`\n", result.Workspace.Workspace.Dir)
 	fmt.Fprintf(&b, "- Star: %s (%s/%s)\n", result.Workspace.Star.Version, result.Workspace.Star.OS, result.Workspace.Star.Arch)
+	if runs := runsOf(result.Steps); runs > 1 {
+		fmt.Fprintf(&b, "- Runs per command: %d\n", runs)
+	}
 	if result.Workspace.Git.Repository {
 		branch := result.Workspace.Git.Branch
 		if branch == "" {
@@ -323,9 +488,12 @@ func SummaryMarkdown(result Result) string {
 	b.WriteString("| --- | --- | --- | --- |\n")
 	for _, step := range result.Steps {
 		outcome := "pass"
-		if step.TimedOut {
+		switch {
+		case step.Flaky:
+			outcome = "flaky (" + step.Outcomes() + ")"
+		case step.TimedOut:
 			outcome = "timed out"
-		} else if step.ExitCode != 0 {
+		case step.ExitCode != 0:
 			outcome = fmt.Sprintf("fail (exit %d)", step.ExitCode)
 		}
 		fmt.Fprintf(&b, "| %s | `%s` | %s | %s |\n", step.Kind, step.Command, outcome, time.Duration(step.DurationMS)*time.Millisecond)

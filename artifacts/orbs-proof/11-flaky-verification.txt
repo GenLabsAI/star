@@ -1,0 +1,136 @@
+# scratch Go project: /tmp/orbs-flake-proj
+# its test fails on exactly its second execution, so one run cannot see it
+# commands star env detects here: Go: install=go mod download; Go: build=go build ./...; Go: test=go test ./...
+# --repeat also sets GOFLAGS=-count=1, or Go's test cache would replay the pass
+
+# a single run passes: the flake is invisible
+$ star verify
+Verification: PASS
+  workspace         /tmp/orbs-flake-proj
+  duration          131ms
+  bundle            /tmp/orbs-flake-proj/.crush/verify/20261118T004744Z
+
+Steps
+  pass     build  go build ./...                         22ms
+  pass     test   go test ./...                         108ms
+
+Evidence: /tmp/orbs-flake-proj/.crush/verify/20261118T004744Z/summary.md
+exit=0
+
+# three runs catch it, and the run exits non-zero
+$ star verify --repeat 3 --out /tmp/orbs-flake-bundles/flaky
+Verification: FLAKY
+  workspace         /tmp/orbs-flake-proj
+  duration          862ms
+  runs              3 per command
+  bundle            /tmp/orbs-flake-bundles/flaky
+
+Steps
+  pass     build  go build ./...                         23ms
+    runs: pass, pass, pass
+  FLAKY    test   go test ./...                         306ms
+    runs: pass, fail, pass
+    --- FAIL: TestSum (0.00s)
+        sum_test.go:21: second execution failed: Sum(2, 2) = 4
+    FAIL
+    FAIL	example.com/flakeproof	0.003s
+    FAIL
+
+Evidence: /tmp/orbs-flake-bundles/flaky/summary.md
+          
+   ERROR  
+          
+  Verification is flaky: go test ./... passed and failed across runs (evidence: /tmp/orbs-flake-bundles/flaky).       
+
+exit=1
+
+# the bundle keeps every attempt, not just the last one
+$ cat /tmp/orbs-flake-bundles/flaky/summary.md
+# Verification summary
+
+- Verdict: **flaky**
+- Started: 2026-11-18T00:47:44Z
+- Duration: 862ms
+- Workspace: `/tmp/orbs-flake-proj`
+- Star: devel (linux/amd64)
+- Runs per command: 3
+
+## Steps
+
+| step | command | result | duration |
+| --- | --- | --- | --- |
+| build | `go build ./...` | pass | 23ms |
+| test | `go test ./...` | flaky (pass, fail, pass) | 306ms |
+
+## Changes
+
+Not a git repository.
+
+## Logs
+
+- [logs/01-build-run3.log](logs/01-build-run3.log)
+- [logs/02-test-run3.log](logs/02-test-run3.log)
+$ ls /tmp/orbs-flake-bundles/flaky/logs
+01-build-run1.log
+01-build-run2.log
+01-build-run3.log
+02-test-run1.log
+02-test-run2.log
+02-test-run3.log
+$ head -4 /tmp/orbs-flake-bundles/flaky/logs/02-test-run2.log   # the failing attempt
+$ go test ./...
+# kind: test
+# exit: 1
+# duration_ms: 253
+
+# machine-readable assertions on the record
+json run exit=1
+verdict: flaky
+attempts: [0, 1, 0] | failing log exists: True
+exit=0
+
+# fix the flake and the repeated run is a clean pass
+$ star verify --repeat 3 --out /tmp/orbs-flake-bundles/stable
+Verification: PASS
+  workspace         /tmp/orbs-flake-proj
+  duration          982ms
+  runs              3 per command
+  bundle            /tmp/orbs-flake-bundles/stable
+
+Steps
+  pass     build  go build ./...                         24ms
+    runs: pass, pass, pass
+  pass     test   go test ./...                         305ms
+    runs: pass, pass, pass
+
+Evidence: /tmp/orbs-flake-bundles/stable/summary.md
+exit=0
+
+# a test that fails every time stays a failure, not a flake
+$ star verify --repeat 2 --out /tmp/orbs-flake-bundles/broken
+Verification: FAIL
+  workspace         /tmp/orbs-flake-proj
+  duration          511ms
+  runs              2 per command
+  bundle            /tmp/orbs-flake-bundles/broken
+
+Steps
+  pass     build  go build ./...                         15ms
+    runs: pass, pass
+  fail(1)  test   go test ./...                         233ms
+    runs: fail, fail
+    --- FAIL: TestSum (0.00s)
+        sum_test.go:7: Sum(2, 2) = 5, want 4
+    FAIL
+    FAIL	example.com/flakeproof	0.003s
+    FAIL
+
+Evidence: /tmp/orbs-flake-bundles/broken/summary.md
+          
+   ERROR  
+          
+  Verification failed: 1 of 2 steps failed (evidence: /tmp/orbs-flake-bundles/broken).                                
+
+exit=1
+verdict: fail | attempts: [1, 1] | flaky: no
+exit=0

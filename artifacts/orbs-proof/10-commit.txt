@@ -1,0 +1,99 @@
+# scratch repository: /tmp/orbs-commit-proj (branch main, one commit)
+# working tree: README.md edited, RUNBOOK.md is new and untracked
+
+$ star changes        # what would be committed
+  repository        /tmp/orbs-commit-proj
+  branch            main
+  paths             2 changed
+  M   README.md
+  ??  RUNBOOK.md
+  patch             129 bytes
+exit=0
+
+# the untracked file is a gate: it blocks the commit until approved
+$ star commit --message "fix: say hello world"
+          
+   ERROR  
+          
+  Refusing to commit 1 untracked path(s) without approval: RUNBOOK.md (re-run with --include-untracked to add them).  
+
+exit=1
+$ git log --oneline    # no commit was created by the refusal
+52b96a2 chore: initial import
+commits: 1
+$ git status --porcelain   # the work is still there, uncommitted
+ M README.md
+?? RUNBOOK.md
+
+# a message is also required, even when the gate is opened
+$ star commit --include-untracked
+          
+   ERROR  
+          
+  A commit message is required (--message).                                                                           
+
+exit=1
+commits: 1
+
+# approved: commit both paths on a branch of their own
+$ star commit -m "fix: say hello world" --include-untracked --branch feat/greeting
+  repository        /tmp/orbs-commit-proj
+  branch            feat/greeting (created)
+  commit            8269dec
+  message           fix: say hello world
+  paths             2 committed
+  M   README.md
+  ??  RUNBOOK.md
+
+README.md  | 2 +-
+ RUNBOOK.md | 1 +
+ 2 files changed, 2 insertions(+), 1 deletion(-)
+exit=0
+
+# the commit is real, and it is the one the command reported
+$ git log --oneline --stat -1
+8269dec fix: say hello world
+ README.md  | 2 +-
+ RUNBOOK.md | 1 +
+ 2 files changed, 2 insertions(+), 1 deletion(-)
+$ git rev-parse --short HEAD -> 8269dec
+$ git branch --show-current -> feat/greeting
+$ git show HEAD:RUNBOOK.md -> serve --port 8080
+$ git status --porcelain -> '' (empty: nothing left over)
+$ git rev-list --count main -> 1 (main still has only the import)
+
+# machine-readable record, second commit made on the same branch
+$ star commit -m "fix: greet again" --branch feat/greeting --json
+{
+  "repository": true,
+  "root": "/tmp/orbs-commit-proj",
+  "branch": "feat/greeting",
+  "hash": "77747200a276dea402e008fed928bc9bfc421cde",
+  "short": "7774720",
+  "message": "fix: greet again",
+  "files": [
+    {
+      "path": "README.md",
+      "status": " M"
+    }
+  ],
+  "stat": " README.md | 2 +-\n 1 file changed, 1 insertion(+), 1 deletion(-)"
+}
+exit=0
+second run exit=1 (1: nothing left to commit)
+record hash matches git HEAD: 7774720
+branch: feat/greeting | paths: ['README.md']
+exit=0
+
+# nothing was pushed: this repository has no remote at all
+$ git remote -v -> '' (empty)
+
+# a clean tree cannot be committed twice
+$ star commit -m "chore: nothing changed"
+          
+   ERROR  
+          
+  Nothing to commit: the working tree is clean.                                                                       
+
+exit=1
+commits on feat/greeting: 3

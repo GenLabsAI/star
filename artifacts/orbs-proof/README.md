@@ -19,6 +19,8 @@ tar -C /tmp/rel -xzf /tmp/rel/star-linux-amd64.tar.gz
 ./artifacts/orbs-proof/make-knowledge-proof.sh /tmp/star /tmp/proof-out
 ./artifacts/orbs-proof/make-ports-proof.sh /tmp/star /tmp/proof-out
 ./artifacts/orbs-proof/make-pairing-proof.sh /tmp/star /tmp/proof-out
+./artifacts/orbs-proof/make-commit-proof.sh /tmp/star /tmp/proof-out
+./artifacts/orbs-proof/make-flake-proof.sh /tmp/star /tmp/proof-out   # needs go on PATH
 
 # and the same three against a published build:
 gh release download v0.1.141 --repo GenLabsAI/star -p 'star-linux-amd64.tar.gz' -D /tmp/rel
@@ -44,9 +46,12 @@ own processes, and can be re-run in any order.
 | `07-ports.txt` | `star ports` reports a real `python3 -m http.server` started by the script: port 18765, its actual pid, `python3`, and the workspace as cwd. A second listener started *outside* the workspace is hidden by default and visible with `--all`. Killing the reported pid removes the entry (`listeners: []`), and an idle workspace prints "No listening sockets". |
 | `08-pairing.txt` | A real `star server` with a pairing token: request with no credential → **401**, wrong token → **401** (real `401 Unauthorized` headers, not a refused connection), correct token → **200**, and the same via `X-Star-Token`. The token is never printed (length + sha256 prefix only), no file is written by `star pair`, `star env` reports the token source without the value, the token file is `0600`, the server appears in `star ports` and its port is gone after shutdown, and a server started *without* a token still answers 200 (unchanged local behaviour). |
 | `09-released-commands.txt` | Items 14, 7 and 20 re-run with the **published** `v0.1.141` artifact. `star env --json` reports version `v0.1.141` and commit `1022fd03a` (this repository's commit), then the three proofs pass unchanged: knowledge read back identical, the real listener found and its pid killed, 401/401/200 pairing. |
+| `10-commit.txt` | `star commit` creates a real commit: a tracked edit plus an untracked file; it refuses while the new file is unapproved (`exit=1`, `git log` still shows one commit), refuses without a message, then with `--include-untracked --branch feat/greeting` creates the commit and the branch (`git show HEAD:RUNBOOK.md` prints the new file, `git status` is empty, `main` still has one commit). The JSON record's hash is compared against `git rev-parse HEAD`, and the repository has no remote, so nothing was pushed. |
+| `11-flaky-verification.txt` | `star verify --repeat` catches a flake a single run cannot: one run of the same project prints PASS (exit 0), three runs print FLAKY (exit 1) with `runs: pass, fail, pass`, the bundle keeps one log per attempt including the failing `02-test-run2.log`, and the JSON record shows attempts `[0, 1, 0]` with `flaky: true`. After the test is fixed the same repeated run passes, and a test that fails every time is reported as FAIL, not flaky. |
 | `make-proof.sh` | The script that produced 01–04, so nothing is hand-edited. |
 | `make-knowledge-proof.sh`, `make-ports-proof.sh`, `make-pairing-proof.sh` | The scripts that produced 06, 07 and 08. |
 | `make-release-commands-proof.sh` | The script that produced 09: it runs the three scripts above with a released binary and records its version and commit. |
+| `make-commit-proof.sh`, `make-flake-proof.sh` | The scripts that produced 10 and 11. |
 | `make-release-proof.sh` | The script that produced 05 against a released binary. |
 
 ## What a skeptic should check
@@ -83,7 +88,16 @@ own processes, and can be re-run in any order.
    the release tag's, and the verdict lines below them are the same ones
    the source-build transcripts show — the commands behave the same in the
    binary users download.
-11. In `08-pairing.txt`, the three status lines are 401, 401, 200 in that
+11. In `10-commit.txt`, the two refusals exit 1 with `commits: 1` printed after
+   them, and the approved commit's short hash equals both the one `star
+   commit` printed and the one `git rev-parse --short HEAD` reports; `git
+   rev-list --count main` stays at 1, so the work is isolated on the branch.
+12. In `11-flaky-verification.txt`, the first run says PASS and the repeated
+   run of the same untouched project says FLAKY — that pair is the proof
+   that repetition found something one run missed. `--repeat` sets
+   `GOFLAGS=-count=1`; without it Go's test cache would replay the first
+   run's result and the flake would stay invisible.
+13. In `08-pairing.txt`, the three status lines are 401, 401, 200 in that
    order, the 401 carries an `{"message":"unauthorized: ..."}` body, and
    the paired request returns the API response. The token's sha256 prefix
    proves the transcript shows a token was generated without revealing it;

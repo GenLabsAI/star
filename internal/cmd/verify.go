@@ -16,6 +16,7 @@ var (
 	verifyInstall bool
 	verifyTimeout string
 	verifyOut     string
+	verifyRepeat  int
 )
 
 var verifyCmd = &cobra.Command{
@@ -27,7 +28,11 @@ plus the environment manifest and the working-tree diff.
 
 The bundle lands in the project's data directory (or --out) as
 verify.json, summary.md, command logs, and changes.patch. Verification
-fails, with a non-zero exit, when any command fails.`,
+fails, with a non-zero exit, when any command fails.
+
+With --repeat N every command runs N times. A command that passes and
+fails across those runs is reported as FLAKY and also exits non-zero,
+because a result that only sometimes holds is not a pass.`,
 	Example: `
 # Build and test, keeping an evidence bundle
 star verify
@@ -40,6 +45,9 @@ star verify --json
 
 # Put the bundle somewhere a reviewer will find it
 star verify --out artifacts/proof
+
+# Run everything three times and catch flaky tests
+star verify --repeat 3
   `,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		// Cobra prints to stderr by default; the record is the product.
@@ -48,6 +56,10 @@ star verify --out artifacts/proof
 		dir, err := envWorkspaceDir(cmd)
 		if err != nil {
 			return err
+		}
+
+		if verifyRepeat < 1 {
+			return fmt.Errorf("Invalid --repeat: %d, want at least 1", verifyRepeat)
 		}
 
 		var timeout time.Duration
@@ -62,6 +74,7 @@ star verify --out artifacts/proof
 		result, err := verify.Run(cmd.Context(), dir, specs, verify.Options{
 			Timeout: timeout,
 			OutDir:  verifyOut,
+			Repeat:  verifyRepeat,
 		})
 		if err != nil {
 			return err
@@ -77,6 +90,9 @@ star verify --out artifacts/proof
 			printVerifySummary(cmd, result)
 		}
 
+		if result.Verdict == verify.VerdictFlaky {
+			return fmt.Errorf("Verification is flaky: %s passed and failed across runs (evidence: %s)", flakyList(result.FlakySteps()), result.Bundle)
+		}
 		if result.Failed() {
 			return fmt.Errorf("Verification failed: %d of %d steps failed (evidence: %s)", result.FailedSteps(), len(result.Steps), result.Bundle)
 		}
@@ -89,6 +105,7 @@ func init() {
 	verifyCmd.Flags().BoolVar(&verifyInstall, "install", false, "Run detected install commands first")
 	verifyCmd.Flags().StringVar(&verifyTimeout, "timeout", "5m", "Per-command timeout, e.g. 90s or 10m")
 	verifyCmd.Flags().StringVar(&verifyOut, "out", "", "Evidence bundle directory")
+	verifyCmd.Flags().IntVar(&verifyRepeat, "repeat", 1, "Run every command N times to detect flaky results")
 }
 
 func printVerifySummary(cmd *cobra.Command, result *verify.Result) {
@@ -99,6 +116,9 @@ func printVerifySummary(cmd *cobra.Command, result *verify.Result) {
 		envLine(cmd, "branch", result.Workspace.Git.Branch)
 	}
 	envLine(cmd, "duration", (time.Duration(result.DurationMS) * time.Millisecond).String())
+	if runs := len(result.Steps[0].Attempts); runs > 1 {
+		envLine(cmd, "runs", fmt.Sprintf("%d per command", runs))
+	}
 	envLine(cmd, "bundle", result.Bundle)
 
 	cmd.Println()
@@ -106,13 +126,18 @@ func printVerifySummary(cmd *cobra.Command, result *verify.Result) {
 	for _, step := range result.Steps {
 		outcome := "pass"
 		switch {
+		case step.Flaky:
+			outcome = "FLAKY"
 		case step.TimedOut:
 			outcome = "timeout"
 		case step.ExitCode != 0:
 			outcome = fmt.Sprintf("fail(%d)", step.ExitCode)
 		}
 		cmd.Printf("  %-8s %-6s %-34s %8s\n", outcome, step.Kind, step.Command, (time.Duration(step.DurationMS) * time.Millisecond).String())
-		if step.ExitCode != 0 || step.TimedOut {
+		if outcomes := step.Outcomes(); outcomes != "" {
+			cmd.Println("    runs: " + outcomes)
+		}
+		if step.ExitCode != 0 || step.TimedOut || step.Flaky {
 			for _, line := range lastLines(step.OutputTail, 6) {
 				cmd.Println("    " + line)
 			}
@@ -132,6 +157,15 @@ func printVerifySummary(cmd *cobra.Command, result *verify.Result) {
 
 	cmd.Println()
 	cmd.Println("Evidence: " + result.Bundle + "/summary.md")
+}
+
+// flakyList names the commands whose attempts disagreed.
+func flakyList(steps []verify.Step) string {
+	names := make([]string, 0, len(steps))
+	for _, step := range steps {
+		names = append(names, step.Command)
+	}
+	return strings.Join(names, ", ")
 }
 
 // lastLines returns the last n lines of output for a compact failure

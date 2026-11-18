@@ -145,9 +145,14 @@ proof. Everything else is ours to finish.
     the commands `star env` detected (build and test by default, install
     with `--install`), bounds each with `--timeout`, records exit code,
     duration and output, and exits non-zero when anything fails. Evidence
-    in `artifacts/orbs-proof/`. Missing: coverage thresholds, flake
-    detection, and driving a running application rather than its test
-    suite.
+    in `artifacts/orbs-proof/`. `--repeat N` runs every command N times and
+    reports a command that both passed and failed as **FLAKY** (non-zero
+    exit, every attempt logged, the failing attempt's output kept) instead
+    of letting a lucky retry pass for a stable result; repeated runs set
+    `GOFLAGS=-count=1` so Go's test cache cannot replay a cached pass.
+    Proof: `artifacts/orbs-proof/11-flaky-verification.txt`. Missing:
+    coverage thresholds and driving a running application rather than its
+    test suite.
 17. **Evidence-based task completion**: test results, screenshots, videos,
     logs and a summary the user can check instead of trusting a claim. —
     **DONE**. Screenshot/video/gif + e2e log convention and the
@@ -253,11 +258,25 @@ old 3 + 6 → 3, old 4 → 4, old 5 → 5 (continuous validation is now part of
 * All three commands were also re-run against the published `v0.1.141`
   artifact (commit `1022fd03a`): `artifacts/orbs-proof/09-released-commands.txt`.
 
+## Done in the latest pass (items 21, 16)
+
+* **Item 21 (commit half)** — `star commit`: real commits and branches from
+  the reviewed working tree, gated on an explicit message and on approval
+  of untracked paths, never pushing. New `internal/commit`. Proof:
+  `artifacts/orbs-proof/10-commit.txt` (`make-commit-proof.sh`).
+* **Item 16 (flakes)** — `star verify --repeat N`: repeated runs, a
+  FLAKY verdict with a non-zero exit, per-attempt logs, the failing
+  attempt's output preserved, and `GOFLAGS=-count=1` so Go's test cache
+  cannot hide the flake. Proof: `artifacts/orbs-proof/11-flaky-verification.txt`
+  (`make-flake-proof.sh`).
+
 ## Next (unblocked, partially built)
 
 * **Item 7** — port→preview mapping, crash supervision and restart policy;
   both need harness access (blocker 1).
 * **Item 20** — per-workspace scopes and an approval prompt for sensitive
   operations, so one token is not all-or-nothing.
+* **Item 21** — pull-request creation and a configurable approval gate
+  before changes leave the machine.
 * **Items 22, 23** — per-orb resource and permission surfaces, once the
   harness side is reachable.
