@@ -106,7 +106,9 @@ type Result struct {
 	Workspace  envreport.Manifest `json:"workspace"`
 	Changes    changes.Summary    `json:"changes"`
 	Steps      []Step             `json:"steps"`
-	Bundle     string             `json:"bundle"`
+	// Coverage is present only when a threshold was requested.
+	Coverage *Coverage `json:"coverage,omitempty"`
+	Bundle   string    `json:"bundle"`
 }
 
 // Options configures a run.
@@ -119,6 +121,10 @@ type Options struct {
 	// TailBytes bounds each step's OutputTail in the JSON record. Zero
 	// uses a small default.
 	TailBytes int
+	// MinCoverage, when above zero, requires measured statement coverage
+	// of at least this percent. A project whose coverage cannot be
+	// measured reports that explicitly instead of passing the gate.
+	MinCoverage float64
 	// Repeat runs every command this many times so a test that passes
 	// and fails across runs is reported as flaky instead of a pass. Zero
 	// or one runs everything once. Repeating also sets GOFLAGS=-count=1,
@@ -130,7 +136,8 @@ type Options struct {
 // Failed reports whether the verdict is a failure. A flaky run fails:
 // something that only sometimes works is not something to ship.
 func (r Result) Failed() bool {
-	return r.Verdict == VerdictFail || r.Verdict == VerdictFlaky
+	return r.Verdict == VerdictFail || r.Verdict == VerdictFlaky ||
+		r.Verdict == VerdictUnderCovered || r.Verdict == VerdictCoverageUnavailable
 }
 
 // FlakySteps returns the commands whose attempts disagreed.
@@ -237,8 +244,17 @@ func Run(ctx context.Context, dir string, specs []Spec, opts Options) (*Result, 
 		finalize(&steps[i], outputs[i], tailBytes)
 	}
 	result.Steps = steps
+	if opts.MinCoverage > 0 {
+		coverage := Coverage{Threshold: opts.MinCoverage}
+		if spec, reason := PlanCoverage(manifest.Project.Stacks, bundle); reason != "" {
+			coverage.Reason = reason
+		} else {
+			coverage = measureCoverage(ctx, dir, spec, opts.MinCoverage, timeout)
+		}
+		result.Coverage = &coverage
+	}
 	result.DurationMS = time.Since(started).Milliseconds()
-	result.Verdict = verdictFor(result.Steps)
+	result.Verdict = gateCoverage(verdictFor(result.Steps), result.Coverage)
 
 	if err := writeBundle(result); err != nil {
 		return nil, err
@@ -498,6 +514,24 @@ func SummaryMarkdown(result Result) string {
 		}
 		fmt.Fprintf(&b, "| %s | `%s` | %s | %s |\n", step.Kind, step.Command, outcome, time.Duration(step.DurationMS)*time.Millisecond)
 	}
+	if result.Coverage != nil {
+		b.WriteString("\n## Coverage\n\n")
+		fmt.Fprintf(&b, "- Required: %.1f%% of statements\n", result.Coverage.Threshold)
+		if result.Coverage.Available {
+			fmt.Fprintf(&b, "- Measured: %.1f%% (%d of %d statements)\n", result.Coverage.Percent, result.Coverage.Covered, result.Coverage.Statements)
+			fmt.Fprintf(&b, "- Gate: %s\n", map[bool]string{true: "passed", false: "failed"}[result.Coverage.Passed])
+			if result.Coverage.Command != "" {
+				fmt.Fprintf(&b, "- Command: `%s`\n", result.Coverage.Command)
+			}
+			if result.Coverage.Profile != "" {
+				fmt.Fprintf(&b, "- Profile: `%s`\n", result.Coverage.Profile)
+			}
+		} else {
+			fmt.Fprintf(&b, "- Unavailable: %s\n", result.Coverage.Reason)
+			b.WriteString("- Gate: **not evaluated** (the run is not a pass until coverage can be measured)\n")
+		}
+	}
+
 	b.WriteString("\n## Changes\n\n")
 	if !result.Changes.Repository {
 		b.WriteString("Not a git repository.\n")

@@ -12,11 +12,12 @@ import (
 )
 
 var (
-	verifyJSON    bool
-	verifyInstall bool
-	verifyTimeout string
-	verifyOut     string
-	verifyRepeat  int
+	verifyJSON     bool
+	verifyInstall  bool
+	verifyTimeout  string
+	verifyOut      string
+	verifyRepeat   int
+	verifyCoverage float64
 )
 
 var verifyCmd = &cobra.Command{
@@ -32,7 +33,13 @@ fails, with a non-zero exit, when any command fails.
 
 With --repeat N every command runs N times. A command that passes and
 fails across those runs is reported as FLAKY and also exits non-zero,
-because a result that only sometimes holds is not a pass.`,
+because a result that only sometimes holds is not a pass.
+
+With --min-coverage PERCENT the run also measures statement coverage and
+fails when it is below the threshold, so green tests on thin coverage do
+not pass the gate. Coverage is measured for Go projects today. When no
+number can be measured the run exits non-zero and says why, because a
+gate that silently passes when it could not measure is not a gate.`,
 	Example: `
 # Build and test, keeping an evidence bundle
 star verify
@@ -48,6 +55,9 @@ star verify --out artifacts/proof
 
 # Run everything three times and catch flaky tests
 star verify --repeat 3
+
+# Require at least 80% statement coverage in a passing run
+star verify --min-coverage 80
   `,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		// Cobra prints to stderr by default; the record is the product.
@@ -61,6 +71,9 @@ star verify --repeat 3
 		if verifyRepeat < 1 {
 			return fmt.Errorf("Invalid --repeat: %d, want at least 1", verifyRepeat)
 		}
+		if verifyCoverage < 0 || verifyCoverage > 100 {
+			return fmt.Errorf("Invalid --min-coverage: %g, want a percentage between 0 and 100", verifyCoverage)
+		}
 
 		var timeout time.Duration
 		if verifyTimeout != "" {
@@ -72,9 +85,10 @@ star verify --repeat 3
 
 		specs := verify.Plan(envreport.DetectStacks(dir), verifyInstall)
 		result, err := verify.Run(cmd.Context(), dir, specs, verify.Options{
-			Timeout: timeout,
-			OutDir:  verifyOut,
-			Repeat:  verifyRepeat,
+			Timeout:     timeout,
+			OutDir:      verifyOut,
+			Repeat:      verifyRepeat,
+			MinCoverage: verifyCoverage,
 		})
 		if err != nil {
 			return err
@@ -93,6 +107,17 @@ star verify --repeat 3
 		if result.Verdict == verify.VerdictFlaky {
 			return fmt.Errorf("Verification is flaky: %s passed and failed across runs (evidence: %s)", flakyList(result.FlakySteps()), result.Bundle)
 		}
+		// A coverage gate only ever downgrades a run that would otherwise
+		// pass, so it is reported here only in those two verdicts; a failing
+		// test is still reported as the failure it is.
+		if coverage := result.Coverage; coverage != nil && (result.Verdict == verify.VerdictCoverageUnavailable || result.Verdict == verify.VerdictUnderCovered) {
+			if !coverage.Available {
+				return fmt.Errorf("Coverage gate cannot be evaluated: %s (evidence: %s)", coverage.Reason, result.Bundle)
+			}
+			if !coverage.Passed {
+				return fmt.Errorf("Coverage gate failed: %.1f%% measured, %.1f%% required (%d of %d statements; evidence: %s)", coverage.Percent, coverage.Threshold, coverage.Covered, coverage.Statements, result.Bundle)
+			}
+		}
 		if result.Failed() {
 			return fmt.Errorf("Verification failed: %d of %d steps failed (evidence: %s)", result.FailedSteps(), len(result.Steps), result.Bundle)
 		}
@@ -106,6 +131,7 @@ func init() {
 	verifyCmd.Flags().StringVar(&verifyTimeout, "timeout", "5m", "Per-command timeout, e.g. 90s or 10m")
 	verifyCmd.Flags().StringVar(&verifyOut, "out", "", "Evidence bundle directory")
 	verifyCmd.Flags().IntVar(&verifyRepeat, "repeat", 1, "Run every command N times to detect flaky results")
+	verifyCmd.Flags().Float64Var(&verifyCoverage, "min-coverage", 0, "Fail unless statement coverage is at least this percent")
 }
 
 func printVerifySummary(cmd *cobra.Command, result *verify.Result) {
@@ -141,6 +167,22 @@ func printVerifySummary(cmd *cobra.Command, result *verify.Result) {
 			for _, line := range lastLines(step.OutputTail, 6) {
 				cmd.Println("    " + line)
 			}
+		}
+	}
+
+	if coverage := result.Coverage; coverage != nil {
+		cmd.Println()
+		cmd.Println("Coverage")
+		cmd.Printf("  required %.1f%%\n", coverage.Threshold)
+		if coverage.Available {
+			outcome := "pass"
+			if !coverage.Passed {
+				outcome = "FAIL"
+			}
+			cmd.Printf("  %-8s %.1f%% (%d of %d statements)\n", outcome, coverage.Percent, coverage.Covered, coverage.Statements)
+			cmd.Printf("  command  %s\n", coverage.Command)
+		} else {
+			cmd.Printf("  unavailable: %s\n", coverage.Reason)
 		}
 	}
 
