@@ -1,0 +1,208 @@
+# released binary: /tmp/rel4/star-linux-amd64/star-core
+$ star env --json   (selected fields)
+version: v0.1.146
+commit:  7632a0e621a7001287b24a1bcbf0409aea2549c3
+exit=0
+
+# the coverage gate, from the released binary
+coverage script exit=0
+# scratch Go project: /tmp/orbs-coverage-proj
+# calc.go has 3 one-statement functions; calc_test.go only calls Add
+
+# the project's own toolchain agrees on the number the gate must see
+$ go test -coverprofile=/tmp/orbs-coverage-tmp/cover.out ./... && go tool cover -func=/tmp/orbs-coverage-tmp/cover.out | tail -1
+total:					(statements)	33.3%
+exit=0
+
+# a passing run below the threshold exits non-zero and names the number
+$ star verify --min-coverage 90 --json --out /tmp/orbs-coverage-bundles/under
+exit=1
+          
+   ERROR  
+          
+  Coverage gate failed: 33.3% measured, 90.0% required (1 of 3 statements; evidence: /tmp/orbs-coverage-              
+  bundles/under).                                                                                                     
+
+verdict: under-covered | steps: build=0, test=0
+coverage: 33.3% (1 of 3 statements), required 90.0%, passed=False
+
+# the same measured number, in the bundle a reviewer keeps
+$ sed -n "/## Coverage/,/## Changes/p" /tmp/orbs-coverage-bundles/under/summary.md
+## Coverage
+
+- Required: 90.0% of statements
+- Measured: 33.3% (1 of 3 statements)
+- Gate: failed
+- Command: `go test -coverprofile="/tmp/orbs-coverage-bundles/under/coverage.out" ./...`
+- Profile: `coverage.out`
+
+## Changes
+
+# the same project, a threshold it does meet: the run passes
+$ star verify --min-coverage 20 --json --out /tmp/orbs-coverage-bundles/over
+exit=0
+verdict: pass | steps: build=0, test=0
+coverage: 33.3% (1 of 3 statements), required 20.0%, passed=True
+
+# below a threshold the measurement still reports the real number, not the threshold
+$ star verify --min-coverage 100 --json --out /tmp/orbs-coverage-bundles/all
+exit=1
+verdict: under-covered | steps: build=0, test=0
+coverage: 33.3% (1 of 3 statements), required 100.0%, passed=False
+
+# without the flag nothing changes: no coverage gate, same pass as before
+$ star verify --json --out /tmp/orbs-coverage-bundles/plain
+exit=0
+verdict: pass | steps: build=0, test=0
+coverage: absent (no gate requested)
+
+# a failing test stays a failure: the gate never relabels it as coverage
+$ star verify --min-coverage 90 --json --out /tmp/orbs-coverage-bundles/broken
+exit=1
+verdict: fail | steps: build=0, test=1
+coverage: 33.3% (1 of 3 statements), required 90.0%, passed=False
+
+# restore the correct code before the next scenario
+# a project with no coverage provider says so, instead of passing or guessing
+$ cd /tmp/orbs-coverage-node && star verify --min-coverage 80 --json --out /tmp/orbs-coverage-bundles/node
+exit=1
+          
+   ERROR  
+          
+  Coverage gate cannot be evaluated: no coverage provider is known for the detected stack(s): Node (evidence:         
+  /tmp/orbs-coverage-bundles/node).                                                                                   
+
+verdict: coverage-unavailable | steps: test=0
+coverage: unavailable -> no coverage provider is known for the detected stack(s): Node
+
+# a flaky test under a coverage gate is still FLAKY, not quietly re-labelled
+$ cd /tmp/orbs-coverage-flake && star verify --repeat 3 --min-coverage 10 --json --out /tmp/orbs-coverage-bundles/flake
+exit=1
+verdict: flaky | steps: build=0, test=0
+Traceback (most recent call last):
+  File "<stdin>", line 12, in <module>
+KeyError: 'covered'
+attempt exit codes: [0, 1, 0] | flaky: True
+
+# an impossible threshold is rejected instead of being treated as 0
+$ star verify --min-coverage 120
+          
+   ERROR  
+          
+  Invalid --min-coverage: 120, want a percentage between 0 and 100.                                                   
+
+exit=1
+
+# the approval gate, from the released binary
+approval script exit=0
+# scratch repository: /tmp/orbs-approval-proj
+
+# the policy is a project file, discovered the same way the CLI finds its config
+$ cat /tmp/orbs-approval-proj/crush.json
+{
+  "commit": {
+    "require_approval": true,
+    "approver": "the repo owner"
+  }
+}
+
+$ star commit --policy
+  policy            /tmp/orbs-approval-proj/crush.json
+  require approval  true
+  protected branches none
+  approver          the repo owner
+exit=0
+
+# one tracked edit, nothing staged, one commit in history
+$ cd /tmp/orbs-approval-proj && git rev-list --count HEAD
+1
+$ git status --porcelain
+ M app.txt
+$ git diff --cached --name-only   # nothing staged
+
+# without approval the policy refuses, and nothing moves
+$ star commit -m "feat: bump version"
+exit=1
+          
+   ERROR  
+          
+  Refusing to commit: /tmp/orbs-approval-proj/crush.json requires approval for the repo owner for every commit (re-run
+  with --approve once it is approved).                                                                                
+
+$ git rev-list --count HEAD
+1
+$ git status --porcelain   # identical to before: still one modified file
+ M app.txt
+$ git diff --cached --name-only   # the refusal staged nothing
+$ git log --format=%s
+chore: initial import
+
+# the refusal is also an error in machine-readable mode
+$ star commit -m "feat: bump version" --json
+exit=1
+          
+   ERROR  
+          
+  Refusing to commit: /tmp/orbs-approval-proj/crush.json requires approval for the repo owner for every commit (re-run
+  with --approve once it is approved).                                                                                
+
+record bytes: 0
+
+# approved once, the same commit lands and reports the real object id
+$ star commit -m "feat: bump version" --approve --json
+exit=0
+reported hash matches git rev-parse HEAD: True
+reported hash is a full 40-hex object id: True
+reported short matches the hash prefix: True
+branch: main | message: feat: bump version | committed paths: 1
+policy: /tmp/orbs-approval-proj/crush.json | approval_required: True | approved: True | require_approval: True
+
+# the repository confirms it: one more commit, a clean tree, the new message
+$ git rev-list --count HEAD
+2
+$ git status --porcelain
+$ git log --format=%s
+feat: bump version
+chore: initial import
+
+# a policy can protect only some branches: main is gated, a feature branch is not
+policy change exit=0
+$ star commit -m "feat: land on main"
+exit=1
+          
+   ERROR  
+          
+  Refusing to commit: /tmp/orbs-approval-proj/crush.json protects branch "main" (re-run with --approve once it is     
+  approved).                                                                                                          
+
+$ git rev-list --count HEAD
+3
+$ star commit -m "feat: land on a feature branch" --branch feat/gate-out --json
+exit=0
+reported hash matches git rev-parse HEAD: True
+reported hash is a full 40-hex object id: True
+reported short matches the hash prefix: True
+branch: feat/gate-out | message: feat: land on a feature branch | committed paths: 1
+policy: /tmp/orbs-approval-proj/crush.json | approval_required: False | approved: False | require_approval: False
+
+# a project without a policy is not gated: no new gate for everyone else
+$ cd /tmp/orbs-approval-free && star commit --policy
+  policy            none (no project policy)
+  require approval  false
+  protected branches none
+exit=0
+$ star commit -m "docs: say hello again" --json
+exit=0
+reported hash matches git rev-parse HEAD: True
+reported hash is a full 40-hex object id: True
+reported short matches the hash prefix: True
+branch: main | message: docs: say hello again | committed paths: 1
+policy: none recorded
+$ git rev-list --count HEAD
+2
+
+# nothing left the machine: neither repository has a remote
+$ git remote -v   (in both repositories)
+[/tmp/orbs-approval-proj]
+[/tmp/orbs-approval-free]
+(empty output above means no remote is configured)
