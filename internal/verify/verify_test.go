@@ -136,6 +136,33 @@ func TestRunRecordsFailure(t *testing.T) {
 	require.Contains(t, string(summary), "fail (exit 3)")
 }
 
+func TestLatestWithoutHistory(t *testing.T) {
+	t.Parallel()
+
+	result, err := Latest(t.TempDir())
+	require.NoError(t, err)
+	require.Nil(t, result)
+}
+
+func TestLatestReadsNewestBundle(t *testing.T) {
+	t.Parallel()
+
+	dataDir := t.TempDir()
+	write := func(stamp, verdict string) {
+		dir := filepath.Join(dataDir, "verify", stamp)
+		require.NoError(t, os.MkdirAll(dir, 0o755))
+		record := `{"verdict":"` + verdict + `","started_at":"2026-01-01T00:00:00Z","steps":[]}`
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "verify.json"), []byte(record), 0o644))
+	}
+	write("20260101T000000Z", VerdictFail)
+	write("20260303T000000Z", VerdictPass)
+
+	result, err := Latest(dataDir)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Equal(t, VerdictPass, result.Verdict)
+}
+
 func TestRunRecordsTimeout(t *testing.T) {
 	t.Parallel()
 

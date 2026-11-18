@@ -1,15 +1,27 @@
 #!/bin/bash
-# Reproducible demo of `star verify` and `star changes` against a scratch repo.
+# Reproducible demo of `star verify`, `star changes` and `star overview`
+# against a scratch git repository. Nothing here is hand-edited: every
+# transcript in this directory is this script's output.
+#
+#   ./artifacts/orbs-proof/make-proof.sh /path/to/star /path/to/output
 set -u
-STAR="${1:?path to star binary}"
+STAR="${1:?path to the star binary}"
 OUT="${2:?output directory}"
 mkdir -p "$OUT"
 export PATH="$HOME/sdk/go/bin:$PATH"
+
 PROJ=/tmp/orbs-proof-proj
-rm -rf "$PROJ"; mkdir -p "$PROJ"; cd "$PROJ"
+STATE=/tmp/orbs-proof-state
+rm -rf "$PROJ" "$STATE"
+mkdir -p "$PROJ" "$STATE/crush"
+cd "$PROJ"
 git init -q -b main
 git config user.email proof@example.com
 git config user.name "Orbs Proof"
+
+cat > .gitignore <<'EOF'
+.crush/
+EOF
 cat > go.mod <<'EOF'
 module example.com/proof
 
@@ -78,7 +90,7 @@ EOF
 import json, sys
 d = json.load(open(sys.argv[1]))
 print("verdict:", d["verdict"])
-print("star:", d["workspace"]["star"]["version"], d["workspace"]["star"]["commit"][:7] if d["workspace"]["star"].get("commit") else "-")
+print("star:", d["workspace"]["star"]["version"], (d["workspace"]["star"].get("commit") or "-")[:7])
 print("branch:", d["workspace"]["git"]["branch"])
 for s in d["steps"]:
     print(f"  {s['kind']:<6} {s['command']:<18} exit={s['exit_code']} {s['duration_ms']}ms log={s['log']}")
@@ -101,10 +113,38 @@ PY
   "$STAR" changes --json | python3 -c 'import json,sys;d=json.load(sys.stdin);print("repository:",d["repository"]);print("branch:",d["branch"]);print("patch_bytes:",d["patch_bytes"]);print("files:",[(f["status"].strip(),f["path"]) for f in d["files"]])'
   echo "exit=$?"
   echo
-  echo "\$ star changes --patch review.patch"
+  echo "\$ star changes --patch /tmp/orbs-review.patch"
   "$STAR" changes --patch /tmp/orbs-review.patch 2>&1
   echo "exit=$?"
   echo
-  echo "--- review.patch ---"
+  echo "--- /tmp/orbs-review.patch ---"
   cat /tmp/orbs-review.patch
 } > "$OUT/03-changes.txt" 2>&1
+
+# The app tracks workspaces in projects.json; write the same file here so
+# the overview has a workspace to report on.
+cat > "$STATE/crush/projects.json" <<EOF
+{
+  "projects": [
+    {
+      "path": "$PROJ",
+      "data_dir": "$PROJ/.crush",
+      "last_accessed": "2026-11-18T00:00:00Z"
+    }
+  ]
+}
+EOF
+
+{
+  echo "\$ star verify        # default bundle, kept in the project data dir"
+  "$STAR" verify 2>&1
+  echo "exit=$?"
+  echo
+  echo "\$ XDG_DATA_HOME=$STATE star overview"
+  XDG_DATA_HOME="$STATE" "$STAR" overview 2>&1
+  echo "exit=$?"
+  echo
+  echo "\$ XDG_DATA_HOME=$STATE star overview --json | python3 -c 'summary'"
+  XDG_DATA_HOME="$STATE" "$STAR" overview --json | python3 -c 'import json,sys;d=json.load(sys.stdin);e=d["projects"][0];print("workspace:",e["path"]);print("branch:",e["branch"]);print("changed_paths:",e["changed_paths"]);print("verification:",e["verification"]["verdict"],e["verification"]["steps"],"steps",e["verification"]["failed_steps"],"failed");print("cloud:",d["cloud"])'
+  echo "exit=$?"
+} > "$OUT/04-overview.txt" 2>&1

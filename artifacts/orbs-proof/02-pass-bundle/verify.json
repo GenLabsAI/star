@@ -1,7 +1,7 @@
 {
   "verdict": "pass",
-  "started_at": "2026-11-17T23:55:01.392577511Z",
-  "duration_ms": 139,
+  "started_at": "2026-11-17T23:59:39.810007791Z",
+  "duration_ms": 131,
   "workspace": {
     "workspace": {
       "dir": "/tmp/orbs-proof-proj",
@@ -103,14 +103,14 @@
       "kind": "build",
       "command": "go build ./...",
       "exit_code": 0,
-      "duration_ms": 25,
+      "duration_ms": 21,
       "log": "logs/01-build.log"
     },
     {
       "kind": "test",
       "command": "go test ./...",
       "exit_code": 0,
-      "duration_ms": 113,
+      "duration_ms": 108,
       "log": "logs/02-test.log",
       "output_tail": "ok  \texample.com/proof\t(cached)\n"
     }

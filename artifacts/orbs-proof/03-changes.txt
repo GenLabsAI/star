@@ -14,7 +14,7 @@ patch_bytes: 606
 files: [('M', 'sum.go'), ('M', 'sum_test.go')]
 exit=0
 
-$ star changes --patch review.patch
+$ star changes --patch /tmp/orbs-review.patch
   repository        /tmp/orbs-proof-proj
   branch            main
   paths             2 changed
@@ -24,7 +24,7 @@ $ star changes --patch review.patch
   written           606 bytes written to /tmp/orbs-review.patch
 exit=0
 
---- review.patch ---
+--- /tmp/orbs-review.patch ---
 diff --git a/sum.go b/sum.go
 index da216cf..429ccd6 100644
 --- a/sum.go

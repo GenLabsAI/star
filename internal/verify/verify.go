@@ -245,6 +245,45 @@ func tail(output string, limit int) string {
 	return "…[truncated]\n" + output[len(output)-limit:]
 }
 
+// Latest reads the newest verification bundle under a project's data
+// directory. It returns (nil, nil) when the project has never been
+// verified. Bundle directories are named with UTC timestamps, so the
+// newest name is the newest run.
+func Latest(dataDir string) (*Result, error) {
+	root := filepath.Join(dataDir, "verify")
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("Failed to read verification history: %w", err)
+	}
+	newest := ""
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		if _, err := os.Stat(filepath.Join(root, entry.Name(), "verify.json")); err != nil {
+			continue
+		}
+		if entry.Name() > newest {
+			newest = entry.Name()
+		}
+	}
+	if newest == "" {
+		return nil, nil
+	}
+	data, err := os.ReadFile(filepath.Join(root, newest, "verify.json"))
+	if err != nil {
+		return nil, fmt.Errorf("Failed to read verification record: %w", err)
+	}
+	var result Result
+	if err := json.Unmarshal(data, &result); err != nil {
+		return nil, fmt.Errorf("Failed to decode verification record: %w", err)
+	}
+	return &result, nil
+}
+
 func writeBundle(result *Result) error {
 	data, err := json.MarshalIndent(result, "", "  ")
 	if err != nil {

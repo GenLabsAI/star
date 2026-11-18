@@ -176,10 +176,13 @@ proof. Everything else is ours to finish.
 24. **A unified workspace management experience**: one overview of
     environments, conversations, running agents, previews, scheduled
     tasks, completed work and artifacts, with inspect/share/pause/resume/
-    terminate. — **WIP**. `star projects`, the sessions dialog, `star
-    wakeup list` and the TUI status badges each cover a slice. Missing: a
-    single view that joins them, and pause/resume/terminate wired to the
-    cloud lifecycle.
+    terminate. — **WIP → advanced here**. `star overview [--json]` joins
+    every tracked workspace with its branch, changed paths, latest
+    verification verdict and cloud credential state, next to `star
+    projects`, the sessions dialog, `star wakeup list` and the TUI status
+    badges. Missing: sessions and schedules in the same view,
+    previews/demos, and pause/resume/terminate wired to the cloud
+    lifecycle.
 
 ## What changed from the previous list
 
@@ -199,11 +202,12 @@ old 3 + 6 → 3, old 4 → 4, old 5 → 5 (continuous validation is now part of
 * **Item 21 (review half)** — `star changes [--json] [--patch FILE]`:
   what changed, on which branch, and a diff a reviewer can read. New
   `internal/changes` package with tests.
+* **Item 24 (local half)** — `star overview [--json]`: workspaces,
+  branches, changed paths, latest verification and cloud credential state
+  in one view. New `internal/overview` package with tests.
 
 ## Next (unblocked, partially built)
 
-* **Item 24** — a single overview joining `star projects`, verification
-  history, wakeup schedules and cloud credential state.
 * **Item 14** — a durable cross-session knowledge pointer, so discoveries
   survive sessions instead of being rediscovered.
 * **Item 7** — a port and process inventory for background jobs (local

@@ -20,6 +20,7 @@ go build -o /tmp/star .
 | `02-verify-pass.txt` | After the code is fixed, the same command exits **0**, every step passes, and the bundle records the two changed files and the tracked diff. Includes `verify.json`, `logs/02-test.log` and `changes.patch` verbatim. |
 | `02-pass-bundle/` | The passing bundle, including a patch that matches the working tree at the time of the run. |
 | `03-changes.txt` | `star changes` summarizes the tree (branch, per-file status, diffstat, patch size), emits JSON on stdout for agents, and writes a reviewable patch with `--patch`. |
+| `04-overview.txt` | `star overview` joins tracked workspaces with their branch, changed paths, latest verification verdict and cloud credential state, in text and JSON. Run against a `projects.json` that points at the scratch repo. |
 | `make-proof.sh` | The script that produced all of the above, so nothing is hand-edited. |
 
 ## What a skeptic should check
@@ -33,7 +34,10 @@ go build -o /tmp/star .
 4. `02-pass-bundle/verify.json` contains the same commands and exit codes
    the terminal showed, plus the environment manifest (branch, stacks,
    runtime readiness).
-5. Delete the scratch directory and re-run the script: the files regenerate
+5. In `04-overview.txt`, the overview reports the verification the previous
+   command just ran (`pass`, 2 steps, 0 failed) and 2 changed paths, which
+   matches `02-pass-bundle/verify.json`.
+6. Delete the scratch directory and re-run the script: the files regenerate
    with different timestamps and durations but the same verdicts.
 
 ## What this does NOT prove

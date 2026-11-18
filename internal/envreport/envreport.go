@@ -117,6 +117,17 @@ type Logs struct {
 	Files []string `json:"files,omitempty"`
 }
 
+// CloudPresence reports which cloud credentials the environment has,
+// never their values.
+func CloudPresence() Cloud {
+	return Cloud{
+		APIBaseURLSet:  os.Getenv("DECA_AGENT_API_BASE_URL") != "",
+		UserCredential: os.Getenv("DECA_API_KEY") != "" || os.Getenv("DECA_SESSION_ID") != "",
+		WorkerToken:    os.Getenv("DECA_AGENT_WORKER_TOKEN") != "",
+		ModelReady:     os.Getenv("DECA_MODEL") != "" && os.Getenv("DECA_MODEL_BASE_URL") != "" && os.Getenv("DECA_MODEL_API_KEY") != "",
+	}
+}
+
 // contextFiles are the project instruction files Star reads into every
 // prompt, in the order it looks for them.
 var contextFiles = []string{
@@ -171,13 +182,8 @@ func Build(dir string) (Manifest, error) {
 		Project:  detectProject(abs, stacks),
 		Hooks:    detectHooks(abs),
 		Runtimes: readiness(stacks),
-		Cloud: Cloud{
-			APIBaseURLSet:  os.Getenv("DECA_AGENT_API_BASE_URL") != "",
-			UserCredential: os.Getenv("DECA_API_KEY") != "" || os.Getenv("DECA_SESSION_ID") != "",
-			WorkerToken:    os.Getenv("DECA_AGENT_WORKER_TOKEN") != "",
-			ModelReady:     os.Getenv("DECA_MODEL") != "" && os.Getenv("DECA_MODEL_BASE_URL") != "" && os.Getenv("DECA_MODEL_API_KEY") != "",
-		},
-		Logs: detectLogs(abs),
+		Cloud:    CloudPresence(),
+		Logs:     detectLogs(abs),
 	}, nil
 }
 

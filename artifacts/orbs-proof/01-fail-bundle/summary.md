@@ -1,8 +1,8 @@
 # Verification summary
 
 - Verdict: **fail**
-- Started: 2026-11-17T23:55:00Z
-- Duration: 301ms
+- Started: 2026-11-17T23:59:39Z
+- Duration: 286ms
 - Workspace: `/tmp/orbs-proof-proj`
 - Star: devel (linux/amd64)
 - Branch: main
@@ -11,8 +11,8 @@
 
 | step | command | result | duration |
 | --- | --- | --- | --- |
-| build | `go build ./...` | pass | 17ms |
-| test | `go test ./...` | fail (exit 1) | 283ms |
+| build | `go build ./...` | pass | 20ms |
+| test | `go test ./...` | fail (exit 1) | 265ms |
 
 ## Changes
 
