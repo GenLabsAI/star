@@ -19,7 +19,7 @@ $ star commit --message "fix: say hello world"
 
 exit=1
 $ git log --oneline    # no commit was created by the refusal
-52b96a2 chore: initial import
+7ba90f9 chore: initial import
 commits: 1
 $ git status --porcelain   # the work is still there, uncommitted
  M README.md
@@ -39,7 +39,7 @@ commits: 1
 $ star commit -m "fix: say hello world" --include-untracked --branch feat/greeting
   repository        /tmp/orbs-commit-proj
   branch            feat/greeting (created)
-  commit            8269dec
+  commit            a9c9576
   message           fix: say hello world
   paths             2 committed
   M   README.md
@@ -52,11 +52,11 @@ exit=0
 
 # the commit is real, and it is the one the command reported
 $ git log --oneline --stat -1
-8269dec fix: say hello world
+a9c9576 fix: say hello world
  README.md  | 2 +-
  RUNBOOK.md | 1 +
  2 files changed, 2 insertions(+), 1 deletion(-)
-$ git rev-parse --short HEAD -> 8269dec
+$ git rev-parse --short HEAD -> a9c9576
 $ git branch --show-current -> feat/greeting
 $ git show HEAD:RUNBOOK.md -> serve --port 8080
 $ git status --porcelain -> '' (empty: nothing left over)
@@ -68,8 +68,8 @@ $ star commit -m "fix: greet again" --branch feat/greeting --json
   "repository": true,
   "root": "/tmp/orbs-commit-proj",
   "branch": "feat/greeting",
-  "hash": "77747200a276dea402e008fed928bc9bfc421cde",
-  "short": "7774720",
+  "hash": "1d538ba763ef7eedf4a639fbac992b697e28ea89",
+  "short": "1d538ba",
   "message": "fix: greet again",
   "files": [
     {
@@ -81,7 +81,7 @@ $ star commit -m "fix: greet again" --branch feat/greeting --json
 }
 exit=0
 second run exit=1 (1: nothing left to commit)
-record hash matches git HEAD: 7774720
+record hash matches git HEAD: 1d538ba
 branch: feat/greeting | paths: ['README.md']
 exit=0
 

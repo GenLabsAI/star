@@ -511,6 +511,16 @@ func SummaryMarkdown(result Result) string {
 	}
 	b.WriteString("\n## Logs\n\n")
 	for _, step := range result.Steps {
+		// A repeated run keeps every attempt, so a reviewer can compare
+		// the pass with the failure instead of trusting the summary.
+		if len(step.Attempts) > 1 {
+			for i, attempt := range step.Attempts {
+				if attempt.Log != "" {
+					fmt.Fprintf(&b, "- [%s attempt %d](%s)\n", step.Kind, i+1, attempt.Log)
+				}
+			}
+			continue
+		}
 		if step.Log != "" {
 			fmt.Fprintf(&b, "- [%s](%s)\n", step.Log, step.Log)
 		}
