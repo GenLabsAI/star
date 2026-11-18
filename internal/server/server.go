@@ -128,7 +128,15 @@ type Server struct {
 	logger  *slog.Logger
 
 	// Token, when set, is the pairing token every request must present.
+	// Its scopes decide what the peer may do, and a token with none set is
+	// unrestricted.
 	Token string
+	// PairWorkspaces, when set, limits the paired peer to these
+	// workspace directories.
+	PairWorkspaces []string
+	// ApprovalFile, when set, makes running commands require a current
+	// approval code minted there.
+	ApprovalFile string
 
 	// selfShutdown runs the shutdown the backend asks for at most once.
 	// selfShutdownStarted is set before that shutdown begins and
@@ -224,7 +232,7 @@ func (s *Server) installHandler() {
 	s.cancelRequests = cancel
 	s.h = &http.Server{
 		Protocols:   &p,
-		Handler:     s.recoverHandler(s.loggingHandler(s.pairingHandler(s.crossOriginHandler(mux)))),
+		Handler:     s.recoverHandler(s.loggingHandler(s.pairingHandler(s.pairPolicyHandler(s.crossOriginHandler(mux))))),
 		BaseContext: func(net.Listener) context.Context { return baseCtx },
 	}
 }

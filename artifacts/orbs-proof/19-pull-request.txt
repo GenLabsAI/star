@@ -1,0 +1,51 @@
+# repository: /workspace/chats/f14882b58e53df863a7f0ed6
+# base branch: main (the branch this script returns to and leaves clean)
+# remote: https://github.com/GenLabsAI/star.git
+
+## A branch that is not on the remote
+
+$ star pr --title "chore: unsent branch"
+   ERROR  
+          
+  Branch "proof/pr-unsent" is not pushed to origin (re-run with --push, or push it yourself).                         
+
+exit=1
+branches on the remote after the refusal: 0
+
+## What the command asks GitHub
+
+$ PATH=<recording gh>:$PATH star pr --push --title "chore: stubbed pull request" --body "Recorded, not sent."
+Pull request #4242
+  title             chore: stubbed pull request
+  branch            proof/pr-stub -> main
+  repository        GenLabsAI/star (origin)
+  url               https://github.com/GenLabsAI/star/pull/4242
+  pushed            proof/pr-stub to origin
+exit=0
+
+$ cat <outdir>/pr-gh-stub-args.txt      # the exact gh invocation, one line of arguments
+pr create --repo GenLabsAI/star --head proof/pr-stub --base main --title chore: stubbed pull request --body Recorded, not sent.
+
+the branch really is on the remote now:
+refs/heads/proof/pr-stub
+
+## Against the real GitHub CLI
+
+$ star pr --push --title "chore: exercise the pull-request command"
+          
+   ERROR  
+          
+  Failed to open the pull request: exit status 1: pull request create failed: GraphQL: Resource not accessible by     
+  personal access token (createPullRequest).                                                                          
+exit=1
+
+# GitHub refused the create call with the credential this machine has;
+# the attempt above is the real API answer, not a local check.
+
+## The tree afterwards
+
+$ git -C /workspace/chats/f14882b58e53df863a7f0ed6 branch --list 'proof/*'     # throwaway branches are gone
+$ git -C /workspace/chats/f14882b58e53df863a7f0ed6 ls-remote --heads origin 'refs/heads/proof/*'
+$ git -C /workspace/chats/f14882b58e53df863a7f0ed6 status --short
+(empty output above means no leftover branches and a clean tree)
+branch: main

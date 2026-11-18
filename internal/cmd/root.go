@@ -75,6 +75,7 @@ func init() {
 		verifyCmd,
 		changesCmd,
 		commitCmd,
+		prCmd,
 		overviewCmd,
 		knowledgeCmd,
 		portsCmd,

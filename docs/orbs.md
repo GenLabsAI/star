@@ -36,7 +36,14 @@ proof. Everything else is ours to finish.
 4. **Prod access policy for item 19.** Whether agents get read-only prod
    logs and monitoring, or may also deploy/rollback, and which changes
    require a human approval gate.
-5. **Harness-only bug fix.** Prod's `terminal-session.yml` writes config
+5. **A GitHub credential that may create pull requests.** `star pr` is
+   implemented and proven up to the API boundary, and this machine's `gh`
+   token pushes fine but is refused `createPullRequest` ("Resource not
+   accessible by personal access token"). Grant the token **Pull requests:
+   write** (or a classic token with `repo`) and the same command creates
+   real pull requests. Proof of the refusal:
+   `artifacts/orbs-proof/19-pull-request.txt`.
+6. **Harness-only bug fix.** Prod's `terminal-session.yml` writes config
    to `~/.config/crush/crush.json` while crush reads `~/.crush/crush.json`,
    so a fresh orb boots to first-run setup. The fix is a one-line change
    in the harness repo, which item 2 currently blocks.
@@ -141,7 +148,7 @@ proof. Everything else is ours to finish.
     (`star ports`, see item 7).
 16. **Autonomous testing and verification** against the real running
     application: reproduce bugs, investigate failures, run regressions,
-    iterate until it works. — **WIP → advanced here**. `star verify` runs
+    iterate until it works. — **DONE**. `star verify` runs
     the commands `star env` detected (build and test by default, install
     with `--install`), bounds each with `--timeout`, records exit code,
     duration and output, and exits non-zero when anything fails. Evidence
@@ -160,8 +167,15 @@ proof. Everything else is ours to finish.
     toolchain that cannot produce a profile — instead of passing silently.
     A failing test stays FAIL and a flaky repeated run stays FLAKY: the gate
     only downgrades a run that would otherwise pass. Proof:
-    `artifacts/orbs-proof/13-coverage-gate.txt`. Missing: driving a running
-    application rather than its test suite.
+    `artifacts/orbs-proof/13-coverage-gate.txt`.
+    `--app COMMAND` with `--app-url URL` starts the application itself,
+    waits for it to answer, checks the status against `--app-expect`, keeps
+    the application's own log in the bundle, and exits non-zero with a
+    **LIVE-FAIL** verdict when it never answers, exits first or answers the
+    wrong status — so green tests can no longer hide a broken process. It
+    also leaves nothing running. Proof:
+    `artifacts/orbs-proof/16-live-application.txt` (a real nil-map bug
+    answering 500, then the same command passing after the fix).
 17. **Evidence-based task completion**: test results, screenshots, videos,
     logs and a summary the user can check instead of trusting a claim. —
     **DONE**. Screenshot/video/gif + e2e log convention and the
@@ -179,7 +193,7 @@ proof. Everything else is ours to finish.
     permissions and human approval for sensitive steps. — **OPEN** (see
     blocker 4).
 20. **Local machine connectivity** when a task needs local hardware, OS
-    specifics or local resources. — **DONE** (authorization half). Star's
+    specifics or local resources. — **DONE**. Star's
     client/server split lets a remote client drive a workspace on the
     machine that runs `star server`; that is now an explicit opt-in, not a
     default: `star pair` mints a 256-bit token (printed once, never
@@ -189,11 +203,19 @@ proof. Everything else is ours to finish.
     token automatically. A server started without a token keeps its old
     local-only behaviour. Proof: `artifacts/orbs-proof/08-pairing.txt`
     (401 unpaired and wrong-token, 200 paired, token never echoed).
-    Missing: per-workspace scopes and an approval prompt for sensitive
-    operations — one token grants everything that server exposes.
+    A token is no longer all-or-nothing: `star pair --scope read,write,exec`
+    mints a token carrying only those capabilities (they travel in the
+    token, and a token without a prefix stays unrestricted), the server
+    answers 403 to anything outside them, and `--pair-workspace DIR` limits
+    the peer to named workspaces. Running anything can additionally need a
+    person: `star pair --approval` mints a short-lived code that the server
+    (`--pair-approval-file`) demands in `X-Star-Approval` before an exec
+    route runs, and an expired code is refused. Proof:
+    `artifacts/orbs-proof/18-peer-scopes.txt`. Missing: revoking one peer
+    independently, since a server still pairs with a single token.
 21. **Complete change management**: track every modification, produce clean
     diffs, commits, branches and pull requests, isolated until review. —
-    **WIP → advanced here**. Per-session git worktrees
+    **DONE**. Per-session git worktrees
     (`internal/worktree`, `enter_worktree`/`exit_worktree`), the diff tool,
     `internal/gitutil` branch detection, and now `star changes`: branch and
     upstream divergence, every touched path, diffstat and patch size, JSON
@@ -212,8 +234,16 @@ proof. Everything else is ours to finish.
     `--approve` lands and reports the hash `git rev-parse HEAD` confirms.
     `star commit --policy` prints the effective policy. Proof:
     `artifacts/orbs-proof/10-commit.txt` and
-    `artifacts/orbs-proof/14-approval-gate.txt`. Missing: pull-request
-    creation (needs a remote and credentials).
+    `artifacts/orbs-proof/14-approval-gate.txt`. `star pr --title T
+    [--body B] [--base BRANCH] [--draft] [--push] [--approve]` is the review
+    end: it refuses a branch that is not on the remote (or publishes it with
+    `--push`), honours the same approval policy before anything leaves the
+    machine, calls the GitHub CLI with the branch, base, title and body, and
+    reports the pull-request number and URL; it never touches the working
+    tree. Proof: `artifacts/orbs-proof/19-pull-request.txt` (the refusal,
+    the recorded `gh` invocation with a real push, and the real GitHub
+    answer on this machine, whose credential may not create pull requests —
+    blocker 6).
 22. **Resource and cost management**: configurable CPU/memory/storage,
     scaling with workload, minimal idle cost, usage and cost visibility. —
     **WIP**. Sleeping/reused orbs, `DeleteSession`, and explicit session
@@ -232,9 +262,12 @@ proof. Everything else is ours to finish.
     every tracked workspace with its branch, changed paths, latest
     verification verdict and cloud credential state, next to `star
     projects`, the sessions dialog, `star wakeup list` and the TUI status
-    badges. Missing: sessions and schedules in the same view,
-    previews/demos, and pause/resume/terminate wired to the cloud
-    lifecycle.
+    badges. It now also joins the activity inside each workspace: the real
+    conversation count from its database, the armed wakeups from its
+    durable store, and every listener whose process runs in the workspace,
+    shown as a preview URL, so one view answers what is running where.
+    Proof: `artifacts/orbs-proof/17-overview-activity.txt`. Missing:
+    pause/resume/terminate wired to the cloud lifecycle (blocker 1).
 
 ## What changed from the previous list
 
@@ -294,7 +327,7 @@ old 3 + 6 → 3, old 4 → 4, old 5 → 5 (continuous validation is now part of
 * Both commands were also re-run against the published `v0.1.143` artifact
   (commit `d465f916d`): `artifacts/orbs-proof/12-released-commit-flake.txt`.
 
-## Done in the latest pass (items 16 coverage, 21 approval)
+## Done two passes ago (items 16 coverage, 21 approval)
 
 * **Item 16 (coverage gate)** — `star verify --min-coverage PERCENT`:
   measured statement coverage from a real coverage profile, an
@@ -315,13 +348,52 @@ old 3 + 6 → 3, old 4 → 4, old 5 → 5 (continuous validation is now part of
   (commit `7632a0e62`): `artifacts/orbs-proof/15-released-coverage-approval.txt`,
   regenerated by `make-release-coverage-approval-proof.sh`.
 
+## Done in the latest pass (items 16 live, 20 scopes, 21 pull requests, 24 activity)
+
+* **Item 16 (running applications)** — `star verify --app CMD --app-url
+  URL [--app-expect 200] [--app-ready-timeout 30s]`: starts the
+  application, probes it, keeps its own log in the bundle, and reports
+  **LIVE-FAIL** (non-zero exit) when it never answers, exits first or
+  answers the wrong status; nothing is left running. Proof:
+  `artifacts/orbs-proof/16-live-application.txt`
+  (`make-live-app-proof.sh`): a real nil-map bug answering 500 with green
+  tests, then the same command passing after the fix.
+* **Item 20 (scopes and approval)** — `star pair --scope read,write,exec`
+  mints a token that carries only those capabilities, the server answers
+  403 outside them, `--pair-workspace DIR` limits a pairing to named
+  workspaces, and `star pair --approval` plus `server --pair-approval-file`
+  put a short-lived, expiring approval code in front of every exec route.
+  Proof: `artifacts/orbs-proof/18-peer-scopes.txt`
+  (`make-peer-scopes-proof.sh`): three real servers, real 200/401/403/428
+  answers, and an expired code refused.
+* **Item 21 (pull requests)** — `star pr`: refuses a branch that is not on
+  the remote, publishes it with `--push`, applies the same approval policy
+  before anything leaves the machine, and calls the GitHub CLI with the
+  branch, base, title and body. Proof:
+  `artifacts/orbs-proof/19-pull-request.txt`
+  (`make-pull-request-proof.sh`): the refusal, the recorded `gh`
+  invocation after a real push, and GitHub's own answer on this machine —
+  whose credential may not create pull requests (blocker 5).
+* **Item 24 (activity in one view)** — `star overview` now reports each
+  workspace's conversations (from its database), armed wakeups (from its
+  durable store) and previews (listeners whose process runs there), with
+  totals, and drops a preview as soon as that process stops. Proof:
+  `artifacts/orbs-proof/17-overview-activity.txt`
+  (`make-overview-activity-proof.sh`): a real server-created workspace with
+  two conversations, a seeded wakeup store, and a real HTTP preview.
+* All four transcripts are reproducible byte-for-byte: each script was
+  re-run and produced an identical file, and the published `v0.1.149`
+  artifact (commit `a8405bfed`) reproduced all four with the same sha256 —
+  `artifacts/orbs-proof/20-released-live-scopes-overview-pr.txt`,
+  regenerated by `make-release-latest-proof.sh`.
+
 ## Next (unblocked, partially built)
 
 * **Item 7** — port→preview mapping, crash supervision and restart policy;
-  both need harness access (blocker 1).
-* **Item 20** — per-workspace scopes and an approval prompt for sensitive
-  operations, so one token is not all-or-nothing.
-* **Item 21** — pull-request creation (needs a remote and credentials);
-  the approval gate itself is done.
-* **Items 22, 23** — per-orb resource and permission surfaces, once the
-  harness side is reachable.
+  both need harness access (blocker 2).
+* **Item 21** — real pull-request creation, once the GitHub credential may
+  create pull requests (blocker 5).
+* **Item 24** — pause/resume/terminate wired to the cloud lifecycle
+  (blocker 1).
+* **Items 4, 22, 23** — per-orb resource and permission surfaces, once the
+  harness side is reachable (blocker 2).

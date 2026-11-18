@@ -108,7 +108,9 @@ type Result struct {
 	Steps      []Step             `json:"steps"`
 	// Coverage is present only when a threshold was requested.
 	Coverage *Coverage `json:"coverage,omitempty"`
-	Bundle   string    `json:"bundle"`
+	// Live is present only when an application was started and probed.
+	Live   *Live  `json:"live,omitempty"`
+	Bundle string `json:"bundle"`
 }
 
 // Options configures a run.
@@ -131,13 +133,27 @@ type Options struct {
 	// because Go's test cache would otherwise answer a second run with
 	// the first run's result and hide exactly what repeat mode looks for.
 	Repeat int
+	// LiveCommand, when set, starts the application itself after the
+	// commands and is the only way to verify behaviour that lives in a
+	// running process rather than in a test.
+	LiveCommand string
+	// LiveURL is the address the started application is probed on. It is
+	// required when LiveCommand is set.
+	LiveURL string
+	// LiveExpect lists the statuses that count as a healthy answer.
+	// Empty means 200.
+	LiveExpect []int
+	// LiveReadyTimeout bounds how long the application may take to
+	// answer. Zero uses DefaultReadyTimeout.
+	LiveReadyTimeout time.Duration
 }
 
 // Failed reports whether the verdict is a failure. A flaky run fails:
 // something that only sometimes works is not something to ship.
 func (r Result) Failed() bool {
 	return r.Verdict == VerdictFail || r.Verdict == VerdictFlaky ||
-		r.Verdict == VerdictUnderCovered || r.Verdict == VerdictCoverageUnavailable
+		r.Verdict == VerdictUnderCovered || r.Verdict == VerdictCoverageUnavailable ||
+		r.Verdict == VerdictLiveFail
 }
 
 // FlakySteps returns the commands whose attempts disagreed.
@@ -186,8 +202,11 @@ func Plan(stacks []envreport.Stack, includeInstall bool) []Spec {
 
 // Run executes specs in dir and writes the evidence bundle.
 func Run(ctx context.Context, dir string, specs []Spec, opts Options) (*Result, error) {
-	if len(specs) == 0 {
+	if len(specs) == 0 && opts.LiveCommand == "" {
 		return nil, fmt.Errorf("Nothing to verify: no build or test commands were detected")
+	}
+	if opts.LiveCommand != "" && opts.LiveURL == "" {
+		return nil, fmt.Errorf("A live application needs an address to probe (--app-url)")
 	}
 	timeout := opts.Timeout
 	if timeout <= 0 {
@@ -253,8 +272,20 @@ func Run(ctx context.Context, dir string, specs []Spec, opts Options) (*Result, 
 		}
 		result.Coverage = &coverage
 	}
+	if opts.LiveCommand != "" {
+		expect := opts.LiveExpect
+		if len(expect) == 0 {
+			expect = []int{200}
+		}
+		result.Live = runLive(ctx, dir, liveSpec{
+			command:      opts.LiveCommand,
+			url:          opts.LiveURL,
+			expect:       expect,
+			readyTimeout: opts.LiveReadyTimeout,
+		}, bundle, tailBytes)
+	}
 	result.DurationMS = time.Since(started).Milliseconds()
-	result.Verdict = gateCoverage(verdictFor(result.Steps), result.Coverage)
+	result.Verdict = gateCoverage(gateLive(verdictFor(result.Steps), result.Live), result.Coverage)
 
 	if err := writeBundle(result); err != nil {
 		return nil, err
@@ -532,6 +563,28 @@ func SummaryMarkdown(result Result) string {
 		}
 	}
 
+	if live := result.Live; live != nil {
+		b.WriteString("\n## Live application\n\n")
+		fmt.Fprintf(&b, "- Command: `%s`\n", live.Command)
+		fmt.Fprintf(&b, "- Probed: %s\n", live.URL)
+		fmt.Fprintf(&b, "- Expected: %s\n", statusList(live.Expected))
+		if live.Ready {
+			fmt.Fprintf(&b, "- Answered: %d after %s\n", live.StatusCode, time.Duration(live.ReadyMS)*time.Millisecond)
+		} else {
+			b.WriteString("- Answered: never\n")
+		}
+		fmt.Fprintf(&b, "- Result: %s\n", map[bool]string{true: "pass", false: "**failed**"}[live.Passed])
+		if live.Reason != "" {
+			fmt.Fprintf(&b, "- Reason: %s\n", live.Reason)
+		}
+		if live.BodyTail != "" {
+			fmt.Fprintf(&b, "- Body: `%s`\n", bodyLine(live.BodyTail))
+		}
+		if live.Log != "" {
+			fmt.Fprintf(&b, "- [application log](%s)\n", live.Log)
+		}
+	}
+
 	b.WriteString("\n## Changes\n\n")
 	if !result.Changes.Repository {
 		b.WriteString("Not a git repository.\n")
@@ -544,6 +597,9 @@ func SummaryMarkdown(result Result) string {
 		}
 	}
 	b.WriteString("\n## Logs\n\n")
+	if live := result.Live; live != nil && live.Log != "" {
+		fmt.Fprintf(&b, "- [application](%s)\n", live.Log)
+	}
 	for _, step := range result.Steps {
 		// A repeated run keeps every attempt, so a reviewer can compare
 		// the pass with the failure instead of trusting the summary.
