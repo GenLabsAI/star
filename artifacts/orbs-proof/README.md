@@ -19,6 +19,11 @@ tar -C /tmp/rel -xzf /tmp/rel/star-linux-amd64.tar.gz
 ./artifacts/orbs-proof/make-knowledge-proof.sh /tmp/star /tmp/proof-out
 ./artifacts/orbs-proof/make-ports-proof.sh /tmp/star /tmp/proof-out
 ./artifacts/orbs-proof/make-pairing-proof.sh /tmp/star /tmp/proof-out
+
+# and the same three against a published build:
+gh release download v0.1.141 --repo GenLabsAI/star -p 'star-linux-amd64.tar.gz' -D /tmp/rel
+tar -C /tmp/rel -xzf /tmp/rel/star-linux-amd64.tar.gz
+./artifacts/orbs-proof/make-release-commands-proof.sh /tmp/rel/star-linux-amd64/star-core /tmp/release-proof
 ```
 
 Each script rebuilds its scratch project from scratch, starts and stops its
@@ -38,8 +43,10 @@ own processes, and can be re-run in any order.
 | `06-knowledge.txt` | `star knowledge` keeps a discovery across **processes**: `list` is empty, `show` on a missing name exits **1**, `add` in one process, then a fresh process reads it back with a byte-identical sha256, prints the JSON listing and the `.md` file it lives in, `star env` reports it, a second entry and a replacement work, and `remove` empties the store again. |
 | `07-ports.txt` | `star ports` reports a real `python3 -m http.server` started by the script: port 18765, its actual pid, `python3`, and the workspace as cwd. A second listener started *outside* the workspace is hidden by default and visible with `--all`. Killing the reported pid removes the entry (`listeners: []`), and an idle workspace prints "No listening sockets". |
 | `08-pairing.txt` | A real `star server` with a pairing token: request with no credential → **401**, wrong token → **401** (real `401 Unauthorized` headers, not a refused connection), correct token → **200**, and the same via `X-Star-Token`. The token is never printed (length + sha256 prefix only), no file is written by `star pair`, `star env` reports the token source without the value, the token file is `0600`, the server appears in `star ports` and its port is gone after shutdown, and a server started *without* a token still answers 200 (unchanged local behaviour). |
+| `09-released-commands.txt` | Items 14, 7 and 20 re-run with the **published** `v0.1.141` artifact. `star env --json` reports version `v0.1.141` and commit `1022fd03a` (this repository's commit), then the three proofs pass unchanged: knowledge read back identical, the real listener found and its pid killed, 401/401/200 pairing. |
 | `make-proof.sh` | The script that produced 01–04, so nothing is hand-edited. |
 | `make-knowledge-proof.sh`, `make-ports-proof.sh`, `make-pairing-proof.sh` | The scripts that produced 06, 07 and 08. |
+| `make-release-commands-proof.sh` | The script that produced 09: it runs the three scripts above with a released binary and records its version and commit. |
 | `make-release-proof.sh` | The script that produced 05 against a released binary. |
 
 ## What a skeptic should check
@@ -72,7 +79,11 @@ own processes, and can be re-run in any order.
    print a traceback instead of "workspace filter: ...". Re-run the script
    yourself and compare: the pid differs every time, the port and the
    verdicts do not.
-10. In `08-pairing.txt`, the three status lines are 401, 401, 200 in that
+10. In `09-released-commands.txt`, the version and commit printed first are
+   the release tag's, and the verdict lines below them are the same ones
+   the source-build transcripts show — the commands behave the same in the
+   binary users download.
+11. In `08-pairing.txt`, the three status lines are 401, 401, 200 in that
    order, the 401 carries an `{"message":"unauthorized: ..."}` body, and
    the paired request returns the API response. The token's sha256 prefix
    proves the transcript shows a token was generated without revealing it;
