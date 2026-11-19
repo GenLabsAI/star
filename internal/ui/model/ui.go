@@ -800,6 +800,9 @@ func (m *UI) Init() tea.Cmd {
 	if cmd := m.requestMCPRefresh(); cmd != nil {
 		cmds = append(cmds, cmd)
 	}
+	// Keep asking the terminal for its size. A dropped resize event would
+	// otherwise leave the UI laid out for the old width.
+	cmds = append(cmds, m.terminalSizeTicker())
 	return tea.Batch(cmds...)
 }
 
@@ -1350,6 +1353,13 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.sendProgressBar = xstrings.ContainsAnyOf(termVersion, "ghostty", "iterm2", "rio")
 		}
 		return m, nil
+	case terminalSizePollMsg:
+		// The terminal reports a size no resize event delivered. Feed it
+		// through the normal resize path and keep the poll armed.
+		if cmd := m.terminalSizePollCmd(msg); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+		cmds = append(cmds, m.terminalSizeTicker())
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
 		// Suppress the chat's full-height scan during the resize so a drag
