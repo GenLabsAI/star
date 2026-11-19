@@ -130,7 +130,15 @@ func (m *splashModel) View() tea.View {
 func (m *splashModel) transitionToUI(ready *splashReadyMsg) tea.Cmd {
 	m.pendingReady = nil
 	m.model = ready.model
-	m.model.SetAltScreen(!m.launcherOwnsAltScreen)
+	// Always render the UI fullscreen. The launcher already owns the
+	// alternate screen, so the core does not need to request it again; what
+	// matters here is that Bubble Tea's renderer knows it is painting a
+	// fullscreen buffer. In inline mode the renderer positions rows with
+	// relative moves, tabs and bare newlines, which terminals (Windows
+	// consoles in particular) interpret differently and which leaves the
+	// whole UI offset from its layout. Fullscreen mode addresses every cell
+	// absolutely instead.
+	m.model.SetAltScreen(true)
 	m.ws = ready.ws
 	m.cleanup = ready.cleanup
 	if m.program != nil {

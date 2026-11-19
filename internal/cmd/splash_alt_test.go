@@ -43,5 +43,5 @@ func TestSplashModelAltScreenWhenLauncherOwnsIt(t *testing.T) {
 
 	m.launcherOwnsAltScreen = true
 	require.False(t, m.View().AltScreen,
-		"a launcher-driven core must not request the alt screen a second time")
+		"the splash stays on the screen the launcher already opened")
 }

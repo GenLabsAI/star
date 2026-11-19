@@ -4179,10 +4179,12 @@ func mouseMode(enabled, wantsMotion bool) tea.MouseMode {
 	}
 }
 
-// SetAltScreen controls whether Bubble Tea enters the alternate screen. A
-// launcher-driven core must disable this because the launcher already owns the
-// alternate screen; requesting it again makes some terminals restore the old
-// splash buffer on top of the first UI frame.
+// SetAltScreen controls whether the UI declares itself a fullscreen view.
+//
+// The UI always wants this: Bubble Tea only addresses cells absolutely when
+// the view is fullscreen. Inline views are positioned with relative cursor
+// moves, tabs and bare newlines, which terminals interpret differently
+// (notably Windows consoles) and which leaves the frame off its layout.
 func (m *UI) SetAltScreen(enabled bool) {
 	m.altScreenDisabled = !enabled
 }

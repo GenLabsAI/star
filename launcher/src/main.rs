@@ -109,12 +109,21 @@ fn run_core(coord: &Coord) -> i32 {
     let handshake = handshake::Handshake::new(pid);
     handshake.cleanup();
 
+    // Bubble Tea falls back to COLUMNS/LINES when it cannot query the
+    // terminal. Publish the size the launcher already measured so a console
+    // that does not answer the query (a redirected stdout, some Windows
+    // terminals) still lays the UI out for the real screen instead of
+    // falling back to 80 columns and drawing everything in the left strip.
+    let (columns, lines) = platform::console_size();
+
     let mut child = match Command::new(&core)
         .args(&args)
         .env("STAR_LAUNCHER_HANDSHAKE", "1")
         .env("STAR_LAUNCHER_PID", handshake.env_pid())
         .env("STAR_UPDATE_DIR", coord.root())
         .env("STAR_LAUNCHER_TIME", launched_nanos.to_string())
+        .env("COLUMNS", columns.to_string())
+        .env("LINES", lines.to_string())
         .stdin(Stdio::inherit())
         .stdout(Stdio::inherit())
         .stderr(Stdio::inherit())

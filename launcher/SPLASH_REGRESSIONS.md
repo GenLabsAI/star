@@ -34,9 +34,12 @@ restore, making the old splash reappear.
    inside the alternate screen.
 4. The launcher enters the alternate screen exactly once. A successful
    handoff deliberately leaves that screen active for the Go core.
-5. The Go core must not request the alternate screen again when it detects
+5. The Go core's splash must not request the alternate screen when it detects
    the launcher's handshake. `splash.launcherOwnsAltScreen` gates that request;
-   the core clears the handoff screen when it takes over.
+   the core clears the handoff screen when it takes over. The UI that follows
+   always declares a fullscreen view (see section 7), so Bubble Tea re-asserts
+   `?1049h` once at the transition, on the screen the launcher already opened,
+   immediately before the first full frame.
 6. A splash fix only reaches users when both binaries are updated. The
    launcher renders the splash; the Go core cannot make an old launcher paint
    differently.
@@ -217,7 +220,45 @@ Run the released launcher in a pty and compare it with a directly launched
 core: both must put the header art on rows 1-4 and the status bar on the
 second-to-last row, and a centred dialog must sit at `(cols - width) / 2`.
 
-## 6. Core updated, launcher left behind
+## 6. UI rendered inline through the launcher
+
+### Symptoms
+
+The layout is wrong once the UI appears, most visibly on Windows consoles: a
+centred dialog is not in the middle of the screen and parts of the frame look
+pushed toward one edge. Rows can staircase sideways, and resizing does not
+repair it.
+
+### Cause
+
+When the launcher owns the alternate screen, the core told its UI not to
+declare a fullscreen view (`SetAltScreen(false)`). Bubble Tea then renders in
+**inline** mode: frames are positioned with relative cursor moves, hard tabs
+(`\x1b[nZ`) and bare newlines instead of absolute cell addressing. That
+relies on the terminal treating a line feed as a carriage return and on its
+tab stops matching the renderer's model. Windows consoles and ConPTY do
+neither the same way, so the frame is written off its layout.
+
+### Fix
+
+The splash model still leaves the alternate screen alone, but the UI always
+declares `AltScreen` (fullscreen), so every cell is addressed absolutely, the
+same way a directly launched core renders. Bubble Tea re-asserts `?1049h` at
+the transition; this happens after the launcher stopped painting and clears
+the screen the UI is about to fill.
+
+### Regression checks
+
+```sh
+CGO_ENABLED=0 go build ./...
+CGO_ENABLED=0 go test ./internal/cmd -run 'TestSplash|TestLauncherHandshake' -count=1
+```
+
+Capture the launcher in a pty and assert the UI's frames use absolute cursor
+positioning (`\x1b[<row>;<col>H`), not `\x1b[<n>Z` or tab-based movement, and
+that a centred dialog sits at `(cols - width) / 2` at more than one size.
+
+## 7. Core updated, launcher left behind
 
 The updater in `launcher/src/update.rs` installs `star-core` into a versioned
 directory. It does not replace the running `star` launcher. As a result,
@@ -247,7 +288,8 @@ launcher, not only a locally built one, and capture the opening frames.
 - Ask which binary is installed, not just which core version is printed.
 - Reproduce from the released archive.
 - Capture the first 1-2 seconds, not only the settled screen.
-- Check: one wordmark per splash frame, no stale cells, exactly one `?1049h`,
-  and the bloom centred at the midpoint.
+- Check: one wordmark per splash frame, no stale cells, one `?1049h` from the
+  launcher (plus the UI's single re-assertion at the handoff), and the bloom
+  centred at the midpoint.
 - Run the focused test that matches the symptom before changing the renderer.
 - Never paper over a renderer bug by hiding the splash or weakening a test.
