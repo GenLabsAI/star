@@ -169,6 +169,15 @@ star --continue
 			return err
 		}
 
+		// The launcher painted the splash on this same alternate screen and
+		// left the cursor at the end of its last row. Start the UI from a
+		// blank screen with the cursor in the corner so Bubble Tea anchors
+		// its first frame where it expects to be, not at the splash's last
+		// cell, and so no splash pixel survives under a blank region.
+		if splash.launcherOwnsAltScreen {
+			clearHandoffScreen()
+		}
+
 		inputFilter := ui.NewFilter()
 		var env uv.Environ = os.Environ()
 		// Don't leak the errors to the TUI

@@ -19,6 +19,18 @@ func restoreTerminal() {
 	fmt.Fprint(os.Stdout, restoreTerminalSeq)
 }
 
+// clearHandoffScreen blanks the screen the launcher painted the splash on and
+// puts the cursor back in the corner.
+//
+// Bubble Tea's renderer starts from the top-left corner: it anchors its first
+// frame there and only erases from the cursor down. The launcher leaves the
+// cursor at the end of its last splash row, so without this the whole UI is
+// drawn from that cell instead of the corner, which shifts every row (and, on
+// terminals where a line feed keeps the column, shoves the frame sideways).
+func clearHandoffScreen() {
+	fmt.Fprint(os.Stdout, "\x1b[H\x1b[2J")
+}
+
 // launcherHandshake coordinates with the Rust launcher (star binary) so
 // that Bubble Tea never touches the terminal until the launcher's splash
 // animation has fully released the alt-screen buffer. It uses sentinel

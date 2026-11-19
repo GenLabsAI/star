@@ -174,7 +174,50 @@ cargo test --release --manifest-path launcher/Cargo.toml \
   no_glyph_above_the_wordmark -- --nocapture
 ```
 
-## 5. Core updated, launcher left behind
+## 5. UI drawn off its layout after the handoff
+
+### Symptoms
+
+The whole interface is offset from where it should be: rows sit one line low,
+and on terminals where a line feed keeps the cursor column the first frame
+also starts at the wrong column, so the UI looks shoved toward one edge. A
+centred dialog is centred in that displaced frame, so it does not land in the
+middle of the screen. Splash pixels can also survive under rows the UI leaves
+blank.
+
+### Cause
+
+The splash's last frame ends at the bottom-right cell, so the cursor is left
+there. Bubble Tea's renderer anchors its first frame to the cursor and only
+erases from that point down, so every row is painted from the splash's last
+cell instead of the top-left corner.
+
+### Fix
+
+The terminal must be handed over at the home position with a blank screen:
+
+- `launcher/src/main.rs` writes `\x1b[H` before it signals the release.
+- `internal/cmd/root.go` calls `clearHandoffScreen` (in
+  `splash_handshake.go`, which writes `\x1b[H\x1b[2J`) after a launcher-owned
+  release, before `tea.NewProgram`. The core does this itself so an older
+  launcher cannot leave the UI misaligned.
+
+Do not confuse this with leaving the alternate screen: the handoff still keeps
+that screen, and neither binary may request it again (invariant 4).
+
+### Regression checks
+
+```sh
+CGO_ENABLED=0 go build ./...
+CGO_ENABLED=0 go test ./internal/cmd -run 'TestSplash|TestLauncherHandshake' -count=1
+cd launcher && cargo test --release
+```
+
+Run the released launcher in a pty and compare it with a directly launched
+core: both must put the header art on rows 1-4 and the status bar on the
+second-to-last row, and a centred dialog must sit at `(cols - width) / 2`.
+
+## 6. Core updated, launcher left behind
 
 The updater in `launcher/src/update.rs` installs `star-core` into a versioned
 directory. It does not replace the running `star` launcher. As a result,

@@ -160,6 +160,16 @@ fn run_core(coord: &Coord) -> i32 {
     // buffer, clears it, and draws the UI. Exiting and re-entering ?1049 is
     // what gives a terminal the opportunity to restore the old splash buffer
     // underneath the new content.
+    //
+    // Do put the cursor back in the corner first: the splash's final frame
+    // ends at the bottom-right cell, and a core that starts drawing from the
+    // cursor instead of the top-left shifts the whole UI off its layout.
+    if tty {
+        if let Ok(mut out) = stdout.lock() {
+            let _ = out.write_all(b"\x1b[H");
+            let _ = out.flush();
+        }
+    }
     handshake.signal_release();
     // A core that exits before rendering its first frame needs no wait: the
     // child.wait below reports why it went away.
