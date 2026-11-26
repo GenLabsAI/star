@@ -1,0 +1,82 @@
+=== CLOUD IMAGE END TO END (client half, real TUI) ===
+star: /tmp/rel156/star-linux-amd64/star-core
+mock agent: mock_image_agent.py on 127.0.0.1:8951
+picture the agent sent: /workspace/chats/f14882b58e53df863a7f0ed6/artifacts/cloud-proof/hero/hero.png (sha256 2a70191c32d249cd...)
+elapsed: 76.5s
+
+=== assistant text as stored ===
+Here's the picture of my work:
+
+[My work](file:///tmp/image-proof-156/home/.local/share/crush/cloud-images/e91de3d7-24ba-4314-88a3-c567531dfcd8/image.png)
+
+=== final screen ===
+                                                                                                                                            
+ │ show me the picture                                                                                      ╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱   
+                                                                                                            ╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱   
+   Here's the picture of my work:                                                                            0.1.156 ╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱   
+                                                                                                            ╭──╮╶─┬─╴╭──╮ ╭──╮ ╱╱╱╱╱╱╱╱╱╱   
+   My work file:///tmp/image-proof-156/home/.local/share/crush/cloud-images/e91de3d7-24ba-4314-88a3-        ╰──╮  │  ├──┤ ├─┬╯ ╱╱╱╱╱╱╱╱╱╱   
+   c567531dfcd8/image.png                                                                                   ╰──╯  ╵  ╵  ╵ ╵ ╰╴ ╱╱╱╱╱╱╱╱╱╱   
+                                                                                                            ╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱   
+   ◇ Cloud Demo via Cloud Demo in 3s ────────────────────────────────────────────────────────────────────                                   
+                                                                                                            New Session                     
+                                                                                                                                            
+                                                                                                            ~/work                          
+                                                                                                                                            
+                                                                                                            ◇ Cloud Demo via Cloud Demo     
+                                                                                                              0% (0) $0.00                  
+                                                                                                                                            
+                                                                                                            Modified Files ──────────────   
+                                                                                                                                            
+                                                                                                            None                            
+                                                                                                                                            
+                                                                                                            LSPs ────────────────────────   
+                                                                                                                                            
+                                                                                                            None                            
+                                                                                                                                            
+                                                                                                            MCPs ────────────────────────   
+                                                                                                                                            
+                                                                                                            None                            
+                                                                                                                                            
+                                                                                                            Skills ──────────────────────   
+                                                                                                                                            
+                                                                                                            ● crush-config                  
+                                                                                                            ● crush-hooks                   
+                                                                                                            ● jq                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+   > Ready?                                                                                                                                 
+ :::                                                                                                                                        
+ :::                                                                                                                                        
+                                                                                                                                            
+  CLOUD   tab focus chat • shift+tab mode • / or ctrl+p commands • ctrl+l models • ctrl+b toggle sidebar •
+
+=== checks ===
+[PASS] image sent over ACP was saved under the session's data dir
+[PASS] saved bytes are identical to the picture the agent sent
+[PASS] agent's Markdown reference links the saved file
+[PASS] rendered screen shows the reference as a link
+[PASS] rendered screen carries an OSC 8 hyperlink to the file
+
+
+=== binary under test ===
+
+$ /tmp/rel156/star-linux-amd64/star-core env --json
+version=v0.1.156 commit=186231b6ba4ef515dc6f88f37d36326351938122
+
+That is the published star-linux-amd64.tar.gz from release v0.1.156,
+i.e. the commit that added the image store and the raised relay read
+limit - not a local build.
+
+=== live frame that used to kill the turn ===
+
+The same read-limit fix is visible in a real cloud turn (session
+ed049c00-91b3-43d4-8f1b-69da936d30ff): the bridge relayed a 669 KB
+text frame carrying a screenshot's bytes, the largest stored tool-result
+frame below. Before the fix that frame ended the turn with
+"websocket: message too big: read limited at 32769 bytes".
+
