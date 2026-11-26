@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Star — Ask Star anything</title>
+<style>
+  :root{
+    --ink:#08070A;
+    --gold-a:#FFA838;
+    --gold-b:#FFE28A;
+    --warm-white:#FFFAEB;
+    --muted:rgba(255,250,235,.42);
+  }
+
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%}
+
+  body{
+    background:var(--ink);
+    color:var(--warm-white);
+    font-family:"Inter",-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;
+    -webkit-font-smoothing:antialiased;
+    text-rendering:optimizeLegibility;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    overflow:hidden;
+    position:relative;
+  }
+
+  /* Warm halo behind the mark — same light source as the wordmark. */
+  .halo{
+    position:absolute;
+    top:-16%;
+    left:50%;
+    width:1200px;
+    height:840px;
+    transform:translateX(-50%);
+    background:
+      radial-gradient(46% 46% at 50% 46%,
+        rgba(255,168,56,.20) 0%,
+        rgba(255,168,56,.075) 38%,
+        rgba(104,70,14,.035) 62%,
+        transparent 78%);
+    filter:blur(14px);
+    pointer-events:none;
+  }
+
+  /* Faint starfield. */
+  .stars{
+    position:absolute;
+    inset:0;
+    pointer-events:none;
+    background-image:
+      radial-gradient(1.5px 1.5px at 12% 22%, rgba(255,250,235,.55), transparent),
+      radial-gradient(1.2px 1.2px at 82% 16%, rgba(255,226,138,.45), transparent),
+      radial-gradient(1.6px 1.6px at 68% 74%, rgba(255,250,235,.28), transparent),
+      radial-gradient(1.2px 1.2px at 26% 82%, rgba(255,226,138,.38), transparent),
+      radial-gradient(1px 1px at 46% 11%, rgba(255,250,235,.32), transparent),
+      radial-gradient(1.3px 1.3px at 91% 58%, rgba(255,250,235,.24), transparent),
+      radial-gradient(1px 1px at 6% 58%, rgba(255,226,138,.30), transparent),
+      radial-gradient(1.4px 1.4px at 58% 89%, rgba(255,250,235,.18), transparent);
+  }
+
+  /* Hairline track, echoing the splash rule. */
+  .rule{
+    position:absolute;
+    top:50%;
+    left:0;
+    right:0;
+    height:1px;
+    background:linear-gradient(90deg, transparent, rgba(255,226,138,.09) 24%, rgba(255,226,138,.09) 76%, transparent);
+    pointer-events:none;
+  }
+
+  main{
+    position:relative;
+    z-index:2;
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    text-align:center;
+    padding:0 32px;
+    width:100%;
+    max-width:940px;
+    margin-top:-20px;
+  }
+
+  .mark{
+    display:flex;
+    align-items:center;
+    gap:11px;
+    margin-bottom:32px;
+  }
+
+  .mark svg{
+    width:19px;
+    height:19px;
+    filter:drop-shadow(0 0 10px rgba(255,190,90,.55));
+  }
+
+  .mark span{
+    font-size:13px;
+    letter-spacing:.30em;
+    text-transform:uppercase;
+    font-weight:600;
+    background:linear-gradient(96deg,var(--gold-a),var(--gold-b));
+    -webkit-background-clip:text;
+    background-clip:text;
+    color:transparent;
+  }
+
+  h1{
+    font-size:80px;
+    line-height:1.03;
+    letter-spacing:-.035em;
+    font-weight:600;
+    background:linear-gradient(178deg,#FFFFFF 4%,#FFF6DE 46%,#F0CF94 100%);
+    -webkit-background-clip:text;
+    background-clip:text;
+    color:transparent;
+    text-shadow:0 24px 70px rgba(255,168,56,.11);
+  }
+
+  h1 .accent{
+    background:linear-gradient(96deg,var(--gold-a) 0%,var(--gold-b) 100%);
+    -webkit-background-clip:text;
+    background-clip:text;
+    color:transparent;
+  }
+
+  p.sub{
+    margin-top:24px;
+    font-size:17.5px;
+    line-height:1.6;
+    font-weight:400;
+    color:var(--muted);
+    max-width:560px;
+    letter-spacing:-.005em;
+  }
+
+  /* Slim chat input bar. */
+  .chat{
+    margin-top:52px;
+    width:100%;
+    max-width:604px;
+    display:flex;
+    align-items:center;
+    gap:12px;
+    padding:9px 9px 9px 18px;                /* tight padding */
+    border:1px solid rgba(255,255,255,.12);  /* 1px translucent white */
+    border-radius:14px;
+    background:linear-gradient(180deg, rgba(255,255,255,.055), rgba(255,255,255,.022));
+    backdrop-filter:blur(22px) saturate(120%);
+    -webkit-backdrop-filter:blur(22px) saturate(120%);
+    /* soft glow */
+    box-shadow:
+      0 0 0 1px rgba(255,214,150,.045),
+      0 10px 34px -12px rgba(0,0,0,.85),
+      0 0 46px -10px rgba(255,168,56,.17),
+      inset 0 1px 0 rgba(255,255,255,.055);
+  }
+
+  .chat .dot{
+    width:5px;
+    height:5px;
+    border-radius:999px;
+    flex:none;
+    background:linear-gradient(180deg,var(--gold-b),var(--gold-a));
+    box-shadow:0 0 9px 1px rgba(255,190,90,.60);
+  }
+
+  .chat input{
+    flex:1;
+    min-width:0;
+    border:0;
+    outline:0;
+    background:transparent;
+    color:var(--warm-white);
+    font-family:inherit;
+    font-size:15px;
+    font-weight:400;
+    letter-spacing:-.005em;
+    padding:9px 0;
+  }
+
+  .chat input::placeholder{color:rgba(255,250,235,.33)}
+
+  .send{
+    flex:none;
+    width:32px;
+    height:32px;
+    display:grid;
+    place-items:center;
+    border-radius:9px;
+    border:1px solid rgba(255,255,255,.10);
+    background:linear-gradient(180deg, rgba(255,168,56,.20), rgba(255,168,56,.09));
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.10), 0 0 18px -6px rgba(255,168,56,.55);
+  }
+
+  .send svg{width:13px;height:13px}
+
+  .hint{
+    margin-top:18px;
+    font-size:11.5px;
+    letter-spacing:.13em;
+    text-transform:uppercase;
+    color:rgba(255,250,235,.22);
+    font-weight:500;
+  }
+</style>
+</head>
+<body>
+  <div class="halo"></div>
+  <div class="stars"></div>
+  <div class="rule"></div>
+
+  <main>
+    <div class="mark">
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <defs>
+          <linearGradient id="starGrad" x1="2" y1="2" x2="22" y2="22" gradientUnits="userSpaceOnUse">
+            <stop stop-color="#FFE28A"/>
+            <stop offset="1" stop-color="#FFA838"/>
+          </linearGradient>
+        </defs>
+        <path d="M12 1.6l2.42 7.28a1 1 0 0 0 .64.64L22.4 12l-7.34 2.48a1 1 0 0 0-.64.64L12 22.4l-2.42-7.28a1 1 0 0 0-.64-.64L1.6 12l7.34-2.48a1 1 0 0 0 .64-.64L12 1.6z"
+              fill="url(#starGrad)"/>
+      </svg>
+      <span>Star</span>
+    </div>
+
+    <h1>The terminal,<br />with a <span class="accent">mind of its own</span>.</h1>
+
+    <p class="sub">
+      Star writes, refactors and runs your code from the command line —
+      a fast, gold-lit agent that never leaves the keyboard.
+    </p>
+
+    <div class="chat">
+      <div class="dot"></div>
+      <input type="text" placeholder="Ask Star anything..." aria-label="Ask Star anything" />
+      <div class="send">
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M12 19V5M12 5l-6 6M12 5l6 6" stroke="#FFE9BC" stroke-width="2.1"
+                stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+        </svg>
+      </div>
+    </div>
+
+    <div class="hint">Enter to send &nbsp;·&nbsp; Shift + Enter for a new line</div>
+  </main>
+</body>
+</html>
