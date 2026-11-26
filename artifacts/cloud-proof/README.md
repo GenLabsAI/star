@@ -133,3 +133,16 @@ to direct use.
   the harness workflow, which this token cannot push to.
 * Bonus fix found by probing: prod 400s bodyless GETs carrying
   `Content-Type`; the Go client only sends it with a body now.
+
+## Live design run through the TUI (2026-11-26, passes)
+
+One prompt typed into the normal composer with `/cloud` on, against the
+live API: the cloud agent cloned `GenLabsAI/star`, built
+`cloud-demo/hero.html`, rendered a 1440x900 screenshot with headless
+Chromium, verified the pixels, and pushed branch `cloud-demo/hero`
+(commit `b3798aa`) in 2m16s with 24 tool calls. Credentials needed: the
+API base, the web session id, and the existing git token - the model key
+is enrolled at run time. Receipts in `deca-live-hero.txt`; driver in
+`deca_live_run.py`; screenshot in `hero/hero.png`. The one gap: the
+picture cannot come back in-band yet, so it was recovered from the
+pushed branch.
