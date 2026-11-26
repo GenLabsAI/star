@@ -76,7 +76,7 @@ limit - not a local build.
 
 The same read-limit fix is visible in a real cloud turn (session
 ed049c00-91b3-43d4-8f1b-69da936d30ff): the bridge relayed a 669 KB
-text frame carrying a screenshot's bytes, the largest stored tool-result
-frame below. Before the fix that frame ended the turn with
+text frame carrying a screenshot's bytes; the largest tool-result frame
+stored in that transcript is 505,482 bytes. Before the fix that frame ended the turn with
 "websocket: message too big: read limited at 32769 bytes".
 
