@@ -287,6 +287,7 @@ func (c *Client) RunACPSession(ctx context.Context, relayURL string, cfg ACPMode
 		return fmt.Errorf("Failed to connect to relay: %w", err)
 	}
 	defer conn.Close(websocket.StatusNormalClosure, "done")
+	conn.SetReadLimit(relayReadLimit)
 
 	// The relay kills a direction after ~1s with no frames (see the
 	// _pump idle handling server-side), so keep this direction alive
@@ -332,8 +333,10 @@ func (c *Client) RunACPSession(ctx context.Context, relayURL string, cfg ACPMode
 		return fmt.Errorf("Failed to send session config: %w", err)
 	}
 
-	if err := write(rpcMsg{JSONRPC: "2.0", ID: 1, Method: "initialize",
-		Params: map[string]any{"protocolVersion": 1}}); err != nil {
+	if err := write(rpcMsg{
+		JSONRPC: "2.0", ID: 1, Method: "initialize",
+		Params: map[string]any{"protocolVersion": 1},
+	}); err != nil {
 		return err
 	}
 
@@ -386,8 +389,10 @@ func (c *Client) RunACPSession(ctx context.Context, relayURL string, cfg ACPMode
 	if _, err := waitID(1); err != nil {
 		return fmt.Errorf("ACP initialize failed: %w", err)
 	}
-	if err := write(rpcMsg{JSONRPC: "2.0", ID: 2, Method: "session/new",
-		Params: map[string]any{"cwd": "/tmp", "mcpServers": []any{}}}); err != nil {
+	if err := write(rpcMsg{
+		JSONRPC: "2.0", ID: 2, Method: "session/new",
+		Params: map[string]any{"cwd": "/tmp", "mcpServers": []any{}},
+	}); err != nil {
 		return err
 	}
 	newResp, err := waitID(2)
@@ -400,11 +405,13 @@ func (c *Client) RunACPSession(ctx context.Context, relayURL string, cfg ACPMode
 			sessionID = s
 		}
 	}
-	if err := write(rpcMsg{JSONRPC: "2.0", ID: 3, Method: "session/prompt",
+	if err := write(rpcMsg{
+		JSONRPC: "2.0", ID: 3, Method: "session/prompt",
 		Params: map[string]any{
 			"sessionId": sessionID,
 			"prompt":    []any{map[string]any{"type": "text", "text": cfg.Prompt}},
-		}}); err != nil {
+		},
+	}); err != nil {
 		return err
 	}
 	for {

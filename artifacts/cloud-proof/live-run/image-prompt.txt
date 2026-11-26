@@ -1,0 +1,1 @@
+Build a premium dark hero page for Star with a slim chat bar, screenshot it, open the screenshot with the view tool so the picture travels with your reply, and introduce it with ![My work](/artifacts/screenshot.png).

@@ -146,3 +146,19 @@ is enrolled at run time. Receipts in `deca-live-hero.txt`; driver in
 `deca_live_run.py`; screenshot in `hero/hero.png`. The one gap: the
 picture cannot come back in-band yet, so it was recovered from the
 pushed branch.
+
+## Cloud images end to end (2026-11-26)
+
+* `internal/cloud/images.go` saves every ACP image content block under
+  `<data>/cloud-images/<session>/`, and rewrites the agent's
+  `![alt](/path)` Markdown into a link to the saved file, which the TUI
+  renders as an OSC 8 hyperlink (clicking opens it in the browser). A
+  picture the agent sends without referencing it still gets a link at
+  the end of the turn.
+* `Client.relayTurn` now raises the websocket read limit to 16 MiB;
+  the old 32 KiB default killed any turn whose agent sent a picture.
+* `image_link_proof.py` + `mock_image_agent.py` prove the client half
+  against the real TUI: saved bytes identical, reference rewritten,
+  hyperlink present (`image-link.txt`). The sealed harness bridge still
+  forwards `view` output as text instead of image blocks, so live
+  end-to-end needs the server half.

@@ -32,6 +32,13 @@ import (
 // promptResultID is the JSON-RPC id the runner uses for session/prompt.
 const promptResultID = 3
 
+// relayReadLimit caps one relay frame. The websocket library defaults to 32
+// KiB, which is smaller than a single base64 screenshot, so an agent that
+// sends an image would kill the turn before the frame could be decoded. 16 MiB
+// holds a full-page screenshot at any sane resolution; anything larger is not
+// a picture the transcript should swallow whole.
+const relayReadLimit = 16 << 20
+
 // initTimeout bounds the wait for the runner's initialize reply. A
 // healthy runner answers instantly (no model call); silence means its
 // socket is dead even if the server believed it live.
@@ -169,7 +176,7 @@ func (c *Client) RunCloudSession(ctx context.Context, msgs message.Service, runC
 	}
 	slog.Info("Cloud session created", "cloudSession", cloudSessionID)
 
-	turn := &cloudTurn{msgs: msgs, sessionID: starSessionID, opts: opts}
+	turn := newCloudTurn(msgs, starSessionID, opts)
 	turnErr := c.relayTurn(ctx, turn, relayURL, prompt)
 	if errors.Is(turnErr, errInitTimeout) && reused {
 		// The server believed a runner was live, but it never answered:
@@ -185,6 +192,10 @@ func (c *Client) RunCloudSession(ctx context.Context, msgs message.Service, runC
 			turnErr = c.relayTurn(ctx, turn, relayURL, prompt)
 		}
 	}
+
+	// A picture the agent sent but never referenced still belongs in the
+	// transcript, so link it before the turn closes.
+	turn.showUnlinkedImages()
 
 	finalizeCtx := context.Background()
 	switch {
@@ -218,6 +229,26 @@ type cloudTurn struct {
 	sessionID string
 	opts      RunOptions
 	assistant *message.Message
+	// images saves the pictures the cloud agent sends and pairs them with
+	// the Markdown references in its prose.
+	images *imageStore
+	// rawText is the unmodified text of the open assistant message and
+	// textPart its index in that message, so an image arriving after the
+	// prose can still turn its reference into a link.
+	rawText  string
+	textPart int
+}
+
+// newCloudTurn builds the translator for one turn, with an image store rooted
+// at the session's cloud image directory.
+func newCloudTurn(msgs message.Service, sessionID string, opts RunOptions) *cloudTurn {
+	return &cloudTurn{
+		msgs:      msgs,
+		sessionID: sessionID,
+		opts:      opts,
+		images:    newImageStore(sessionID),
+		textPart:  -1,
+	}
 }
 
 // current returns the open assistant message, creating one if needed.
@@ -253,6 +284,8 @@ func (t *cloudTurn) finish(reason message.FinishReason, detail string) {
 		slog.Error("Failed to flush cloud assistant message", "error", err)
 	}
 	t.assistant = nil
+	t.rawText = ""
+	t.textPart = -1
 }
 
 // relayTurn performs the ACP leg over the relay: config frame,
@@ -265,6 +298,7 @@ func (c *Client) relayTurn(ctx context.Context, turn *cloudTurn, relayURL, promp
 		return fmt.Errorf("Failed to connect to cloud relay: %w", err)
 	}
 	defer conn.Close(websocket.StatusNormalClosure, "done")
+	conn.SetReadLimit(relayReadLimit)
 
 	var wmu sync.Mutex
 	done := make(chan struct{})
@@ -376,8 +410,10 @@ func (c *Client) relayTurn(ctx context.Context, turn *cloudTurn, relayURL, promp
 	}); err != nil {
 		return fmt.Errorf("Failed to send cloud session config: %w", err)
 	}
-	if err := write(rpcMsg{JSONRPC: "2.0", ID: 1, Method: "initialize",
-		Params: map[string]any{"protocolVersion": 1}}); err != nil {
+	if err := write(rpcMsg{
+		JSONRPC: "2.0", ID: 1, Method: "initialize",
+		Params: map[string]any{"protocolVersion": 1},
+	}); err != nil {
 		return err
 	}
 
@@ -422,8 +458,10 @@ func (c *Client) relayTurn(ctx context.Context, turn *cloudTurn, relayURL, promp
 	if _, err := waitID(1, initTimeout); err != nil {
 		return fmt.Errorf("Cloud ACP initialize failed: %w", err)
 	}
-	if err := write(rpcMsg{JSONRPC: "2.0", ID: 2, Method: "session/new",
-		Params: map[string]any{"cwd": "/tmp", "mcpServers": []any{}}}); err != nil {
+	if err := write(rpcMsg{
+		JSONRPC: "2.0", ID: 2, Method: "session/new",
+		Params: map[string]any{"cwd": "/tmp", "mcpServers": []any{}},
+	}); err != nil {
 		return err
 	}
 	newResp, err := waitID(2, -1)
@@ -436,11 +474,13 @@ func (c *Client) relayTurn(ctx context.Context, turn *cloudTurn, relayURL, promp
 			cloudAgentSession = s
 		}
 	}
-	if err := write(rpcMsg{JSONRPC: "2.0", ID: promptResultID, Method: "session/prompt",
+	if err := write(rpcMsg{
+		JSONRPC: "2.0", ID: promptResultID, Method: "session/prompt",
 		Params: map[string]any{
 			"sessionId": cloudAgentSession,
 			"prompt":    []any{map[string]any{"type": "text", "text": prompt}},
-		}}); err != nil {
+		},
+	}); err != nil {
 		return err
 	}
 
@@ -466,6 +506,107 @@ func (c *Client) relayTurn(ctx context.Context, turn *cloudTurn, relayURL, promp
 	}
 }
 
+// appendText appends a text chunk to the open assistant message and turns any
+// Markdown image reference that belongs to a picture the agent already sent
+// into a clickable link. The raw text is kept so an image arriving after the
+// prose can still link the reference it belongs to.
+func (t *cloudTurn) appendText(delta string) error {
+	assistant, err := t.current()
+	if err != nil {
+		return err
+	}
+	ctx := context.Background()
+	if t.images == nil {
+		assistant.AppendContent(delta)
+		return t.msgs.Update(ctx, *assistant)
+	}
+	t.rawText += delta
+	if t.textPart < 0 || t.textPart >= len(assistant.Parts) {
+		assistant.Parts = append(assistant.Parts, message.TextContent{})
+		t.textPart = len(assistant.Parts) - 1
+	}
+	text, _ := t.images.rewrite(t.rawText)
+	assistant.Parts[t.textPart] = message.TextContent{Text: text}
+	return t.msgs.Update(ctx, *assistant)
+}
+
+// applyImage saves one ACP image block and links the reference the agent
+// already wrote for it, so the transcript shows a clickable file link even
+// when the picture arrives after its prose.
+func (t *cloudTurn) applyImage(img *acp.ContentBlockImage) error {
+	if t.images == nil {
+		return nil
+	}
+	if _, err := t.images.save(img); err != nil {
+		return err
+	}
+	assistant, err := t.current()
+	if err != nil {
+		return err
+	}
+	if t.textPart < 0 || t.textPart >= len(assistant.Parts) {
+		return nil
+	}
+	text, changed := t.images.rewrite(t.rawText)
+	if !changed {
+		return nil
+	}
+	assistant.Parts[t.textPart] = message.TextContent{Text: text}
+	return t.msgs.Update(context.Background(), *assistant)
+}
+
+// saveToolImages stores image blocks a tool call returned. They stay
+// unclaimed on purpose: the agent usually names the picture in the prose of a
+// later step, and that reference is where the link belongs. Anything still
+// unclaimed when the turn ends is shown by showUnlinkedImages.
+func (t *cloudTurn) saveToolImages(content []acp.ToolCallContent) []string {
+	if t.images == nil || len(content) == 0 {
+		return nil
+	}
+	for _, c := range content {
+		if c.Content == nil || c.Content.Content.Image == nil {
+			continue
+		}
+		if _, err := t.images.save(c.Content.Content.Image); err != nil {
+			slog.Warn("Failed to save cloud tool image", "error", err)
+		}
+	}
+	return nil
+}
+
+// showUnlinkedImages appends a link for every image the turn received and the
+// agent never referenced, so a picture that travelled over ACP is never
+// dropped just because the prose forgot to mention it.
+func (t *cloudTurn) showUnlinkedImages() {
+	if t.images == nil {
+		return
+	}
+	images := t.images.unclaimed()
+	if len(images) == 0 {
+		return
+	}
+	assistant, err := t.current()
+	if err != nil {
+		slog.Warn("Failed to show unlinked cloud images", "error", err)
+		return
+	}
+	if t.textPart < 0 || t.textPart >= len(assistant.Parts) {
+		assistant.Parts = append(assistant.Parts, message.TextContent{})
+		t.textPart = len(assistant.Parts) - 1
+	}
+	current, _ := assistant.Parts[t.textPart].(message.TextContent)
+	var sb strings.Builder
+	sb.WriteString(current.Text)
+	for _, img := range images {
+		sb.WriteString("\n\n[" + img.Name + "](" + img.URL + ")")
+	}
+	assistant.Parts[t.textPart] = message.TextContent{Text: sb.String()}
+	t.images.claim(images)
+	if err := t.msgs.Update(context.Background(), *assistant); err != nil {
+		slog.Warn("Failed to store unlinked cloud images", "error", err)
+	}
+}
+
 // apply decodes one session/update notification with the real ACP types
 // and mirrors the local coordinator's callbacks: text chunks append to
 // the open assistant message, tool frames add or finish tool-call parts,
@@ -485,16 +626,17 @@ func (t *cloudTurn) apply(msg rpcMsg) error {
 
 	switch {
 	case update.AgentMessageChunk != nil:
+		// The canonical ACP image block: the agent sends the picture
+		// itself, and its prose refers to it with Markdown image
+		// syntax. Keep the bytes locally and link the reference.
+		if img := update.AgentMessageChunk.Content.Image; img != nil {
+			return t.applyImage(img)
+		}
 		text := contentBlockText(update.AgentMessageChunk.Content)
 		if text == "" {
 			return nil
 		}
-		assistant, err := t.current()
-		if err != nil {
-			return err
-		}
-		assistant.AppendContent(text)
-		return t.msgs.Update(ctx, *assistant)
+		return t.appendText(text)
 
 	case update.AgentThoughtChunk != nil:
 		text := contentBlockText(update.AgentThoughtChunk.Content)
@@ -574,6 +716,7 @@ func (t *cloudTurn) applyToolCallUpdate(tu *acp.SessionToolCallUpdate) error {
 
 	call.Finished = true
 	text, _ := toolCallContentText(tu.Content)
+	t.saveToolImages(tu.Content)
 	if text == "" {
 		text = string(*tu.Status)
 	}

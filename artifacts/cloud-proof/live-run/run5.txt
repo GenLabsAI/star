@@ -1,0 +1,190 @@
+t=0.0s exec /tmp/star (cwd /tmp/deca-live-home3/work)
+t=  12.2s first paint
+
+=== screen: startup (t=  12.2s) ===
+                                                                                                                                            
+  ╱╱╱╱╱╱ ╱╱╱╱╱╱╱╱╱╱╱╱╱de el ╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱  
+  ╱╱╱╱╱╱ ╭──╮╶─┬─╴╭──╮ ╭──╮ ╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱   
+  ╱╱╱╱╱╱ ╰──╮  │  ├──┤ ├─┬╯ ╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱    
+  ╱╱╱╱╱╱ ╰──╯  ╵  ╵  ╵ ╵ ╰╴ ╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱     
+                                                                                                                                            
+  ~/work                                                                                                                                    
+                                                                                                                                            
+  ◇ Deca 2.6 Pro via Deca                                                                                                                   
+                                                                                                                                            
+  LSPs                           MCPs                           Skills                                                                      
+                                                                                                                                            
+  None                           None                           ● crush-config                                                              
+                                                                ● crush-hooks                                                               
+                                                                ● jq                                                                        
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+   > Ready...                                                                                                                               
+ :::                                                                                                                                        
+ :::                                                                                                                                        
+                                                                                                                                            
+ tab change focus • / or ctrl+p commands • shift+tab mode • ctrl+l models • ctrl+j newline • ctrl+c quit • ctrl+g more
+t=  18.1s cloud mode toggled
+
+=== screen: cloud mode on (t=  18.2s) ===
+                                                                                                                                            
+                                                                                                            ╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱   
+                                                                                                            ╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱   
+                                                                                                            de el ╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱   
+                                                                                                            ╭──╮╶─┬─╴╭──╮ ╭──╮ ╱╱╱╱╱╱╱╱╱╱   
+                                                                                                            ╰──╮  │  ├──┤ ├─┬╯ ╱╱╱╱╱╱╱╱╱╱   
+                                                                                                            ╰──╯  ╵  ╵  ╵ ╵ ╰╴ ╱╱╱╱╱╱╱╱╱╱   
+                                                                                                            ╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱   
+                                                                                                                                            
+                                                                                                            New Session                     
+                                                                                                                                            
+                                                                                                            ~/work                          
+                                                                                                                                            
+                                                                                                            ◇ Deca 2.6 Pro via Deca         
+                                                                                                              0% (0) $0.00                  
+                                                                                                                                            
+                                                                                                            Modified Files ──────────────   
+                                                                                                                                            
+                                                                                                            None                            
+                                                                                                                                            
+                                                                                                            LSPs ────────────────────────   
+                                                                                                                                            
+                                                                                                            None                            
+                                                                                                                                            
+                                                                                                            MCPs ────────────────────────   
+                                                                                                                                            
+                                                                                                            None                            
+                                                                                                                                            
+                                                                                                            Skills ──────────────────────   
+                                                                                                                                            
+                                                                                                            ● crush-config                  
+                                                                                                            ● crush-hooks                   
+                                                                                                            ● jq                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+   > Ready...                                                                                                                               
+ :::                                                                                                                                        
+ :::                                                                                                                                        
+                                                                                                                                            
+ OKAY!  Cloud mode on — prompts run on a cloud machine
+t=  19.5s prompt submitted (94 chars)
+
+=== screen: submitted (t=  19.5s) ===
+                                                                                                                                            
+                                                                                                            ╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱   
+                                                                                                            ╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱   
+                                                                                                            de el ╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱   
+                                                                                                            ╭──╮╶─┬─╴╭──╮ ╭──╮ ╱╱╱╱╱╱╱╱╱╱   
+                                                                                                            ╰──╮  │  ├──┤ ├─┬╯ ╱╱╱╱╱╱╱╱╱╱   
+                                                                                                            ╰──╯  ╵  ╵  ╵ ╵ ╰╴ ╱╱╱╱╱╱╱╱╱╱   
+                                                                                                            ╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱   
+                                                                                                                                            
+                                                                                                            New Session                     
+                                                                                                                                            
+                                                                                                            ~/work                          
+                                                                                                                                            
+                                                                                                            ◇ Deca 2.6 Pro via Deca         
+                                                                                                              0% (0) $0.00                  
+                                                                                                                                            
+                                                                                                            Modified Files ──────────────   
+                                                                                                                                            
+                                                                                                            None                            
+                                                                                                                                            
+                                                                                                            LSPs ────────────────────────   
+                                                                                                                                            
+                                                                                                            None                            
+                                                                                                                                            
+                                                                                                            MCPs ────────────────────────   
+                                                                                                                                            
+                                                                                                            None                            
+                                                                                                                                            
+                                                                                                            Skills ──────────────────────   
+                                                                                                                                            
+                                                                                                            ● crush-config                  
+                                                                                                            ● crush-hooks                   
+                                                                                                            ● jq                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+   > Build a premium dark hero page for Star with a slim chat bar, and show me the finished design.                                         
+ :::                                                                                                                                        
+ :::                                                                                                                                        
+                                                                                                                                            
+  CLOUD   tab focus chat • shift+tab mode • ctrl+p commands • ctrl+l models • ctrl+b toggle sidebar …
+t=  71.4s turn footer seen (+51.9s after submit)
+
+=== screen: final (t=  74.0s) ===
+                                                                                                                                            
+                                                                                                            ╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱   
+   Done. The page is at   and I captured a 1280×900 screenshot at                                           ╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱   
+   hero.png  (viewable via your file browser or  ). Here's the                                              de el ╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱   
+   design:                                                                                                  ╭──╮╶─┬─╴╭──╮ ╭──╮ ╱╱╱╱╱╱╱╱╱╱   
+                                                                                                            ╰──╮  │  ├──┤ ├─┬╯ ╱╱╱╱╱╱╱╱╱╱   
+   Layout                                                                                                   ╰──╯  ╵  ╵  ╵ ╵ ╰╴ ╱╱╱╱╱╱╱╱╱╱   
+                                                                                                            ╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱╱   
+   Layout                                                                                                                                   
+                                                                                                            New Session                     
+   • Slim chat bar (top): A single-line, glassy search-style bar with a subtle star/prompt icon on the                                      
+   left, one input ("Ask Star to build something…"), and a gradient send button with a glow shadow.         ~/work                          
+   Frosted blur, thin border, compact 54px height.                                                                                          
+   • Hero (center):                                                                                         ◇ Deca 2.6 Pro via Deca         
+     • A live "Now writing code in real time" status pill with a pulsing accent dot.                          0% (0) $0.00                  
+     • Massive headline "Meet Star" with a white→indigo→violet gradient on the name.                                                        
+     • Muted tagline describing Star as a cloud coding agent that plans, writes, tests, and ships.          Modified Files ──────────────   
+     • Two CTAs: gradient "Start building" and a ghost "View live demo" — both lift with a glow on hover.                                   
+                                                                                                            None                            
+   Premium dark treatment                                                                                                                   
+                                                                                                            LSPs ────────────────────────   
+   Premium dark treatment                                                                                                                   
+                                                                                                            None                            
+   • Near-black   base with two large soft radial glows (indigo top-center, violet bottom-right).                                           
+   • A faint 56px grid, masked into a radial fade so it only shows near the center.                         MCPs ────────────────────────   
+   • Twinkling "star" particles scattered for atmosphere (fits the name).                                                                   
+   • Indigo/violet accent palette (  →  ) used consistently for buttons, glows, and                         None                            
+   gradient text.                                                                                                                           
+   • Glassmorphism panels, backdrop blur, and soft shadows for depth.                                       Skills ──────────────────────   
+                                                                                                                                            
+   Details                                                                                                  ● crush-config                  
+                                                                                                            ● crush-hooks                   
+   • Fully responsive (clamp-based typography, wrap-friendly CTA row).                                      ● jq                            
+   • Accessible:  , labeled input, aria-hidden on decorative layers.                                                                        
+   • No external dependencies — single self-contained HTML file.                                                                            
+                                                                                                                                            
+   ◇ Deca 2.6 Pro via Deca in 49s ───────────────────────────────────────────────────────────────────────                                   
+                                                                                                                                            
+                                                                                                                                            
+   > Ready...                                                                                                                               
+ :::                                                                                                                                        
+ :::                                                                                                                                        
+                                                                                                                                            
+  CLOUD   tab focus chat • shift+tab mode • / or ctrl+p commands • ctrl+l models • ctrl+b toggle sidebar •
+t=  74.0s done (turn wall 54.5s)
