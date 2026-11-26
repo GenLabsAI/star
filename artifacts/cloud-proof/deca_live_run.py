@@ -17,6 +17,7 @@ import fcntl
 import json
 import os
 import pty
+import re
 import select
 import struct
 import sys
@@ -29,7 +30,11 @@ SESSION_ID = os.environ["DECA_SESSION_ID"]
 GIT_TOKEN = os.environ.get("DECA_GIT_TOKEN", "")
 MODEL = os.environ.get("CLOUD_DEMO_MODEL", "deca-2.6-pro")
 
-PROMPT = (
+# CLOUD_DEMO_PROMPT_FILE lets a run use its own prompt (e.g. a deliberately
+# terse one) without editing this script.
+PROMPT_FILE = os.environ.get("CLOUD_DEMO_PROMPT_FILE")
+
+DEFAULT_PROMPT = (
     "Cloud demo design task, do it end to end: (1) run `pwd; ls -a | head; "
     "git remote -v; git log --oneline -3` and say where you are working; "
     "(2) build a premium dark hero page for a product called Star at "
@@ -43,6 +48,8 @@ PROMPT = (
     "environment, never print it); (5) reply with the commit SHA, the "
     "branch, the screenshot path and one line describing the design."
 )
+
+PROMPT = open(PROMPT_FILE).read().strip() if PROMPT_FILE else DEFAULT_PROMPT
 
 
 def enroll() -> str:
@@ -197,6 +204,11 @@ def main():
         if view != last_view:
             last_change = time.time()
             last_view = view
+        # The turn footer ("◇ Deca 2.6 Pro via Deca in 2m16s") is the one
+        # reliable end-of-turn marker in the rendered screen.
+        if re.search(r"\bin \d+m?\d+s\b", view):
+            note(f"t={since()} turn footer seen (+{time.time() - submitted:.1f}s after submit)")
+            break
         if not seen_tool and ("tool" in view.lower()):
             frame("first tool activity", view)
             note(f"t={since()} first tool activity (+{time.time() - submitted:.1f}s after submit)")

@@ -178,3 +178,52 @@ the answer was in:
 DELETE /deca/v1/terminal/session/75165ad2-0984-4838-87de-ff0aa1b49c1c -> 200
 {"status":"terminated"}
 ```
+
+## Second run: the same task with a 94-character prompt (2026-11-26, breaks)
+
+Prompt, in full and with no other instructions:
+
+> Build a premium dark hero page for Star with a slim chat bar, and show
+> me the finished design.
+
+Session `45f30934-ab90-41c3-a0c9-e55e7bf579ae`, workflow run
+[45906995832](https://github.com/GenLabsAI/opencode-action-harness/actions/runs/45906995832).
+Fresh Star home, so a new chat and fresh runner state.
+
+What it did on its own:
+
+```
+ +18s bash  pwd && ls -la                      -> /tmp/agent-workspace, empty
+ +18s ls    /tmp/agent-workspace
+ +20s bash  which chromium chromium-browser google-chrome node npm python3
+ +22s bash  curl fonts.googleapis.com          -> 200
+ +35s write /tmp/agent-workspace/index.html
+ +37s bash  chromium --headless ... --window-size=1440,900 --screenshot=hero-desktop.png
+ +62s view  /tmp/agent-workspace/hero-desktop.png
+ +62s ERROR turn failed
+```
+
+The turn died on the agent's own attempt to show the picture:
+
+```
+failed to read: websocket: message too big: read limited at 32769 bytes
+```
+
+Root cause: `Client.relayTurn` dials the relay with `websocket.Dial`
+and never raises the read limit; nothing under `internal/cloud/` calls
+`SetReadLimit` (`grep -rn "SetReadLimit" internal/` returns no hit in
+the cloud client). coder/websocket caps frames at 32 KiB by default, so
+the first frame carrying an image kills the turn before any ACP
+decoding happens. Text-only turns never get near the cap, which is why
+the first run looked fine.
+
+Two things this run shows:
+
+* Without hand-holding the agent still built and rendered the page, and
+  it went looking for the screenshot to show me - the intent is there.
+* It did not know about a repo: no clone, no commit, no push, because
+  nothing asked it to publish. On an ephemeral runner that work is gone
+  when the runner idles out, so "show me the design" cannot be satisfied
+  until images can come back in-band.
+
+Session terminated after the turn: `DELETE ... -> 200`.
